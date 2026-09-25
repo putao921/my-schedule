@@ -1066,6 +1066,20 @@ function Find-DialogClose {
     return $null
 }
 
+function Find-DialogButton {
+    # 按 Name 找弹窗标题栏上的按钮（'DlgSave' / 'DlgCancel' / 'DlgClose'）。
+    # 第四轮标题栏从"只有一个 ×"变成三件套，断言要能分别点它们，
+    # 所以把"按 Name 找按钮"抽出来，而不是复制三遍 Find-AllOfType 循环。
+    param($El, [string]$Name, [string]$WinName = '')
+    if ($null -eq $El) { return $null }
+    foreach ($b in @(Find-AllOfType $El ([System.Windows.Controls.Primitives.ButtonBase]))) {
+        if ([string]$b.Name -eq $Name) { return $b }
+    }
+    # 兜底：按 Name 找不到时退回按文字找（用于旧版本/未来改名时的诊断）。
+    if (-not [string]::IsNullOrWhiteSpace($WinName)) { return (Find-ButtonByText $El $WinName) }
+    return $null
+}
+
 function Measure-DialogContent {
     # 从未 Show 过的 Window 没有 HwndSource，ActualWidth 恒为 0 —— 光调 Window.UpdateLayout()
     # 也没用（窗口自身没有尺寸，量出来全是 0，断言会退化成空转）。
@@ -2281,9 +2295,14 @@ function Invoke-HandlerAudit {
             Write-AuditRow 'combo follows theme' $cmbOk ($cmbNotes -join '  ')
         } catch { Write-AuditRow 'combo follows theme' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 29. 六个弹窗统一"只留右上角 ×"，底部不再有 Cancel / Save / Close ----
-        #   断言落在物理几何上：× 必须在标题栏（y ≤ 38）且贴着右边缘（右边距 ≤ 16px），
-        #   并且整窗扫不出任何"关闭类"文字按钮。位置写反了 / 忘了删底部按钮都会挂。
+        # ---- 29. 六个弹窗的标题栏按钮组：× 贴右边缘，Save / Cancel 紧邻其左侧 ----
+        #   第三轮是"只有一个 × 贴右边"，第四轮改成三件套，所以断言同步升级：
+        #     · 三个按钮（DlgSave / DlgCancel / DlgClose）都必须存在且都在标题栏（y ≤ 38）
+        #     · 物理顺序必须是 Save < Cancel < ×（左到右），且 × 仍然贴右边缘
+        #     · 三个按钮都必须在标题栏右半边（bx ≥ 宽度的一半）—— 防止被塞到左边
+        #     · 底部仍然不许出现"关闭类"文字按钮（Cancel / Save / Close / OK…）
+        #   为什么坚持量几何而不是只查存在：Grid 列宽写错时按钮依然"存在"，
+        #   只是被裁掉一半或叠在一起 —— 那种情况肉眼截图才看得出，断言必须能自己发现。
         try {
             $dlgDefs = New-Object System.Collections.Generic.List[object]
             $dlgDefs.Add(@{ name = 'event';    win = (Show-EventEditorWindow -Id '') })
@@ -2294,7 +2313,10 @@ function Invoke-HandlerAudit {
             $dlgDefs.Add(@{ name = 'day';      win = (Show-DayAgendaWindow -Date ([datetime]::Today)) })
             $notes = New-Object System.Collections.Generic.List[string]
             $allOk = $true
+            # 只禁"底部残留"那批文案。标题栏自己的三个按钮不在禁用范围里 ——
+            # 它们靠 Name（DlgSave/DlgCancel/DlgClose）识别，并用几何位置区分"在不在标题栏"。
             $banned = @('Cancel', 'Save', 'Close', 'Save & close', 'Save and close', 'OK')
+            $barNames = @('DlgSave', 'DlgCancel', 'DlgClose')
             $pt0 = New-Object System.Windows.Point(0.0, 0.0)
             foreach ($d in $dlgDefs) {
                 $w = $d['win']
@@ -2303,50 +2325,111 @@ function Invoke-HandlerAudit {
                 try { $w.UpdateLayout() } catch { }
                 $root = Measure-DialogContent $w
                 if ($null -eq $root) { $allOk = $false; $notes.Add($nm + ':noContent'); continue }
-                $btn = Find-DialogClose $w
-                if ($null -eq $btn) { $allOk = $false; $notes.Add($nm + ':noX'); try { $w.Close() } catch { }; continue }
-                $bx = [double]($btn.TranslatePoint($pt0, $root).X)
-                $by = [double]($btn.TranslatePoint($pt0, $root).Y)
-                $right = $bx + [double]$btn.ActualWidth
                 $rw = [double]$root.ActualWidth
+                $xs = @{}
+                $missing = ''
+                foreach ($bn in $barNames) {
+                    $hit = Find-DialogButton $w $bn
+                    if ($null -eq $hit) { $missing += $bn + ','; continue }
+                    $xs[$bn] = @{
+                        x = [double]($hit.TranslatePoint($pt0, $root).X)
+                        y = [double]($hit.TranslatePoint($pt0, $root).Y)
+                        r = [double]($hit.TranslatePoint($pt0, $root).X) + [double]$hit.ActualWidth
+                        w = [double]$hit.ActualWidth
+                    }
+                }
+                if ($missing) {
+                    $allOk = $false
+                    $notes.Add($nm + ':missing=' + $missing.TrimEnd(','))
+                    try { $w.Close() } catch { }
+                    continue
+                }
+                $okX = $xs['DlgClose']; $okS = $xs['DlgSave']; $okC = $xs['DlgCancel']
                 # 宽度必须量到真实值，否则"贴右边"这条断言会变成空转
-                $posOk = ($rw -ge 300.0) -and ($right -ge ($rw - 16.0)) -and ($by -le 38.0) -and ($bx -ge ($rw * 0.5))
+                $wideOk = ($rw -ge 300.0)
+                $edgeOk = $wideOk -and ($okX.r -ge ($rw - 20.0))
+                $orderOk = ($okS.r -lt $okC.x) -and ($okC.r -lt $okX.x)
+                $inBarOk = ($okX.y -le 38.0) -and ($okS.y -le 38.0) -and ($okC.y -le 38.0)
+                # 三个按钮都得真的落在标题栏右半边，且宽度没被压扁（> 20px 才能显示文字）
+                $halfOk = $wideOk -and ($okS.x -ge ($rw * 0.5)) -and ($okC.x -ge ($rw * 0.5))
+                $fitOk = ($okS.w -ge 40.0) -and ($okC.w -ge 40.0) -and ($okX.w -ge 18.0)
+                # 底部残留扫描：允许标题栏这三个（它们本来就叫这些名字）
                 $leftover = 0
                 foreach ($b in @(Find-AllOfType $w ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                    if ($barNames -contains [string]$b.Name) { continue }
                     $c = $b.Content
                     if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                     if ($banned -contains [string]$c) { $leftover++ }
                 }
-                if ((-not $posOk) -or ($leftover -gt 0)) { $allOk = $false }
-                $notes.Add(('{0}: right={1}/{2} y={3} leftover={4}' -f $nm, [int]$right, [int]$rw, [int]$by, $leftover))
+                $ok = $edgeOk -and $orderOk -and $inBarOk -and $halfOk -and $fitOk -and ($leftover -eq 0)
+                if (-not $ok) { $allOk = $false }
+                $notes.Add(('{0}: save={1} cancel={2} x={3}/{4} y={5} leftover={6}' -f `
+                    $nm, [int]$okS.x, [int]$okC.x, [int]$okX.r, [int]$rw, [int]$okX.y, $leftover))
                 try { $w.Close() } catch { }
             }
-            Write-AuditRow 'dialog close button top-right' $allOk ($notes -join '  ')
-        } catch { Write-AuditRow 'dialog close button top-right' $false ('crash ' + $_.Exception.Message) }
+            Write-AuditRow 'dialog bar has save+cancel+x' $allOk ($notes -join '  ')
+        } catch { Write-AuditRow 'dialog bar has save+cancel+x' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 29b. × 要真的关窗，并且照旧把设置存下来 ----
-        #   只看"按钮存在"不够：处理器漏接（或被 DialogResult 那类异常打断）时按钮还在、
-        #   点了却没反应。这里用 Closed 事件 + 设置落库来证明整条链路真的走通了。
+        # ---- 29b. × 要真的关窗并保存；Save 与 × 等价；Cancel 关窗但**不**落库 ----
+        #   三条链路分别验：
+        #     ① × 关窗 + 设置落库（第三轮就有的能力，不能因为加按钮而退化）
+        #     ② Save 也关窗 + 落库（它走的是"打 Click 给 ×"，靠这条证明转发真的成立）
+        #     ③ Cancel 关窗但设置**不变**（这是本轮新增的能力，也是用户要的"不保存关闭"）
+        #   第 ③ 条最关键：Cancel 如果被误接成和 Save 同一个处理器，
+        #   前两条依然全绿，用户却会发现"点 Cancel 它还是给我存了"。
         try {
+            $keepPomo0 = [int]$script:Settings['PomodoroMin']
+
+            # ① × = 保存并关闭
             $script:DlgClosed = ''
             $sw2 = Show-SettingsWindow
             $sw2.Add_Closed({ $script:DlgClosed = 'settings' })
             $sw2.UpdateLayout()
-            $keepPomo = [int]$script:Settings['PomodoroMin']
             $script:SetTbPomo.Text = '45'
             [void](Invoke-Click (Find-DialogClose $sw2))
-            $okS = ($script:DlgClosed -eq 'settings') -and ([int]$script:Settings['PomodoroMin'] -eq 45)
-            $script:Settings['PomodoroMin'] = $keepPomo
-            Save-Settings
-            Reset-Pomodoro
+            $okX1 = ($script:DlgClosed -eq 'settings') -and ([int]$script:Settings['PomodoroMin'] -eq 45)
+            $script:Settings['PomodoroMin'] = $keepPomo0
+            Save-Settings; Reset-Pomodoro
+
+            # ② Save = 同 × （打 Click 转发）
+            $script:DlgClosed = ''
+            $sw3 = Show-SettingsWindow
+            $sw3.Add_Closed({ $script:DlgClosed = 'settings-save' })
+            $sw3.UpdateLayout()
+            $script:SetTbPomo.Text = '50'
+            [void](Invoke-Click (Find-DialogButton $sw3 'DlgSave'))
+            $okS2 = ($script:DlgClosed -eq 'settings-save') -and ([int]$script:Settings['PomodoroMin'] -eq 50)
+            $script:Settings['PomodoroMin'] = $keepPomo0
+            Save-Settings; Reset-Pomodoro
+
+            # ③ Cancel = 关窗但不落库
+            $script:DlgClosed = ''
+            $sw4 = Show-SettingsWindow
+            $sw4.Add_Closed({ $script:DlgClosed = 'settings-cancel' })
+            $sw4.UpdateLayout()
+            $script:SetTbPomo.Text = '77'
+            [void](Invoke-Click (Find-DialogButton $sw4 'DlgCancel'))
+            $okC3 = ($script:DlgClosed -eq 'settings-cancel') -and ([int]$script:Settings['PomodoroMin'] -eq $keepPomo0)
+            $script:Settings['PomodoroMin'] = $keepPomo0
+            Save-Settings; Reset-Pomodoro
+
+            # 当日议程窗口：Save / Cancel 都要能关掉它（只读面板，两者等价）
             $script:DlgClosed = ''
             $dw2 = Show-DayAgendaWindow -Date ([datetime]::Today)
             $dw2.Add_Closed({ $script:DlgClosed = 'day' })
             $dw2.UpdateLayout()
             [void](Invoke-Click (Find-DialogClose $dw2))
             $okD = ($script:DlgClosed -eq 'day')
-            Write-AuditRow 'dialog x closes and saves' ($okS -and $okD) ('settings=' + $okS + ' day=' + $okD)
-        } catch { Write-AuditRow 'dialog x closes and saves' $false ('crash ' + $_.Exception.Message) }
+            $script:DlgClosed = ''
+            $dw3 = Show-DayAgendaWindow -Date ([datetime]::Today)
+            $dw3.Add_Closed({ $script:DlgClosed = 'day-cancel' })
+            $dw3.UpdateLayout()
+            [void](Invoke-Click (Find-DialogButton $dw3 'DlgCancel'))
+            $okD2 = ($script:DlgClosed -eq 'day-cancel')
+
+            Write-AuditRow 'dialog x / save / cancel wiring' ($okX1 -and $okS2 -and $okC3 -and $okD -and $okD2) `
+                ('x=' + $okX1 + ' save=' + $okS2 + ' cancel-keeps=' + $okC3 + ' day=' + $okD + ' dayCancel=' + $okD2)
+        } catch { Write-AuditRow 'dialog x / save / cancel wiring' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 30. 月视图每页只画本月：1 号起、当月最后一天止 ----
         try {
@@ -2470,14 +2553,20 @@ function Invoke-HandlerAudit {
                     ('bodyW=' + [int]$bodyW + ' acts=' + $acts.Count + ' ys=' + ($ys -join '/') +
                      ' right=' + [int]$rightMost + '/' + [int]$target.ActualWidth)
 
-                # ---- 31b. 双击任务卡 -> 行内展开详情面板，Edit / Delete 出现在面板里 ----
-                #   用户报的原话是"双击 task 中的任务，没有唤醒修改菜单"。
-                #   这里用真实鼠标路由（Invoke-MouseDown/Up with ClickCount=2）驱动，
-                #   不去直接改 $script:TaskExpandedId —— 否则测的是"我会不会写状态"，
-                #   而不是"双击到底有没有接上"。
+                # ---- 31b. 双击任务卡 -> 直接打开任务编辑窗口（第四轮改版） ----
+                #   用户原话："双击 task 中的任务，不能调出修改界面"。
+                #   第三轮的实现是"双击展开行内只读面板 + 再点 Edit"，用户不认这个 ——
+                #   要的是双击就进编辑界面。这里用真实鼠标路由
+                #   （Invoke-MouseDown/Up with ClickCount=2）驱动，不去直接调 Open-TaskEditor：
+                #   否则测的是"我会不会调函数"，而不是"双击这条路到底通不通"。
+                #
+                #   断言落在 $script:LastModalCall 上 —— 编辑窗口入口 Open-TaskEditor
+                #   在 SuppressModal 模式下只记一笔 'taskeditor:<id>' 就返回（不真弹窗，
+                #   否则 ShowDialog 会卡死调度器）。所以"双击真的走到了开窗入口"这件事
+                #   是可观测的，不是靠肉眼。
                 $script:TaskExpandedId = ''
                 # 先把状态筛选切到 All：双击的第一下会（延后）把任务勾成已完成，
-                # 若停在"未完成"筛选上卡片会消失，后面的面板断言就没得看了。
+                # 若停在"未完成"筛选上卡片会消失，后面的断言就没得看了。
                 if ($null -ne $script:TaskStatusBox) { $script:TaskStatusBox.SelectedIndex = 0 }
                 Fill-Tasks
                 try { $script:MainWindow.UpdateLayout() } catch { }
@@ -2485,14 +2574,7 @@ function Invoke-HandlerAudit {
                 foreach ($r in @($script:TaskStack.Children)) {
                     if ($null -ne $r.Tag -and [string]$r.Tag['id'] -eq 'AUDIT-LAYOUT') { $target2 = $r; break }
                 }
-                $beforeEdit = 0
-                if ($null -ne $target2) {
-                    foreach ($b in @(Find-AllOfType $target2 ([System.Windows.Controls.Primitives.ButtonBase]))) {
-                        $c = $b.Content
-                        if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
-                        if (@('Edit', 'Delete', 'Del') -contains [string]$c) { $beforeEdit++ }
-                    }
-                }
+                $script:LastModalCall = ''
                 # 双击 = 两次 ClickCount=1/2 的 Down+Up（WPF 就是这么派发的）
                 if ($null -ne $target2) {
                     [void](Invoke-MouseDown -Target $target2 -Source $target2 -Count 1)
@@ -2500,53 +2582,75 @@ function Invoke-HandlerAudit {
                     [void](Invoke-MouseDown -Target $target2 -Source $target2 -Count 2)
                     [void](Invoke-MouseUp -Target $target2 -Source $target2 -Count 2)
                 }
-                $expandedId = [string]$script:TaskExpandedId
-                $afterEdit = 0
-                $hasTitleLine = $false
-                $btnNames = New-Object System.Collections.ArrayList
-                $cardKids = -1
-                $idSample = ''
+                $dblCall = [string]$script:LastModalCall
+                # 双击的第一下会排一次"待勾选完成"，双击必须把它取消掉 ——
+                # 否则用户双击看一眼编辑界面，回来发现任务被勾掉了。
+                $dblCancelled = [string]::IsNullOrWhiteSpace([string]$script:PendingTaskId)
+                $dblOk = ($dblCall -eq 'taskeditor:AUDIT-LAYOUT') -and $dblCancelled
+                Write-AuditRow 'task double-click opens editor' $dblOk `
+                    ('lastModal=' + $dblCall + ' pendingCleared=' + [string]$dblCancelled +
+                     ' target=' + [string]($null -ne $target2))
+
+                # ---- 31c. 卡片上的 ▾/▸ 按钮仍能展开行内详情面板，Edit / Delete 在里面 ----
+                #   双击改语义之后，"看详情 + Edit/Delete" 这个能力不能丢，
+                #   只是入口从"隐藏的双击"换成"看得见的按钮"。这条断言就是它的护栏。
+                $script:TaskExpandedId = ''
+                Fill-Tasks
                 try { $script:MainWindow.UpdateLayout() } catch { }
-                # 关键：双击会触发 Fill-Tasks 重建整列卡片，$target2 已经是个脱离可视树的
-                # 旧引用 —— 继续在它身上找 Edit/Delete / Title 永远找不到，会误判成
-                # "面板没渲染出来"。必须按 id 从 TaskStack 重新取一次。
-                $card2 = $null
-                $idList = New-Object System.Collections.ArrayList
+                $card3 = $null
                 foreach ($r in @($script:TaskStack.Children)) {
-                    $rid = ''
-                    if ($null -ne $r.Tag -and ($r.Tag -is [hashtable]) -and $r.Tag.ContainsKey('id')) { $rid = [string]$r.Tag['id'] }
-                    [void]$idList.Add($rid)
-                    if ($rid -eq 'AUDIT-LAYOUT') { $card2 = $r; break }
+                    if ($null -ne $r.Tag -and [string]$r.Tag['id'] -eq 'AUDIT-LAYOUT') { $card3 = $r; break }
                 }
-                $cardKids = @($script:TaskStack.Children).Count
-                $idSample = ($idList -join ',')
-                if ($null -ne $card2) {
-                    foreach ($b in @(Find-AllOfType $card2 ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                $expBtn = $null
+                $beforeEdit = 0
+                $btnNames = New-Object System.Collections.ArrayList
+                if ($null -ne $card3) {
+                    foreach ($b in @(Find-AllOfType $card3 ([System.Windows.Controls.Primitives.ButtonBase]))) {
                         $c = $b.Content
                         if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                         [void]$btnNames.Add([string]$c)
+                        if (@('Edit', 'Delete', 'Del') -contains [string]$c) { $beforeEdit++ }
+                        if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                            [string]$b.Tag['kind'] -eq 'task-expand') { $expBtn = $b }
+                    }
+                }
+                if ($null -ne $expBtn) { [void](Invoke-Click $expBtn) }
+                try { $script:MainWindow.UpdateLayout() } catch { }
+                # 展开会重建整列卡片，$card3 / $expBtn 都是脱离可视树的旧引用，
+                # 必须按 id 从 TaskStack 重新取一次（第三轮在这里栽过）。
+                $card4 = $null
+                foreach ($r in @($script:TaskStack.Children)) {
+                    if ($null -ne $r.Tag -and [string]$r.Tag['id'] -eq 'AUDIT-LAYOUT') { $card4 = $r; break }
+                }
+                $expandedId = [string]$script:TaskExpandedId
+                $afterEdit = 0
+                $hasTitleLine = $false
+                if ($null -ne $card4) {
+                    foreach ($b in @(Find-AllOfType $card4 ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                        $c = $b.Content
+                        if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                         if (@('Edit', 'Delete') -contains [string]$c) { $afterEdit++ }
                     }
                     # 详情面板要有"标签 + 值"这种结构化行（Title / Due / Priority…）
-                    foreach ($tb in @(Find-AllOfType $card2 ([System.Windows.Controls.TextBlock]))) {
+                    foreach ($tb in @(Find-AllOfType $card4 ([System.Windows.Controls.TextBlock]))) {
                         if (@('Title', 'Due', 'Priority') -contains [string]$tb.Text) { $hasTitleLine = $true; break }
                     }
                 }
-                $dblOk = ($expandedId -eq 'AUDIT-LAYOUT') -and ($beforeEdit -eq 0) -and ($afterEdit -ge 2) -and $hasTitleLine
-                Write-AuditRow 'task double-click opens inline panel' $dblOk `
-                    ('expanded=' + $expandedId + ' editBefore=' + $beforeEdit + ' editAfter=' + $afterEdit +
-                     ' fields=' + [string]$hasTitleLine + ' btns=[' + ($btnNames -join '|') + ']' +
-                     ' kids=' + $cardKids + ' ids=[' + $idSample + ']')
-
-                # 再双击一次必须收起（不能只开不合）
-                if ($null -ne $target2) {
-                    [void](Invoke-MouseDown -Target $target2 -Source $target2 -Count 1)
-                    [void](Invoke-MouseUp -Target $target2 -Source $target2 -Count 1)
-                    [void](Invoke-MouseDown -Target $target2 -Source $target2 -Count 2)
-                    [void](Invoke-MouseUp -Target $target2 -Source $target2 -Count 2)
+                $caretOk = ($null -ne $expBtn) -and ($expandedId -eq 'AUDIT-LAYOUT') -and
+                           ($beforeEdit -eq 0) -and ($afterEdit -ge 2) -and $hasTitleLine
+                Write-AuditRow 'task details toggle via caret' $caretOk `
+                    ('caretFound=' + [string]($null -ne $expBtn) + ' expanded=' + $expandedId +
+                     ' editBefore=' + $beforeEdit + ' editAfter=' + $afterEdit +
+                     ' fields=' + [string]$hasTitleLine + ' btns=[' + ($btnNames -join '|') + ']')
+                # 再点一次必须收起（不能只开不合）
+                if ($null -ne $card4) {
+                    foreach ($b in @(Find-AllOfType $card4 ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                        if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                            [string]$b.Tag['kind'] -eq 'task-expand') { [void](Invoke-Click $b); break }
+                    }
                 }
-                Write-AuditRow 'task double-click toggles closed' ([string]::IsNullOrEmpty([string]$script:TaskExpandedId)) `
-                    ('expanded=' + [string]$script:TaskExpandedId)
+                Write-AuditRow 'task caret toggles closed' ([string]::IsNullOrEmpty([string]$script:TaskExpandedId)) `
+                    ('expanded=' + [string]$script:TaskExpandedId + ' kids=' + @($script:TaskStack.Children).Count)
                 $script:TaskExpandedId = ''
             }
             [void]$script:Tasks.Remove($probeTask)
@@ -3143,11 +3247,13 @@ function Invoke-TestActions {
                 'audit'  { [void](Invoke-HandlerAudit) }
                 'weekdrag' { foreach ($line in @(Invoke-WeekDragAudit)) { [void]$out.Add([string]$line) } }
                 'dbltask' {
-                    # "dbltask:<id>"：用**真实鼠标路由**双击展开指定任务卡，再截图。
-                    # 刻意不直接写 $script:TaskExpandedId：那样拍出来的只是"状态被改了"，
-                    # 证明不了"双击这条路是通的"。第三轮正是这里栽过 ——
-                    # 面板里的 .GetNewClosure() 让 Get-Pal 变成 CommandNotFound，
-                    # 展开路径一走进 Fill-Tasks 就抛，用户看到的是"双击没反应"。
+                    # "dbltask:<id>"：用**真实鼠标路由**双击指定任务卡。
+                    #
+                    # 第四轮起双击的语义变成"打开任务编辑窗口"，而截图/自动化运行时
+                    # 弹模态窗（ShowDialog）会把调度器卡死。所以这里临时打开
+                    # SuppressModal：Open-TaskEditor 在这个模式下只记一笔
+                    # 'taskeditor:<id>' 就返回 —— 既证明"双击真的走到了开窗入口"，
+                    # 又不会真弹窗。$out 里回读 LastModalCall，截图流程能直接看到结果。
                     Set-View 'tasks'
                     if ($null -ne $script:TaskStatusBox) { $script:TaskStatusBox.SelectedIndex = 0 }
                     $script:TaskExpandedId = ''
@@ -3166,12 +3272,49 @@ function Invoke-TestActions {
                     if ($null -eq $tgt) {
                         [void]$out.Add('dbltask: target not found -> ' + $arg)
                     } else {
-                        [void](Invoke-MouseDown -Target $tgt -Source $tgt -Count 1)
-                        [void](Invoke-MouseUp   -Target $tgt -Source $tgt -Count 1)
-                        [void](Invoke-MouseDown -Target $tgt -Source $tgt -Count 2)
-                        [void](Invoke-MouseUp   -Target $tgt -Source $tgt -Count 2)
+                        $keepSuppress = $script:SuppressModal
+                        $script:SuppressModal = $true
+                        $script:LastModalCall = ''
+                        try {
+                            [void](Invoke-MouseDown -Target $tgt -Source $tgt -Count 1)
+                            [void](Invoke-MouseUp   -Target $tgt -Source $tgt -Count 1)
+                            [void](Invoke-MouseDown -Target $tgt -Source $tgt -Count 2)
+                            [void](Invoke-MouseUp   -Target $tgt -Source $tgt -Count 2)
+                        } finally { $script:SuppressModal = $keepSuppress }
                         for ($i = 0; $i -lt 3; $i++) { $script:MainWindow.UpdateLayout() }
-                        [void]$out.Add('dbltask expanded=' + [string]$script:TaskExpandedId +
+                        [void]$out.Add('dbltask lastModal=' + [string]$script:LastModalCall +
+                                       ' kids=' + @($script:TaskStack.Children).Count)
+                    }
+                }
+                'caretshot' {
+                    # "caretshot:<id>"：点任务卡右端的 ▾/▸ 按钮展开行内详情面板，再截图。
+                    # 第四轮把"展开详情"的入口从双击换成了这个按钮，截图用例跟着改，
+                    # 否则截出来的永远是一张"没有面板"的卡片，看上去像功能丢了。
+                    Set-View 'tasks'
+                    if ($null -ne $script:TaskStatusBox) { $script:TaskStatusBox.SelectedIndex = 0 }
+                    $script:TaskExpandedId = ''
+                    Fill-Tasks
+                    for ($i = 0; $i -lt 3; $i++) { $script:MainWindow.UpdateLayout() }
+                    $tgt = $null
+                    foreach ($r in @($script:TaskStack.Children)) {
+                        if ([string]::IsNullOrWhiteSpace($arg) -or $arg -eq '*') {
+                            if ($null -ne $r.Tag -and $null -ne $r.Tag['id']) { $tgt = $r; break }
+                            continue
+                        }
+                        if ($null -ne $r.Tag -and [string]$r.Tag['id'] -eq $arg) { $tgt = $r; break }
+                    }
+                    if ($null -eq $tgt) {
+                        [void]$out.Add('caretshot: target not found -> ' + $arg)
+                    } else {
+                        $btn = $null
+                        foreach ($b in @(Find-AllOfType $tgt ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                            if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                                [string]$b.Tag['kind'] -eq 'task-expand') { $btn = $b; break }
+                        }
+                        [void](Invoke-Click $btn)
+                        for ($i = 0; $i -lt 3; $i++) { $script:MainWindow.UpdateLayout() }
+                        [void]$out.Add('caretshot expanded=' + [string]$script:TaskExpandedId +
+                                       ' btn=' + [string]($null -ne $btn) +
                                        ' kids=' + @($script:TaskStack.Children).Count)
                     }
                 }

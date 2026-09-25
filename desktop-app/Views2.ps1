@@ -137,13 +137,23 @@ function New-ComboField {
 }
 
 # ---------------------------------------------------------------------------
-#  弹窗的"关闭"语义
+#  弹窗的"关闭"语义（第四轮改版）
 #
-#  六个弹窗（日程编辑 / 设置 / 任务编辑 / 专注 / 头像 / 当日议程）统一只留右上角
-#  一个 ×，底部不再放 Cancel / Save / Close：
-#    · ×  = 确认并关闭（等于原来那个主按钮：Save / Save & close / Close）
-#    · Esc = 放弃修改直接关闭（本来就是这个行为，保留）
-#  所以 × 的处理器由各弹窗自己接（行为不同），这里只提供外观与"是否是按钮"的判定。
+#  第三轮把六个弹窗（日程编辑 / 设置 / 任务编辑 / 专注 / 头像 / 当日议程）压成
+#  只留右上角一个 ×，结果用户反馈两条：
+#    ① "无法直接不保存关闭" —— Esc 是个隐藏快捷键，界面上没有任何可见入口；
+#    ② "也没有保存按钮"     —— × 到底会不会保存，用户只能猜。
+#  "一个 × 兼三职"在设计上是省事，在使用上是把决策成本推给了用户。
+#
+#  第四轮改为标题栏三件套（六弹窗共用，位置固定在右上角）：
+#    · Save    = 确认并保存关闭（校验失败不关，错误留在窗口里）
+#    · Cancel  = 放弃修改直接关闭（= 原 Esc 行为，现在有可见按钮）
+#    · ×       = 等同 Save（保持第三轮建立的肌肉记忆，不让老用户踩空）
+#    · Esc     = 等同 Cancel（保留）
+#  底部仍然不放按钮：动作入口全部集中在标题栏右端，正文区保持干净。
+#
+#  所以保存/放弃的处理器由各弹窗自己接（行为不同），这里只提供外观、
+#  几何排布与"是否是按钮"的判定。
 # ---------------------------------------------------------------------------
 function Test-ClickOnButton {
     # 标题栏挂的是 DragMove。按钮内部的 MouseLeftButtonDown 理论上会被 ButtonBase
@@ -275,6 +285,63 @@ function Enable-DialogDrag {
     })
 }
 
+function New-DialogBarButton {
+    # 标题栏上的文字按钮（Save / Cancel）。与 × 一样是"手写模板 + 自带配色"，
+    # 不走 New-PixBtn：那个模板的 ContentPresenter 带 9px 水平内边距，
+    # 在 38px 高的标题栏里会把按钮撑得很高，且它的阴影边框在细标题栏里太重。
+    # Name 由调用方给：审计要按 Name 精确定位（文字随语言/文案变动，Name 不会）。
+    param([string]$Text, [string]$Name, [string]$Bg, [string]$Fg = '', [double]$W = 0.0, [string]$Tip = '')
+    if (-not $Fg) { $Fg = Get-Pal 'Ink' }
+    $hover = Get-Pal 'CardAlt'
+    $press = Get-Pal 'BorderSoft'
+    $btn = New-Object System.Windows.Controls.Button
+    $btn.Name = $Name
+    $btn.Height = 24
+    if ($W -gt 0.0) { $btn.Width = $W }
+    $btn.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
+    $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+    if ($Tip) { $btn.ToolTip = $Tip }
+    $pad = '8,0'
+    $tpl = @"
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 TargetType="Button">
+  <Border x:Name="bd" Background="$Bg" BorderBrush="$(Get-Pal 'Border')" BorderThickness="1.5"
+          CornerRadius="6">
+    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="$pad"/>
+  </Border>
+  <ControlTemplate.Triggers>
+    <Trigger Property="IsMouseOver" Value="True">
+      <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+    </Trigger>
+    <Trigger Property="IsPressed" Value="True">
+      <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+    </Trigger>
+  </ControlTemplate.Triggers>
+</ControlTemplate>
+"@
+    $reader = New-Object System.Xml.XmlNodeReader ([xml]$tpl)
+    $btn.Template = [System.Windows.Markup.XamlReader]::Load($reader)
+    $btn.Content = (New-Txt -Text $Text -Size 11 -Color $Fg -Weight 'Semi')
+    return $btn
+}
+
+function New-DialogSaveButton {
+    # 主按钮：用当前主题的强调色，视觉上明确区分"保存"与"放弃"。
+    param([string]$Text = 'Save')
+    return (New-DialogBarButton -Text $Text -Name 'DlgSave' `
+        -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 64.0 `
+        -Tip 'Save and close  (same as the x button)')
+}
+
+function New-DialogCancelButton {
+    # 次按钮：走卡片底色，和标题栏同色系，表示"什么都不做直接走"。
+    param([string]$Text = 'Cancel')
+    return (New-DialogBarButton -Text $Text -Name 'DlgCancel' `
+        -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 68.0 `
+        -Tip 'Close without saving  (same as Esc)')
+}
+
 function New-DialogCloseButton {
     # 不用 New-PixBtn：那个模板的 ContentPresenter 带 9px 水平内边距，
     # 26px 宽的按钮里塞不下 10px 的 ×（会被压成一条竖线）。
@@ -289,7 +356,7 @@ function New-DialogCloseButton {
     $btn.Height = 24
     $btn.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     $btn.Cursor = [System.Windows.Input.Cursors]::Hand
-    $btn.ToolTip = 'Close  (Esc = discard changes)'
+    $btn.ToolTip = 'Save and close  (Esc = discard changes)'
     $tpl = @"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -315,6 +382,59 @@ function New-DialogCloseButton {
     return $btn
 }
 
+function Bind-DialogChromeButtons {
+    # 把标题栏三件套接上：Save 与 × 走同一条保存路径，Cancel 走"放弃修改"。
+    #
+    # 为什么必须放在各弹窗挂完 $chrome.BtnClose.Add_Click 之后再调：
+    #   Save 的实现是 RaiseEvent(ClickEvent) 打到 × 上，复用它的处理器。
+    #   如果在挂 BtnClose 之前就绑，Save 点下去什么也不会发生 —— 而按钮看上去
+    #   一切正常，是最难查的一类"静默失效"。所以调用点必须紧跟 BtnClose 之后。
+    #
+    # 为什么 Save 用 RaiseEvent 而不是把保存逻辑抽成命名函数：
+    #   各弹窗的保存逻辑都闭包着窗口局部状态（$script:EdWin / $script:TkWin …），
+    #   抽函数要额外传一堆参数、还得把校验分支原样搬一遍，两份代码迟早漂移。
+    #   打一个 Click 事件给 × 是零重复的方案：保存逻辑全世界只有一份。
+    #
+    # 作用域：处理器里只能读 $script: 和形参 —— 这个函数的局部变量（$close / $Win）
+    #   在处理器真正触发时早已随作用域销毁，StrictMode 下直接抛"检索不到变量"，
+    #   而异常会被下面的 catch 吞掉，表现成"点 Save / Cancel 没反应"。
+    #   所以两个引用一律走 $s.Tag（$s 就是被点的那个按钮，是形参天然带进来的）：
+    #     · BtnSave.Tag   = 同 chrome 里的 × 按钮
+    #     · BtnCancel.Tag = 该弹窗的 Window
+    param($Chrome, $Win)
+    if ($null -eq $Chrome) { return }
+    $save = $Chrome['BtnSave']
+    $cancel = $Chrome['BtnCancel']
+    $close = $Chrome['BtnClose']
+    # Tag 上放窗体引用。注意 Button.Tag 默认是 $null，直接赋值即可。
+    if ($null -ne $save -and $null -ne $close) {
+        $save.Tag = @{ kind = 'dlg-save'; close = $close }
+        $save.Add_Click({
+            param($s, $e)
+            try {
+                $hit = $null
+                if ($null -ne $s -and $null -ne $s.Tag -and ($s.Tag -is [hashtable])) { $hit = $s.Tag['close'] }
+                if ($null -eq $hit) { return }
+                $hit.RaiseEvent((New-Object System.Windows.RoutedEventArgs(
+                    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+                $e.Handled = $true
+            } catch { Write-ErrLog ('Dialog save: ' + $_.Exception.Message) }
+        })
+    }
+    if ($null -ne $cancel) {
+        $cancel.Tag = @{ kind = 'dlg-cancel'; win = $Win }
+        $cancel.Add_Click({
+            param($s, $e)
+            try {
+                $w = $null
+                if ($null -ne $s -and $null -ne $s.Tag -and ($s.Tag -is [hashtable])) { $w = $s.Tag['win'] }
+                Close-DialogWindow $w $false
+                $e.Handled = $true
+            } catch { Write-ErrLog ('Dialog cancel: ' + $_.Exception.Message) }
+        })
+    }
+}
+
 function Get-EditorChrome {
     # 参数类型不能写 Control：StackPanel 继承自 Panel（Panel -> FrameworkElement -> UIElement），
     # 并不在 Control 这条继承链上，传 StackPanel 会在参数绑定阶段就抛
@@ -332,15 +452,19 @@ function Get-EditorChrome {
     $bar.BorderBrush = Brush (Get-Pal 'Border')
     $bar.BorderThickness = [System.Windows.Thickness]::new(2, 2, 2, 0)
     $bar.CornerRadius = [System.Windows.CornerRadius]::new(10, 10, 0, 0)
-    # 标题栏 = [标题(占满)] + [右上角 ×]。用 Grid 而不是 DockPanel：
-    # DockPanel 要先加的被停靠项，写反了标题会被 × 挤到中间。
+    # 标题栏 = [标题(占满)] + [Save] + [Cancel] + [×]。用 Grid 而不是 DockPanel：
+    # DockPanel 要先加的被停靠项，写反了标题会被按钮挤到中间。
+    # 固定宽度列的尺寸必须在这里跟按钮的 Width + Margin 对齐，改一处要同步另一处，
+    # 否则 Save 会被裁掉一半（Grid 不会因为内容超宽就撑开）。
     $barGrid = New-Object System.Windows.Controls.Grid
     $cdTitle = New-Object System.Windows.Controls.ColumnDefinition
     $cdTitle.Width = [System.Windows.GridLength]::new(1, 'Star')
     $barGrid.ColumnDefinitions.Add($cdTitle)
-    $cdBtn = New-Object System.Windows.Controls.ColumnDefinition
-    $cdBtn.Width = [System.Windows.GridLength]::new(34, 'Pixel')
-    $barGrid.ColumnDefinitions.Add($cdBtn)
+    foreach ($px in @(70.0, 74.0, 34.0)) {
+        $cd = New-Object System.Windows.Controls.ColumnDefinition
+        $cd.Width = [System.Windows.GridLength]::new($px, 'Pixel')
+        $barGrid.ColumnDefinitions.Add($cd)
+    }
 
     $barTxt = New-Txt -Text $Title -Size 12 -Color (Get-Pal 'Ink') -Weight 'Semi'
     $barTxt.VerticalAlignment = 'Center'
@@ -348,9 +472,19 @@ function Get-EditorChrome {
     [System.Windows.Controls.Grid]::SetColumn($barTxt, 0)
     [void]$barGrid.Children.Add($barTxt)
 
+    $btnSave = New-DialogSaveButton
+    $btnSave.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
+    [void]$barGrid.Children.Add($btnSave)
+
+    $btnCancel = New-DialogCancelButton
+    $btnCancel.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($btnCancel, 2)
+    [void]$barGrid.Children.Add($btnCancel)
+
     $btnClose = New-DialogCloseButton
     $btnClose.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnClose, 1)
+    [System.Windows.Controls.Grid]::SetColumn($btnClose, 3)
     [void]$barGrid.Children.Add($btnClose)
 
     $bar.Child = $barGrid
@@ -371,7 +505,8 @@ function Get-EditorChrome {
     $root.CornerRadius = [System.Windows.CornerRadius]::new(12)
     $root.Padding = [System.Windows.Thickness]::new(0)
     $root.Child = $wrap
-    return @{ Root = $root; Bar = $bar; BarText = $barTxt; BtnClose = $btnClose }
+    return @{ Root = $root; Bar = $bar; BarText = $barTxt;
+              BtnSave = $btnSave; BtnCancel = $btnCancel; BtnClose = $btnClose }
 }
 
 # ---------------------------------------------------------------------------
@@ -629,6 +764,8 @@ function Show-EventEditorWindow {
         Close-DialogWindow $script:EdWin $true
         Refresh-All
     })
+    # 标题栏 Save / Cancel 接上（必须在 × 的处理器挂好之后调，见函数注释）
+    Bind-DialogChromeButtons $chrome $script:EdWin
     $script:EdTbTitle.Focus() | Out-Null
     return $script:EdWin
 }
@@ -761,6 +898,7 @@ function Show-SettingsWindow {
         }
         Close-DialogWindow $script:SetWin $true
     })
+    Bind-DialogChromeButtons $chrome $script:SetWin
     return $script:SetWin
 }
 
@@ -815,6 +953,10 @@ function Show-DayAgendaWindow {
         try { $script:DayAgendaWin.DragMove() } catch { }
     })
     $chrome.BtnClose.Add_Click({ Close-DialogWindow $script:DayAgendaWin $true })
+    # 当日议程是只读列表：Save 与 × 同义（都是"关掉"），Cancel 也是"关掉"。
+    # 仍然接上，保证六个弹窗的标题栏按钮行为一致 —— 一个弹窗不响应 Save
+    # 会让人以为程序卡了，比"这个按钮其实没意义"更糟。
+    Bind-DialogChromeButtons $chrome $win
     try { if ($null -ne $script:MainWindow -and $script:MainWindow.IsVisible) { $win.Owner = $script:MainWindow } } catch { }
     $win.Add_KeyDown({ param($s,$e) if ($e.Key -eq 'Escape') { Close-DialogWindow $script:DayAgendaWin $false } })
     return $win
@@ -1088,6 +1230,7 @@ function Show-TaskEditorWindow {
             Close-DialogWindow $script:TkWin $true
         } catch { Write-ErrLog ('Task save: ' + $_.Exception.Message) }
     })
+    Bind-DialogChromeButtons $chrome $script:TkWin
     $script:TkText.Focus() | Out-Null
     return $script:TkWin
 }
@@ -1274,6 +1417,7 @@ function Show-FocusWindow {
     $chrome.BtnClose.Add_Click({
         try { if (Save-FocusWindowSettings) { Close-DialogWindow $script:FoWin $true } } catch { Write-ErrLog ('Focus save: ' + $_.Exception.Message) }
     })
+    Bind-DialogChromeButtons $chrome $script:FoWin
     Update-PomodoroVisual
     return $script:FoWin
 }
@@ -1394,6 +1538,9 @@ function Show-AvatarWindow {
             Close-DialogWindow $script:AvWin $true
         } catch { Write-ErrLog ('Avatar save: ' + $_.Exception.Message) }
     })
+    # 头像窗口的 Cancel 语义"撤销草稿"：选完图后 Cancel 必须把预览与草稿一起回退，
+    # 否则用户点了 Cancel 却发现头像已经变了（Apply-AvatarImage 是立刻生效的）。
+    Bind-DialogChromeButtons $chrome $script:AvWin
     return $script:AvWin
 }
 
