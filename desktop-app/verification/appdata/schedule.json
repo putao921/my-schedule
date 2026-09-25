@@ -1,0 +1,254 @@
+﻿{
+    "events":  [
+                   {
+                       "id":  "b488cab4a0",
+                       "date":  "2026-09-02",
+                       "start":  120,
+                       "end":  180,
+                       "title":  "Morning run",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "1b9cee4852",
+                       "date":  "2026-09-03",
+                       "start":  120,
+                       "end":  180,
+                       "title":  "Deep work",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "d7a617b116",
+                       "date":  "2026-09-04",
+                       "start":  120,
+                       "end":  180,
+                       "title":  "Morning run",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "d7f3574852",
+                       "date":  "2026-09-02",
+                       "start":  450,
+                       "end":  540,
+                       "title":  "Team Meeting",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "5bbfea0ecd",
+                       "date":  "2026-09-03",
+                       "start":  450,
+                       "end":  540,
+                       "title":  "Team Meeting",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "41b8787dd6",
+                       "date":  "2026-09-05",
+                       "start":  450,
+                       "end":  540,
+                       "title":  "Team Meeting",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "7edf9e8add",
+                       "date":  "2026-09-02",
+                       "start":  600,
+                       "end":  660,
+                       "title":  "Design Review",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "622611ab6f",
+                       "date":  "2026-09-03",
+                       "start":  600,
+                       "end":  660,
+                       "title":  "Design Review",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "feb88af2a3",
+                       "date":  "2026-09-04",
+                       "start":  600,
+                       "end":  660,
+                       "title":  "Design Review",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "eaaa0e3bd4",
+                       "date":  "2026-09-02",
+                       "start":  720,
+                       "end":  780,
+                       "title":  "Lunch",
+                       "tag":  "life",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "d5db6a66ae",
+                       "date":  "2026-09-03",
+                       "start":  720,
+                       "end":  780,
+                       "title":  "Lunch",
+                       "tag":  "life",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "6fa871f269",
+                       "date":  "2026-09-04",
+                       "start":  720,
+                       "end":  780,
+                       "title":  "Lunch",
+                       "tag":  "life",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "d9c9262447",
+                       "date":  "2026-09-05",
+                       "start":  720,
+                       "end":  780,
+                       "title":  "Lunch",
+                       "tag":  "life",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "e77f908c33",
+                       "date":  "2026-09-04",
+                       "start":  900,
+                       "end":  990,
+                       "title":  "Project Sync",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "ce70f74e81",
+                       "date":  "2026-09-05",
+                       "start":  900,
+                       "end":  990,
+                       "title":  "Project Sync",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "42bdb96fd5",
+                       "date":  "2026-09-04",
+                       "start":  1080,
+                       "end":  1170,
+                       "title":  "Yoga Class",
+                       "tag":  "life",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "fb259d9964",
+                       "date":  "2026-09-23",
+                       "start":  540,
+                       "end":  600,
+                       "title":  "Ideation",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  true
+                   },
+                   {
+                       "id":  "00dcf352a6",
+                       "date":  "2026-09-23",
+                       "start":  840,
+                       "end":  900,
+                       "title":  "Thesis draft",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  true
+                   },
+                   {
+                       "id":  "9358b591bf",
+                       "date":  "2026-09-23",
+                       "start":  990,
+                       "end":  1050,
+                       "title":  "Reading group",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "09bc8faa93",
+                       "date":  "2026-09-24",
+                       "start":  660,
+                       "end":  720,
+                       "title":  "Advisor call",
+                       "tag":  "work",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "2e5b1b3b97",
+                       "date":  "2026-09-26",
+                       "start":  540,
+                       "end":  720,
+                       "title":  "Weekend lab",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  false
+                   },
+                   {
+                       "id":  "cb8b20b2e2",
+                       "date":  "2026-09-28",
+                       "start":  780,
+                       "end":  900,
+                       "title":  "Paper revision",
+                       "tag":  "focus",
+                       "note":  "",
+                       "done":  false
+                   }
+               ],
+    "tasks":  [
+                  {
+                      "id":  "3105a88e52",
+                      "text":  "Task and task-sheet description tasks",
+                      "done":  false,
+                      "due":  null,
+                      "tag":  "task"
+                  },
+                  {
+                      "id":  "58fbdf6bf9",
+                      "text":  "Task production staff for compiling",
+                      "done":  false,
+                      "due":  null,
+                      "tag":  "task"
+                  },
+                  {
+                      "id":  "831c22114c",
+                      "text":  "整理本周会议纪要",
+                      "done":  true,
+                      "due":  "2026-09-23",
+                      "tag":  "task"
+                  },
+                  {
+                      "id":  "a3899c36a8",
+                      "text":  "提交读书报告终稿",
+                      "done":  false,
+                      "due":  "2026-09-26",
+                      "tag":  "task"
+                  }
+              ]
+}

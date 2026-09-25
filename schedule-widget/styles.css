@@ -1,0 +1,1475 @@
+/* ==========================================================================
+   My Schedule — 像素风桌面日程小工具
+   Design tokens derived from 主题包/月视图.png
+   ========================================================================== */
+
+/* ---------- 1. Design tokens : palette ---------- */
+:root {
+  /* Pink family (from reference) */
+  --pink-50:  #fdf4f2;
+  --pink-100: #fbe9e6;
+  --pink-200: #f7dedb;
+  --pink-300: #f2c9c6;
+  --pink-400: #e9aeae;
+  --pink-500: #dc9494;
+  --pink-600: #c47f85;
+  --pink-700: #a9626c;
+  --pink-800: #7d4550;
+  --pink-900: #4a2630;
+
+  --cream:    #fffdf7;
+  --cream-2:  #fdf6e9;
+  --cream-3:  #f6ead6;
+
+  --ink:      #3a2f2c;
+  --ink-soft: #6d5c58;
+  --ink-faint:#9a8884;
+
+  --accent-event:  #c05a6c;  /* 事件 / 主按钮 */
+  --accent-focus:  #f2b083;  /* 专注块 / 今日高亮 */
+  --accent-task:   #9fc4a4;  /* 任务 / 事件卡（周视图） */
+  --accent-task-d: #7ea886;
+  --accent-weekend:#fbeaea;  /* 周末底 */
+  --accent-holiday:#e08a8a;
+
+  --focus-ring: #c05a6c;
+
+  /* Geometry */
+  --r-win:  12px;
+  --r-panel: 8px;
+  --r-cell: 7px;
+  --r-pill: 999px;
+
+  --bw: 2px;                 /* pixel border width */
+  --shadow-pixel: 3px 3px 0 var(--pink-800);
+  --shadow-soft:  0 6px 22px rgba(125, 69, 80, .18);
+
+  /* Typography */
+  --font-en: "Press Start 2P", "VT323", ui-monospace, monospace;
+  --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: var(--font-ui);
+  --font-num: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Density — overridden per breakpoint */
+  --cell-gap: 5px;
+  --day-min-h: 62px;
+  --sidebar-w: 208px;
+  --pad-win: 10px;
+  --fs-title: 26px;
+  --nav-w: 148px;
+
+  /* Motion */
+  --t-fast: 110ms cubic-bezier(.4, 0, .2, 1);
+}
+
+/* ---------- 2. Night theme ---------- */
+:root[data-theme="night"] {
+  --pink-50:  #2a1f26;
+  --pink-100: #35262e;
+  --pink-200: #3e2c35;
+  --pink-300: #4d3742;
+  --pink-400: #6b4a58;
+  --pink-500: #8a5f70;
+  --pink-600: #b07d8e;
+  --pink-700: #d3a3b0;
+  --pink-800: #e8c6cf;
+  --pink-900: #f6e4e9;
+
+  --cream:    #241a20;
+  --cream-2:  #2c2028;
+  --cream-3:  #3a2b33;
+
+  --ink:      #f4e9ec;
+  --ink-soft: #cdb6bd;
+  --ink-faint:#a08c93;
+
+  --accent-event: #d4718a;
+  --accent-focus: #c98a56;
+  --accent-task:  #6f9a78;
+  --accent-weekend:#3a262c;
+  --accent-holiday:#c9707a;
+
+  --shadow-pixel: 3px 3px 0 #150e12;
+  --shadow-soft: 0 6px 24px rgba(0, 0, 0, .5);
+}
+
+/* ---------- 3. Reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 18% 12%, #f6d9d6 0%, transparent 46%),
+    radial-gradient(circle at 84% 88%, #f7e3dd 0%, transparent 50%),
+    #efd7d4;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+:root[data-theme="night"] body {
+  background:
+    radial-gradient(circle at 18% 12%, #3a2530 0%, transparent 46%),
+    radial-gradient(circle at 84% 88%, #2e1f28 0%, transparent 50%),
+    #1b1318;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+input, select, textarea { font: inherit; color: inherit; }
+ul { margin: 0; padding: 0; list-style: none; }
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Pixel-art rendering for all decorative glyphs */
+.px, .px * { image-rendering: pixelated; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* ==========================================================================
+   4. Window chrome
+   ========================================================================== */
+.shell {
+  width: 100%;
+  max-width: 1180px;
+  height: min(880px, calc(100vh - 48px));
+  display: grid;
+  grid-template-columns: var(--nav-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  position: relative;
+  filter: drop-shadow(0 14px 34px rgba(125, 69, 80, .26));
+}
+
+/* --- 4a. Left navigation (desktop rail) --- */
+.nav {
+  background: var(--cream);
+  border: var(--bw) solid var(--pink-800);
+  border-right: 0;
+  border-radius: var(--r-win) 0 0 var(--r-win);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 8px;
+  position: relative;
+  z-index: 3;
+}
+
+.nav__avatar {
+  width: 84px;
+  height: 84px;
+  margin-bottom: 10px;
+  flex: 0 0 auto;
+  position: relative;
+}
+.nav__avatar canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.nav__item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 4px 8px;
+  border-radius: var(--r-panel);
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  font-family: var(--font-en);
+  line-height: 1.5;
+  transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast);
+  position: relative;
+}
+.nav__item svg { width: 22px; height: 22px; flex: 0 0 auto; }
+.nav__item:hover { background: var(--pink-100); color: var(--ink); }
+.nav__item[aria-current="page"],
+.nav__item[aria-selected="true"] {
+  background: var(--pink-200);
+  color: var(--pink-800);
+}
+.nav__item[aria-current="page"]::after,
+.nav__item[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: var(--pink-800);
+  border-right: 0;
+}
+:root[data-theme="night"] .nav__item[aria-current="page"]::after,
+:root[data-theme="night"] .nav__item[aria-selected="true"]::after { border-left-color: var(--pink-800); }
+
+.nav__spacer { flex: 1 1 auto; }
+
+.nav__group {
+  width: 100%;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 2px dotted var(--pink-300);
+}
+.nav__group .nav__item { font-size: 9px; }
+
+/* ==========================================================================
+   5. Main panel
+   ========================================================================== */
+.main {
+  min-width: 0;
+  background: var(--pink-200);
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 0 var(--r-win) var(--r-win) 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* --- 5a. Title bar --- */
+.titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: linear-gradient(180deg, var(--pink-300), var(--pink-400));
+  border-bottom: var(--bw) solid var(--pink-800);
+  user-select: none;
+}
+:root[data-theme="night"] .titlebar {
+  background: linear-gradient(180deg, #4a333d, #3a2831);
+}
+.titlebar__title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wctl {
+  width: 24px; height: 20px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 4px;
+  background: var(--pink-100);
+  display: grid;
+  place-items: center;
+  color: var(--pink-800);
+  transition: background var(--t-fast), transform var(--t-fast);
+}
+.wctl:hover { background: #fff; }
+.wctl:active { transform: translateY(1px); }
+.wctl--close:hover { background: var(--accent-event); color: #fff; }
+.wctl svg { width: 11px; height: 11px; }
+
+/* --- 5b. Toolbar --- */
+.toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.toolbar::-webkit-scrollbar { display: none; }
+
+.btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 7px;
+  background: var(--cream);
+  color: var(--pink-900);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+  box-shadow: 2px 2px 0 var(--pink-600);
+}
+.btn:hover { background: var(--pink-50); }
+.btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+
+.btn--primary {
+  background: var(--accent-event);
+  color: #fff;
+  border-color: var(--pink-800);
+  box-shadow: 2px 2px 0 var(--pink-800);
+}
+.btn--primary:hover { background: #b04f61; }
+
+.btn--icon { padding: 0; width: 34px; justify-content: center; }
+.btn--ghost { background: transparent; box-shadow: none; }
+.btn--ghost:hover { background: var(--pink-100); }
+
+.btn[aria-pressed="true"] {
+  background: var(--pink-300);
+  box-shadow: inset 2px 2px 0 rgba(125, 69, 80, .35);
+}
+
+/* View segmented control (desktop) */
+.seg {
+  flex: 0 0 auto;
+  display: inline-flex;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--cream);
+}
+.seg__btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  border-right: var(--bw) solid var(--pink-800);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.seg__btn:last-child { border-right: 0; }
+.seg__btn:hover { background: var(--pink-100); }
+.seg__btn[aria-selected="true"] { background: var(--pink-300); color: var(--pink-900); }
+.seg__btn svg { width: 14px; height: 14px; }
+
+.toolbar__spacer { flex: 1 1 auto; min-width: 6px; }
+
+/* --- 5c. Scroll body ---
+   注意：本容器必须 overflow:visible。若在此处设 overflow:hidden，
+   子项（月/周/列表）会参与同一个滚动/裁剪上下文，导致 hero 与日历条
+   被内容顶掉。滚动交给各视图内部的 .month__grid / .week__body / .list__scroll。
+*/
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px;
+  overflow: hidden;
+}
+
+/* 视图容器：唯一可伸缩的子项，自身不裁剪，滚动交给各视图内部 */
+.viewroot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 各视图根节点：高度由 flex 分配，内部自行处理滚动。
+   关键：overflow:hidden 让这些节点不把内容高度回传给 .body 的固有尺寸，
+   否则月网格（grid-auto-rows 有最小值）会顶掉 hero 与日历条。 */
+.month, .week, .list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   6. Hero / header block
+   ========================================================================== */
+.hero {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 2px 0 10px;
+}
+
+.hero__title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 800;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.hero__meta {
+  margin: 3px 0 0;
+  font-size: 15px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hero__stats { margin: 1px 0 0; font-size: 15px; color: var(--ink-soft); }
+.hero__stats b { font-weight: 700; color: var(--ink); }
+
+/* Pomodoro ring */
+.ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+.ring__dial {
+  --p: 0.62;
+  position: relative;
+  width: 98px; height: 98px;
+  border-radius: 50%;
+  background: conic-gradient(
+    #e8b93f 0 calc(var(--p) * 1turn),
+    var(--pink-400) calc(var(--p) * 1turn) 1turn
+  );
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 2px var(--pink-800), inset 0 0 0 3px rgba(255,255,255,.45);
+  transition: background 300ms linear;
+}
+.ring__dial::after {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 50%;
+  background: var(--cream);
+  box-shadow: inset 0 0 0 2px var(--pink-300);
+}
+.ring__time {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-num);
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ring__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  padding: 2px 10px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-pill);
+  background: var(--cream);
+}
+
+/* ==========================================================================
+   7. Calendar nav row
+   ========================================================================== */
+.calbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 9px;
+  flex-wrap: wrap;
+}
+.calbar__nav { display: inline-flex; gap: 5px; flex: 0 0 auto; }
+.calbar__btn {
+  width: 32px; height: 32px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 6px;
+  background: var(--cream);
+  display: grid;
+  place-items: center;
+  color: var(--pink-800);
+  box-shadow: 2px 2px 0 var(--pink-600);
+  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+}
+.calbar__btn:hover { background: var(--pink-50); }
+.calbar__btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.calbar__btn svg { width: 13px; height: 13px; }
+
+.calbar__label {
+  height: 32px;
+  padding: 0 12px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 6px;
+  background: var(--cream);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  transition: background var(--t-fast);
+}
+.calbar__label:hover { background: var(--pink-50); }
+
+.calbar__period {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.calbar__note {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-holiday);
+  white-space: nowrap;
+}
+.calbar__right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+/* ==========================================================================
+   8. Shared surface
+   ========================================================================== */
+.surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--cream);
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   9. Month view
+   ========================================================================== */
+.month { display: flex; flex-direction: column; height: 100%; }
+
+.month.surface,
+.month > .surface { flex: 1 1 auto; min-height: 0; }
+
+.month__head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--cell-gap);
+  padding: 8px var(--cell-gap) 6px;
+  background: var(--cream-2);
+  border-bottom: var(--bw) solid var(--pink-300);
+}
+.month__dow {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.month__dow--weekend { color: var(--accent-holiday); }
+
+.month__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(var(--day-min-h), 1fr);
+  gap: var(--cell-gap);
+  padding: var(--cell-gap);
+  background: var(--cream);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 5px 3px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-cell);
+  background: var(--cream);
+  text-align: left;
+  overflow: hidden;
+  min-height: var(--day-min-h);
+  transition: background var(--t-fast), transform var(--t-fast);
+}
+.day:hover { background: var(--pink-50); }
+.day:active { transform: scale(.985); }
+
+.day--weekend { background: var(--accent-weekend); }
+.day--weekend:hover { background: var(--pink-200); }
+
+.day--outside { opacity: .42; }
+.day--outside .day__num { color: var(--ink-faint); }
+
+.day--today {
+  background: var(--accent-focus);
+  border-color: var(--pink-800);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .5);
+}
+.day--today .day__num { color: #4a2f16; }
+
+.day--selected {
+  outline: 3px solid var(--accent-event);
+  outline-offset: -3px;
+}
+
+.day--holiday { background: var(--pink-300); }
+
+.day__num {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  flex: 0 0 auto;
+}
+.day--today .day__num {
+  background: transparent;
+  padding: 0;
+}
+
+.day__marks { display: flex; flex-direction: column; gap: 2px; width: 100%; overflow: hidden; }
+
+/* Event chip inside a day cell (month view: text label like reference) */
+.chip {
+  display: block;
+  width: 100%;
+  font-size: 9.5px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--pink-900);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: var(--pink-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip--done { opacity: .55; }
+.chip--soft {
+  display: block;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--accent-focus);
+  width: 72%;
+  text-decoration: none;
+}
+.chip--task {
+  text-decoration: none;
+  display: flex; align-items: center; gap: 3px;
+}
+.chip--task::before {
+  content: "";
+  width: 7px; height: 7px;
+  border: 1.5px solid var(--pink-700);
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+.chip--more { text-decoration: none; color: var(--ink-faint); font-size: 9px; }
+
+/* Holiday / off ribbon in the corner */
+.corner {
+  position: absolute;
+  top: 0; right: 0;
+  width: 16px; height: 16px;
+  display: grid; place-items: center;
+}
+.corner svg { width: 100%; height: 100%; }
+
+.month__foot {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--ink-soft);
+  background: var(--pink-100);
+  border-top: var(--bw) solid var(--pink-300);
+}
+.month__foot b { color: var(--ink); font-weight: 700; }
+
+/* ==========================================================================
+   10. Week view
+   ========================================================================== */
+.week { display: flex; flex-direction: column; height: 100%; }
+
+.week.surface { flex: 1 1 auto; min-height: 0; }
+
+.week__head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 62px repeat(7, minmax(0, 1fr));
+  border-bottom: var(--bw) solid var(--pink-300);
+  background: var(--cream-2);
+}
+.week__headcell {
+  padding: 7px 4px 6px;
+  text-align: center;
+  border-left: 2px solid var(--pink-300);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+.week__headcell:first-child { border-left: 0; }
+.week__headcell--weekend { background: var(--accent-weekend); }
+.week__headcell--today { background: var(--accent-focus); }
+.week__dow { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.week__date { font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.week__headcell--today .week__dow,
+.week__headcell--today .week__date { color: #4a2f16; }
+
+.ribbon {
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--accent-holiday);
+  color: var(--accent-event);
+  background: var(--cream);
+  white-space: nowrap;
+}
+
+.week__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+.week__canvas {
+  display: grid;
+  grid-template-columns: 62px repeat(7, minmax(0, 1fr));
+  position: relative;   /* nowline 以此刻度为定位基准 */
+}
+
+/* Hour gutter */
+.week__gutter { position: relative; }
+.week__hour {
+  height: var(--hour-h, 32px);
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  text-align: right;
+  padding-right: 7px;
+  line-height: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  /* 首行 00:00 需要向下偏移，其余行按刻度线对齐 */
+  transform: translateY(-1px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.week__col {
+  position: relative;
+  border-left: 2px solid var(--pink-300);
+}
+.week__col--weekend { background: var(--accent-weekend); }
+.week__col--today { background: rgba(242, 176, 131, .28); }
+
+.week__slot {
+  height: var(--hour-h, 32px);
+  border-bottom: 2px dotted var(--pink-300);
+}
+
+/* Events drawn as absolutely positioned cards */
+.evt {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border: 2px solid var(--accent-task-d);
+  border-radius: 7px;
+  background: var(--accent-task);
+  color: #1e3323;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
+}
+.evt:hover { box-shadow: 0 3px 10px rgba(60, 90, 70, .35); z-index: 4; }
+.evt__time { display: block; font-size: 9.5px; font-weight: 700; opacity: .78; }
+.evt--focus { background: var(--accent-focus); border-color: #cf8a4e; color: #4a2f16; }
+.evt--event { background: var(--accent-event); border-color: var(--pink-800); color: #fff; }
+.evt--short { padding: 3px 6px; font-size: 11px; }
+
+/* Now indicator —— 绝对定位，脱离 8 列网格流 */
+.nowline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--accent-event);
+  z-index: 5;
+  pointer-events: none;
+}
+.nowline::before {
+  content: attr(data-time);
+  position: absolute;
+  left: 4px;
+  top: -16px;
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-event);
+  background: var(--cream);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+.nowline::after {
+  content: "";
+  position: absolute;
+  left: calc(62px + (100% - 62px) * var(--now-col, 0) / 7);
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent-event);
+  border: 2px solid var(--cream);
+}
+
+/* ==========================================================================
+   11. List view
+   ========================================================================== */
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  height: 100%;
+  min-height: 0;
+}
+
+.list.surface { flex: 1 1 auto; min-height: 0; }
+
+.list__main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.list__filters {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: var(--cream-2);
+  border-bottom: var(--bw) solid var(--pink-300);
+  flex-wrap: wrap;
+}
+
+.search {
+  flex: 1 1 160px;
+  min-width: 130px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 6px;
+  background: var(--cream);
+}
+.search svg { width: 14px; height: 14px; color: var(--ink-faint); flex: 0 0 auto; }
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 13px;
+}
+.search input::placeholder { color: var(--ink-faint); }
+
+.select {
+  height: 32px;
+  padding: 0 8px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 6px;
+  background: var(--cream);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.list__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.list__daygroup {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--pink-200);
+  border-bottom: 2px solid var(--pink-400);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--pink-900);
+}
+.list__daygroup span { font-weight: 600; color: var(--ink-soft); font-size: 11.5px; }
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-bottom: 2px dotted var(--pink-300);
+  text-align: left;
+  transition: background var(--t-fast);
+}
+.row:hover { background: var(--pink-50); }
+.row__time {
+  font-family: var(--font-num);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.row__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row__title--done { text-decoration: line-through; text-decoration-color: var(--pink-600); opacity: .6; }
+.row__tags { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+
+.tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--accent-task-d);
+  background: #d6ebd9;
+  color: #35543c;
+  white-space: nowrap;
+}
+.tag--focus { background: #ffe0c4; border-color: #cf8a4e; color: #6b4118; }
+.tag--event { background: #f6d3d8; border-color: var(--accent-event); color: #7d2f3d; }
+.tag--task  { background: #dbe7f3; border-color: #7d9dc4; color: #2f4a6b; }
+
+/* Right tasks column */
+.list__aside {
+  border-left: var(--bw) solid var(--pink-300);
+  background: var(--cream-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.list__asidehead {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-bottom: var(--bw) solid var(--pink-300);
+  font-size: 14px;
+  font-weight: 700;
+}
+.list__asidescroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+  padding: 10px 12px;
+  border-bottom: 2px dotted var(--pink-300);
+  transition: background var(--t-fast);
+}
+.task:hover { background: var(--pink-50); }
+.task__box {
+  width: 17px; height: 17px;
+  margin-top: 1px;
+  border: var(--bw) solid var(--pink-700);
+  border-radius: 4px;
+  background: var(--cream);
+  display: grid; place-items: center;
+  flex: 0 0 auto;
+  transition: background var(--t-fast);
+}
+.task__box svg { width: 11px; height: 11px; opacity: 0; color: #fff; }
+.task[data-done="true"] .task__box { background: var(--accent-task-d); border-color: var(--accent-task-d); }
+.task[data-done="true"] .task__box svg { opacity: 1; }
+.task__text {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink);
+  word-break: break-word;
+}
+.task[data-done="true"] .task__text { text-decoration: line-through; opacity: .55; }
+.task__due { font-size: 11px; color: var(--ink-faint); white-space: nowrap; padding-top: 2px; }
+.task__due--today { color: var(--accent-event); font-weight: 700; }
+
+/* ==========================================================================
+   12. Empty state
+   ========================================================================== */
+.empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--ink-faint);
+}
+.empty__art {
+  width: 62px; height: 62px;
+  border: var(--bw) solid var(--pink-400);
+  border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--cream-2);
+}
+.empty__art svg { width: 30px; height: 30px; color: var(--pink-500); }
+.empty__title { font-size: 14px; font-weight: 700; color: var(--ink-soft); }
+.empty__hint { font-size: 12.5px; max-width: 240px; line-height: 1.5; }
+
+/* ==========================================================================
+   13. Status bar
+   ========================================================================== */
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--pink-100);
+  border-top: var(--bw) solid var(--pink-800);
+  font-size: 13px;
+  color: var(--ink-soft);
+  border-radius: 0 0 var(--r-win) 0;
+}
+.statusbar__spacer { flex: 1 1 auto; }
+.statusbar b { color: var(--ink); font-weight: 700; }
+
+/* Daily note (desktop, under sidebar) */
+.daily-note {
+  flex: 0 0 auto;
+  margin-top: auto;
+  width: 100%;
+  padding-top: 10px;
+  border-top: 2px dotted var(--pink-300);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.daily-note__label {
+  font-family: var(--font-en);
+  font-size: 8px;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.daily-note__line {
+  width: 88%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pink-800);
+}
+.daily-note__line--2 {
+  width: 70%;
+  background: var(--pink-500);
+}
+
+/* ==========================================================================
+   14. Mobile bottom tabbar (hidden on desktop)
+   ========================================================================== */
+.tabbar { display: none; }
+
+/* ==========================================================================
+   15. Modal (event editor)
+   ========================================================================== */
+.modal[hidden] { display: none; }
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(74, 38, 48, .48);
+  backdrop-filter: blur(2px);
+  animation: fade var(--t-fast);
+}
+@keyframes fade { from { opacity: 0; } }
+
+.modal__win {
+  width: min(430px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--cream);
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-pixel), var(--shadow-soft);
+  animation: pop 160ms cubic-bezier(.2, .9, .3, 1.2);
+}
+@keyframes pop { from { transform: scale(.96) translateY(6px); opacity: 0; } }
+
+.modal__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, var(--pink-300), var(--pink-400));
+  border-bottom: var(--bw) solid var(--pink-800);
+}
+.modal__title { flex: 1; font-size: 15px; font-weight: 700; color: var(--pink-900); }
+:root[data-theme="night"] .modal__head { background: linear-gradient(180deg, #4a333d, #3a2831); }
+
+.modal__body { padding: 14px 14px 6px; display: flex; flex-direction: column; gap: 12px; }
+.modal__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field__label { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.field__row { display: flex; gap: 10px; }
+.field__row > .field { flex: 1; }
+
+.input, .textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: 6px;
+  background: var(--cream);
+  font-size: 13.5px;
+  color: var(--ink);
+  outline: none;
+  transition: box-shadow var(--t-fast);
+}
+.input:focus, .textarea:focus { box-shadow: 0 0 0 3px rgba(192, 90, 108, .22); }
+.textarea { resize: vertical; min-height: 56px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipbtn {
+  padding: 5px 12px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-pill);
+  background: var(--cream);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.chipbtn:hover { background: var(--pink-50); }
+.chipbtn[aria-pressed="true"] {
+  background: var(--accent-event);
+  color: #fff;
+  border-color: var(--pink-800);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 14px);
+  z-index: 200;
+  padding: 9px 18px;
+  border: var(--bw) solid var(--pink-800);
+  border-radius: var(--r-pill);
+  background: var(--pink-900);
+  color: var(--cream);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms, transform 180ms;
+  box-shadow: var(--shadow-soft);
+}
+:root[data-theme="night"] .toast { background: var(--pink-100); color: var(--pink-900); }
+.toast--on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ==========================================================================
+   16. Responsive — desktop-first, collapsing downward
+   ========================================================================== */
+
+/* --- Large desktop: roomier grid, sidebar visible --- */
+@media (min-width: 1440px) {
+  :root { --day-min-h: 76px; --cell-gap: 6px; --nav-w: 156px; --fs-title: 28px; }
+  .shell { max-width: 1320px; height: min(940px, calc(100vh - 48px)); }
+}
+
+/* --- Small desktop / large tablet landscape (1024–1199) --- */
+@media (max-width: 1199px) {
+  :root { --nav-w: 108px; --fs-title: 23px; }
+  .nav__avatar { width: 62px; height: 62px; }
+  .nav__item { font-size: 8.5px; padding: 7px 3px; }
+  .nav__item svg { width: 19px; height: 19px; }
+  .list { grid-template-columns: minmax(0, 1fr) 240px; }
+  .ring__dial { width: 84px; height: 84px; }
+  .ring__time { font-size: 21px; }
+}
+
+/* ==========================================================================
+   17. Tablet (768–1023): drop side rail → horizontal top tabs
+   ========================================================================== */
+@media (max-width: 1023px) {
+  body { padding: 14px; }
+
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    height: min(920px, calc(100vh - 28px));
+    max-width: 900px;
+  }
+  .shell { filter: drop-shadow(0 10px 24px rgba(125, 69, 80, .24)); }
+
+  .nav {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    border-right: var(--bw) solid var(--pink-800);
+    border-bottom: 0;
+    border-radius: var(--r-win) var(--r-win) 0 0;
+    padding: 8px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav__avatar { width: 40px; height: 40px; margin: 0 6px 0 0; }
+  .nav__item {
+    flex-direction: row;
+    width: auto;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-family: var(--font-ui);
+    text-transform: none;
+    letter-spacing: 0;
+    gap: 6px;
+    border-radius: 6px;
+  }
+  .nav__item svg { width: 16px; height: 16px; }
+  .nav__item[aria-current="page"]::after,
+  .nav__item[aria-selected="true"]::after { display: none; }
+  .nav__spacer, .nav__group .nav__item span { display: inline; }
+  .nav__group {
+    display: flex;
+    gap: 4px;
+    padding: 0 0 0 8px;
+    margin: 0 0 0 6px;
+    border-top: 0;
+    border-left: 2px dotted var(--pink-300);
+    width: auto;
+  }
+  .daily-note { display: none; }
+
+  .main { border-radius: 0 0 var(--r-win) var(--r-win); }
+  .statusbar { border-radius: 0 0 var(--r-win) var(--r-win); }
+
+  /* Month grid gets more air on tablet */
+  :root { --day-min-h: 66px; }
+
+  .list { grid-template-columns: minmax(0, 1fr); }
+  .list__aside {
+    border-left: 0;
+    border-top: var(--bw) solid var(--pink-300);
+    max-height: 42%;
+  }
+
+  .hero { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+/* ==========================================================================
+   18. Phone (<= 767): single column, tabbar bottom, touch-first sizing
+   ========================================================================== */
+@media (max-width: 767px) {
+  body {
+    padding: 0;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .shell {
+    max-width: none;
+    width: 100%;
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    filter: none;
+    overflow: hidden;
+  }
+
+  /* 侧栏在手机上完全隐藏，改由底部标签栏承担导航 */
+  .nav { display: none; }
+
+  /* 底部标签栏 */
+  .tabbar {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    background: var(--cream);
+    border-top: var(--bw) solid var(--pink-800);
+    padding: 4px 4px max(4px, env(safe-area-inset-bottom));
+    gap: 2px;
+  }
+  .tabbar__btn {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 7px 2px 5px;
+    border-radius: 8px;
+    color: var(--ink-faint);
+    font-size: 10.5px;
+    font-weight: 600;
+    min-height: 48px;
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .tabbar__btn svg { width: 21px; height: 21px; }
+  .tabbar__btn[aria-selected="true"] { background: var(--pink-200); color: var(--pink-800); }
+
+  .main {
+    border: 0;
+    border-radius: 0;
+    min-width: 0;
+    overflow: hidden;
+    order: -1;
+  }
+  .shell > .tabbar { order: 1; }
+
+  .titlebar { display: none; }
+
+  /* 工具条横向滚动，禁止把 body 撑宽 */
+  .toolbar {
+    padding: max(8px, env(safe-area-inset-top)) 10px 8px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .toolbar .seg { display: none; }   /* 视图切换交给底部标签栏，避免与 + Event 争位 */
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+  .ring {
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .ring__dial { width: 62px; height: 62px; }
+  .ring__dial::after { inset: 8px; }
+  .ring__time { font-size: 15px; }
+  .ring__label { font-size: 10px; padding: 1px 7px; }
+  .hero__meta, .hero__stats { font-size: 13px; }
+  :root { --fs-title: 22px; --day-min-h: 52px; --cell-gap: 3px; }
+
+  /* 日历条：允许换行，禁止横向溢出 */
+  .calbar {
+    gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .calbar__period { font-size: 16px; }
+  .calbar__note { font-size: 11.5px; }
+  .calbar__right { margin-left: 0; width: 100%; }
+
+  .body { padding: 0 8px; }
+
+  /* 月视图：7 列自适应，格子可压缩 */
+  .month__head { padding: 6px 3px 5px; }
+  .month__dow { font-size: 11px; }
+  .month__grid { gap: 3px; padding: 3px; }
+  .day { padding: 3px 4px 2px; border-radius: 5px; }
+  .day__num { font-size: 11.5px; }
+  .chip { font-size: 8px; }
+  .chip--soft { height: 6px; }
+  .month__foot { font-size: 12.5px; padding: 7px 10px; }
+
+  /* 周视图：时间列收窄，字号下调 */
+  :root { --hour-h: 28px; }
+  .week__head, .week__canvas { grid-template-columns: 34px repeat(7, minmax(0, 1fr)); }
+  .week__dow { font-size: 9.5px; }
+  .week__date { font-size: 12px; }
+  .week__hour { font-size: 9px; padding-right: 3px; }
+  .ribbon { font-size: 8px; padding: 1px 4px; }
+  .evt { font-size: 9px; padding: 2px 3px; border-radius: 4px; border-width: 1.5px; }
+  .evt__time { font-size: 8px; }
+  .nowline::before { font-size: 9px; top: -14px; }
+  .nowline::after {
+    left: calc(34px + (100% - 34px) * var(--now-col, 0) / 7);
+    width: 7px; height: 7px;
+  }
+
+  /* 列表：单列，隐藏任务侧栏 */
+  .list { grid-template-columns: minmax(0, 1fr); }
+  .list__aside { display: none; }
+  .row { padding: 11px 10px; gap: 7px; grid-template-columns: auto minmax(0,1fr) auto; }
+  .row__title { font-size: 13.5px; }
+  .row__time { font-size: 11px; }
+  .row__tags .tag:last-child { display: none; }  /* 手机隐藏冗长的日期标签 */
+  .list__filters { padding: 8px; gap: 6px; }
+  .search { flex: 1 1 100%; }
+  .select { flex: 1 1 0; min-width: 0; font-size: 11.5px; padding: 0 5px; }
+
+  .statusbar {
+    border-radius: 0;
+    font-size: 11px;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .statusbar span:last-child { display: none; }  /* 手机隐藏辅助说明 */
+
+  /* 触控友好尺寸 */
+  .btn, .calbar__btn { min-height: 36px; }
+
+  .modal { padding: 0; align-items: flex-end; }
+  .modal__win {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: var(--r-panel) var(--r-panel) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .field__row { flex-direction: column; gap: 12px; }
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  :root { --day-min-h: 46px; --cell-gap: 2px; }
+  .day__num { font-size: 11px; }
+  .month__dow { font-size: 10px; }
+  .tabbar__btn { font-size: 9.5px; }
+}
+
+/* Landscape phone: keep month grid from being crushed */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
+  :root { --day-min-h: 44px; }
+  .hero { display: none; }
+  .ring { display: none; }
+}
+
+/* ---------- Print ---------- */
+@media print {
+  body { background: #fff; padding: 0; }
+  .toolbar, .nav, .tabbar, .statusbar { display: none; }
+  .shell { height: auto; filter: none; }
+  .main { border: 0; }
+}

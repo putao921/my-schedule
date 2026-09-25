@@ -1,0 +1,11 @@
+﻿{
+    "Theme":  "light",
+    "View":  "month",
+    "WindowWidth":  1080,
+    "WindowHeight":  720,
+    "WindowLeft":  -0.8,
+    "WindowTop":  -0.8,
+    "Topmost":  false,
+    "PomodoroMin":  25,
+    "FocusTodayMin":  456
+}

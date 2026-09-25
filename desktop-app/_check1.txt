@@ -1,0 +1,20 @@
+=== 1. 命名空间计数断言 ===
+Views.ps1            旧Column=0 新Column=13 | 旧Row=0 新Row=5
+Views2.ps1           旧Column=0 新Column=4 | 旧Row=0 新Row=1
+Ui.ps1               旧Column=0 新Column=0 | 旧Row=0 新Row=0
+Care.ps1             旧Column=0 新Column=0 | 旧Row=0 新Row=0
+ScheduleWidget.ps1   旧Column=0 新Column=0 | 旧Row=0 新Row=0
+
+=== 2. 其它可疑的 System.Windows.X 类型引用 ===
+  （无输出 = 未发现其它同类错误）
+
+=== 3. BOM 检查 ===
+Care.ps1                                 BOM=True
+ScheduleWidget.ps1                       BOM=True
+Ui.ps1                                   BOM=True
+Views.ps1                                BOM=True
+Views2.ps1                               BOM=True
+ReadReport.ps1                           BOM=False
+RegressionHarness.ps1                    BOM=True
+RunApp.ps1                               BOM=True
+SyntaxCheck.ps1                          BOM=True

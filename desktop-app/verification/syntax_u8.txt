@@ -1,0 +1,17 @@
+﻿powershell.exe : 使用“3”个参数调用“WriteAllText”时发生异常:“文件“C:\Users\lenovo\WorkBuddy
+所在位置 行:446 字符: 1
++ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$v\SyntaxC ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (使用“3”个参数调用“Writ...enovo\WorkBuddy 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+\2026-09-23-15-30-45\desktop-app\verification\syntax.txt”正由另一进程使用，因
+此该进程无法访问此文件。”
+所在位置 C:\Users\lenovo\WorkBuddy\2026-09-23-15-30-45\desktop-app\verification
+\SyntaxCheck.ps1:139 字符: 1
++ [System.IO.File]::WriteAllText($Report, ($lines -join [Environment]:: ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : IOException
+ 

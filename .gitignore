@@ -1,0 +1,17 @@
+# 运行产物：截图、审计日志、临时数据目录
+desktop-app/shots/
+desktop-app/appdata/
+desktop-app/verification/rundata/
+desktop-app/verification/_*.txt
+desktop-app/verification/shots-log.txt
+desktop-app/verification/syntax.txt
+desktop-app/**/bootlog.txt
+desktop-app/**/errors.log
+desktop-app/**/audit.txt
+desktop-app/**/audit.live.txt
+
+# 系统 / 编辑器
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

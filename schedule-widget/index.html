@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>My Schedule — 桌面日程小工具</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="shell" id="app">
+
+  <!-- ==================== 左侧导航（桌面） ==================== -->
+  <nav class="nav" aria-label="主导航">
+
+    <div class="nav__avatar" aria-hidden="true">
+      <canvas id="avatar" width="112" height="112"></canvas>
+    </div>
+
+    <button class="nav__item" type="button" data-view="month" aria-current="page">
+      <span id="i-month"></span><span>Month</span>
+    </button>
+    <button class="nav__item" type="button" data-view="week">
+      <span id="i-week"></span><span>Week</span>
+    </button>
+    <button class="nav__item" type="button" data-view="list">
+      <span id="i-list"></span><span>List</span>
+    </button>
+
+    <div class="nav__group">
+      <button class="nav__item" type="button" data-view="list">
+        <span id="i-tasks"></span><span>Tasks</span>
+      </button>
+      <button class="nav__item" type="button" data-noop="1">
+        <span id="i-settings"></span><span>Settings</span>
+      </button>
+      <button class="nav__item" type="button" data-noop="1">
+        <span id="i-profile"></span><span>Profile</span>
+      </button>
+    </div>
+
+    <div class="nav__spacer"></div>
+
+    <div class="daily-note" aria-hidden="true">
+      <span class="daily-note__label">DAILY NOTE</span>
+      <span class="daily-note__line"></span>
+      <span class="daily-note__line daily-note__line--2"></span>
+    </div>
+  </nav>
+
+  <!-- ==================== 主面板 ==================== -->
+  <main class="main">
+
+    <!-- 标题栏（像素窗口） -->
+    <header class="titlebar">
+      <span class="titlebar__title" id="win-title">Main window — Month view</span>
+      <button class="wctl" type="button" title="最小化" aria-label="最小化"><span id="i-min"></span></button>
+      <button class="wctl" type="button" title="最大化" aria-label="最大化"><span id="i-max"></span></button>
+      <button class="wctl wctl--close" type="button" title="关闭" aria-label="关闭"><span id="i-close"></span></button>
+    </header>
+
+    <!-- 工具条 -->
+    <div class="toolbar">
+      <!-- 视图分段控件（桌面；手机由底部标签栏承担） -->
+      <div class="seg" role="tablist" aria-label="视图切换" id="seg">
+        <button class="seg__btn" type="button" role="tab" data-view="month" aria-selected="true">
+          <span id="i-seg-month"></span>Month
+        </button>
+        <button class="seg__btn" type="button" role="tab" data-view="week" aria-selected="false">
+          <span id="i-seg-week"></span>Week
+        </button>
+        <button class="seg__btn" type="button" role="tab" data-view="list" aria-selected="false">
+          <span id="i-seg-list"></span>List
+        </button>
+      </div>
+
+      <button class="btn btn--primary" type="button" id="btn-add">
+        <span id="i-plus"></span>Event
+      </button>
+
+      <span class="toolbar__spacer"></span>
+
+      <button class="btn" type="button" title="置顶（原型未接系统能力）">
+        <span id="i-pin"></span>Pin
+      </button>
+      <button class="btn" type="button" id="btn-theme">
+        <span id="i-moon"></span><span>Night</span>
+      </button>
+      <button class="btn btn--icon" type="button" title="更多" aria-label="更多"><span id="i-more"></span></button>
+      <button class="btn btn--icon" type="button" title="折叠" aria-label="折叠"><span id="i-collapse"></span></button>
+    </div>
+
+    <!-- 滚动主体 -->
+    <div class="body" id="body">
+
+      <!-- Hero -->
+      <div class="hero">
+        <div>
+          <h1 class="hero__title">My Schedule</h1>
+          <p class="hero__meta" id="hero-date">—</p>
+          <p class="hero__stats" id="hero-stats">—</p>
+        </div>
+        <div class="ring">
+          <div class="ring__dial" id="ring-dial" style="--p:.62">
+            <span class="ring__time" id="ring-time">25:00</span>
+          </div>
+          <span class="ring__label" id="ring-label">Focus Stats</span>
+        </div>
+      </div>
+
+      <!-- 日历导航 -->
+      <div class="calbar">
+        <div class="calbar__nav">
+          <button class="calbar__btn" type="button" id="nav-prev" aria-label="上一页"><span id="i-chevL"></span></button>
+          <button class="calbar__btn" type="button" id="nav-next" aria-label="下一页"><span id="i-chevR"></span></button>
+        </div>
+        <button class="calbar__label" type="button" id="cal-label">This month</button>
+        <span class="calbar__period" id="cal-period">September 2026</span>
+        <div class="calbar__right">
+          <span class="calbar__note" id="cal-note"></span>
+        </div>
+      </div>
+
+      <!-- 视图内容由 app.js 注入到 #view-root -->
+      <div class="viewroot" id="view-root"></div>
+    </div>
+
+    <!-- 状态栏 -->
+    <footer class="statusbar">
+      <span id="status-count">—</span>
+      <span class="statusbar__spacer"></span>
+      <span>在浏览器内运行 · 数据保存在本机</span>
+    </footer>
+  </main>
+
+  <!-- ==================== 底部标签栏（手机） ==================== -->
+  <nav class="tabbar" aria-label="视图切换">
+    <button class="tabbar__btn" type="button" data-view="month" aria-selected="true">
+      <span id="i-t-month"></span><span>月</span>
+    </button>
+    <button class="tabbar__btn" type="button" data-view="week" aria-selected="false">
+      <span id="i-t-week"></span><span>周</span>
+    </button>
+    <button class="tabbar__btn" type="button" data-view="list" aria-selected="false">
+      <span id="i-t-list"></span><span>列表</span>
+    </button>
+    <button class="tabbar__btn" type="button" id="btn-add-m" aria-selected="false">
+      <span id="i-t-plus"></span><span>新建</span>
+    </button>
+  </nav>
+</div>
+
+<!-- ==================== 事件编辑器 ==================== -->
+<div class="modal" id="modal" hidden>
+  <div class="modal__win" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal__head">
+      <span class="modal__title" id="modal-title">新建日程</span>
+      <button class="wctl" type="button" id="modal-close" aria-label="关闭"><span id="i-close2"></span></button>
+    </div>
+
+    <form id="event-form">
+      <div class="modal__body">
+        <div class="field">
+          <label class="field__label" for="f-title">标题</label>
+          <input class="input" id="f-title" type="text" placeholder="例如：Design Review" required />
+        </div>
+
+        <div class="field">
+          <span class="field__label">类型</span>
+          <div class="chips" id="tag-chips">
+            <button class="chipbtn" type="button" data-tag="work"  aria-pressed="true">Work</button>
+            <button class="chipbtn" type="button" data-tag="focus" aria-pressed="false">Focus</button>
+            <button class="chipbtn" type="button" data-tag="life"  aria-pressed="false">Life</button>
+          </div>
+        </div>
+
+        <div class="field__row">
+          <div class="field">
+            <label class="field__label" for="f-date">日期</label>
+            <input class="input" id="f-date" type="date" />
+          </div>
+        </div>
+
+        <div class="field__row">
+          <div class="field">
+            <label class="field__label" for="f-start">开始</label>
+            <input class="input" id="f-start" type="time" step="300" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="f-end">结束</label>
+            <input class="input" id="f-end" type="time" step="300" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="f-note">备注</label>
+          <textarea class="textarea" id="f-note" placeholder="可选"></textarea>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="f-done">
+            <input type="checkbox" id="f-done" /> 标记为已完成
+          </label>
+        </div>
+      </div>
+
+      <div class="modal__foot">
+        <button class="btn btn--primary" type="submit">保存</button>
+        <button class="btn" type="button" id="modal-cancel">取消</button>
+        <span class="toolbar__spacer"></span>
+        <button class="btn btn--ghost" type="button" id="btn-delete" hidden>
+          <span id="i-trash"></span>删除
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+<script>
+/* ---------- 注入图标（内联 SVG，无外部依赖） ---------- */
+(function () {
+  const I = {
+    month:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M7 14h.01M12 14h.01M17 14h.01M7 18h.01M12 18h.01M17 18h.01"/></svg>',
+    week:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><rect x="6" y="13" width="3" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="10.5" y="13" width="3" height="5" rx="1" fill="currentColor" stroke="none"/><rect x="15" y="13" width="3" height="5" rx="1" fill="currentColor" stroke="none"/></svg>',
+    list:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+    tasks:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 9l2 2 4-4M8 16h6"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+    profile:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>',
+    plus:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    pin:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3l6 6-3 1-4 4 1 5-3-3-6 6"/><path d="M9 9l-5 5 6 1"/></svg>',
+    moon:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 14.5A8.5 8.5 0 019.5 4a8.5 8.5 0 1010.5 10.5z"/><path d="M4 4l1.5 1.5M17 2v2M21 19h2" opacity=".6"/></svg>',
+    more:     '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+    collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+    chevL:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+    chevR:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+    min:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>',
+    max:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg>',
+    close:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    trash:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 14h10l1-14"/></svg>'
+  };
+  const map = {
+    'i-month': I.month, 'i-week': I.week, 'i-list': I.list,
+    'i-tasks': I.tasks, 'i-settings': I.settings, 'i-profile': I.profile,
+    'i-seg-month': I.month, 'i-seg-week': I.week, 'i-seg-list': I.list,
+    'i-t-month': I.month, 'i-t-week': I.week, 'i-t-list': I.list, 'i-t-plus': I.plus,
+    'i-plus': I.plus, 'i-pin': I.pin, 'i-moon': I.moon, 'i-more': I.more,
+    'i-collapse': I.collapse, 'i-chevL': I.chevL, 'i-chevR': I.chevR,
+    'i-min': I.min, 'i-max': I.max, 'i-close': I.close, 'i-close2': I.close,
+    'i-trash': I.trash
+  };
+  Object.entries(map).forEach(([id, svg]) => {
+    const n = document.getElementById(id);
+    if (n) n.outerHTML = svg;
+  });
+
+  /* ---------- 头像：用 canvas 画出像素风小人（避免依赖外部图片） ---------- */
+  const cv = document.getElementById('avatar');
+  if (cv) {
+    const ctx = cv.getContext('2d');
+    const P = {
+      '.': null,
+      'h': '#7a4a52',  // 头发深
+      'H': '#9c6068',  // 头发
+      'k': '#c98a90',  // 头发高光
+      's': '#f7d9cd',  // 皮肤
+      'S': '#e8bda9',  // 皮肤暗
+      'e': '#3a2a30',  // 眼睛
+      'w': '#ffffff',  // 眼白/高光
+      'b': '#e08a9a',  // 腮红
+      'c': '#fdf4f2',  // 衣服
+      'C': '#f2d0cc',  // 衣服阴影
+      'r': '#c05a6c'   // 领口
+    };
+    // 14x14 像素小人
+    const art = [
+      "...hhhhhh....",
+      "..hHHHHHHh...",
+      ".hHHkkkHHHh..",
+      ".hHkkkkkHHh..",
+      ".hHssssssHh..",
+      ".hHseeseeSh..",
+      ".hHsbbssbSh..",
+      "..hSssssSs...",
+      "...rrrrrr....",
+      "..cccccccc...",
+      ".cccccccccc..",
+      ".ccCccccCcc..",
+      "..cc....cc...",
+      "..ss....ss..."
+    ];
+    const N = 14, S = cv.width / N;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const ch = art[y][x];
+        const col = P[ch];
+        if (!col) continue;
+        ctx.fillStyle = col;
+        ctx.fillRect(Math.round(x * S), Math.round(y * S), Math.ceil(S), Math.ceil(S));
+      }
+    }
+  }
+
+  /* ---------- 顶部新建按钮（手机端） ---------- */
+  document.getElementById('btn-add-m').addEventListener('click', () => {
+    document.getElementById('btn-add').click();
+  });
+
+  /* ---------- 占位按钮：给出反馈而非静默 ---------- */
+  document.addEventListener('click', e => {
+    const n = e.target.closest('[data-noop]');
+    if (!n) return;
+    const t = document.getElementById('toast');
+    t.textContent = '原型阶段：该入口尚未接入功能';
+    t.classList.add('toast--on');
+    setTimeout(() => t.classList.remove('toast--on'), 1500);
+  });
+})();
+</script>
+</body>
+</html>

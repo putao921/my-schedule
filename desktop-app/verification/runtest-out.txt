@@ -1,0 +1,19 @@
+start 18:32:53
+--- errors.log ---
+[2026-09-23 18:34:09] App.Exit
+--- bootlog.txt ---
+Boot OK
+DataDir: C:\Users\lenovo\WorkBuddy\2026-09-23-15-30-45\desktop-app\verification\probe-appdata
+Theme: night
+View: month
+Events: 22
+Tasks: 4
+Window: 0x0
+Functions: 80
+Unhandled: 0
+errors.log: (none)
+--- data dir files ---
+  bootlog.txt  209b
+  errors.log  35b
+  schedule.json  9472b
+  settings.json  251b
