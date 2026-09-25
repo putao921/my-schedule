@@ -380,9 +380,15 @@ function New-DialogCloseButton {
     # 26px 宽的按钮里塞不下 10px 的 ×（会被压成一条竖线）。
     # 也不用 New-Icon + ControlTemplate 混搭，直接把手写的 X 路径烘进模板，
     # 少一层对 $script:IconDefs 的依赖。
+    #
+    # 第五轮：底色从 Transparent 改成 CardAlt —— 原来 × 是无底色轻按钮，
+    # 而它左边紧挨着的 Save / Cancel 都是"有底 + 圆角"，同一行里三种观感。
+    # 现在三件套统一为"有底 + 1.5px 描边 + 圆角"，只是 × 不写字、只放一个叉。
+    # 注意 hover/press 必须比底色更深，否则"有底色之后 hover 看不出来"。
     $ink = Get-Pal 'Ink'
-    $hover = Get-Pal 'CardAlt'
-    $press = Get-Pal 'BorderSoft'
+    $bg = Get-Pal 'CardAlt'
+    $hover = Get-Pal 'BorderSoft'
+    $press = Get-Pal 'Border'
     $btn = New-Object System.Windows.Controls.Button
     $btn.Name = 'DlgClose'
     $btn.Width = 26
@@ -394,7 +400,8 @@ function New-DialogCloseButton {
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  TargetType="Button">
-  <Border x:Name="bd" Background="Transparent" CornerRadius="5">
+  <Border x:Name="bd" Background="$bg" BorderBrush="$(Get-Pal 'Border')" BorderThickness="1.5"
+          CornerRadius="6">
     <Path x:Name="gl" Data="M7 7 L17 17 M17 7 L7 17" Stroke="$ink" StrokeThickness="2.4"
           Width="24" Height="24" Stretch="None"
           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
@@ -851,15 +858,38 @@ function Save-SettingsDialogValues {
     }
     if (-not $rangeOk) { $weekRange = '0-24' }
 
+    # ---- 语言（第五轮） ----
+    # 显示名 -> 语言码。不在表里就回落中文（并把控件文字改回去，理由同字号档位）。
+    $langVal = 'zh'
+    $langName = [string]$script:SetLangBox.Text
+    if ($script:SetLangChoices.Contains($langName)) {
+        $langVal = [string]$script:SetLangChoices[$langName]
+    } else {
+        $langVal = 'zh'; $script:SetLangBox.Text = '中文'
+    }
+
+    # ---- 周视图密度（第五轮） ----
+    $densityVal = 40
+    $densityName = [string]$script:SetDensityBox.Text
+    if ($script:SetDensityChoices.Contains($densityName)) {
+        $densityVal = [int]$script:SetDensityChoices[$densityName]
+    } else {
+        $densityVal = 40; $script:SetDensityBox.Text = 'Normal'
+    }
+
     # ---- 落库 ----
     $oldTheme = [string]$script:Theme
     $oldScale = [double]$script:Settings['UiScale']
+    $oldLang = [string]$script:Lang
+    $oldDensity = [int]$script:Settings['WeekDensity']
     $script:Settings['PomodoroMin'] = $m
     $script:Settings['UiScale'] = $scaleVal
     $script:Settings['UiAdaptive'] = [bool]$script:SetUiAdaptive.IsChecked
     $script:Settings['Topmost'] = [bool]$script:SetTopmost.IsChecked
     $script:Settings['CloseToTray'] = [bool]$script:SetCloseToTray.IsChecked
     $script:Settings['WeekViewRange'] = $weekRange
+    $script:Settings['Language'] = $langVal
+    $script:Settings['WeekDensity'] = $densityVal
     $newTheme = ([string]$script:SetThemeBox.Text).ToLowerInvariant()
     if (@('light','night') -notcontains $newTheme) { $newTheme = 'light' }
     $script:Settings['Theme'] = $newTheme
@@ -867,6 +897,10 @@ function Save-SettingsDialogValues {
     # 应用到运行时状态
     $script:UiScaleUser = $scaleVal
     [void](Update-UiScale)
+    # 语言统一走 Set-Lang（设值 + 重建取词数组 + 刷 XAML 文案）。
+    # 这里只改状态，不在这里刷界面 —— 下面的重建分支决定刷新时机。
+    $script:Lang = $langVal
+    Initialize-Lang
     $script:TopmostOn = [bool]$script:SetTopmost.IsChecked
     try { if ($null -ne $script:MainWindow) { $script:MainWindow.Topmost = [bool]$script:TopmostOn } } catch { }
     $script:CloseToTray = [bool]$script:Settings['CloseToTray']
@@ -878,9 +912,13 @@ function Save-SettingsDialogValues {
     # 字号变了：代码 new 出来的控件（New-Txt / New-PixBtn）字号在创建时就定死了，
     #   只有重建整棵树才会按新倍率重画。所以走 Build-Window（换皮不换窗，窗口对象不变）。
     # 主题变了：Set-Theme 本身就是重建路径，且它会带上新的 UiScale。
-    # 两者都变时只走一次（Set-Theme -Sync），避免重建两遍。
+    # 语言变了：侧栏导航文字是 XAML 里写死的，改完词以后**还要重排一遍**才对齐
+    #   （中文两个字比英文五个字母窄，但导航行高是按字号算的，不重建也能看；
+    #    不过语言和字号一起变时只重建一次更省事）。
+    # 三者都变时只走一次（Set-Theme -Sync 是最高优先的重建路径），避免重建多遍。
     $scaleChanged = ([math]::Abs([double]$oldScale - $scaleVal) -gt 0.001)
     $themeChanged = ($oldTheme -ne $newTheme)
+    $langChanged = ($oldLang -ne $langVal)
     try {
         if ($themeChanged) {
             Set-Theme $newTheme -Sync
@@ -888,10 +926,16 @@ function Save-SettingsDialogValues {
             Build-Window
             Refresh-All
         } else {
+            if ($langChanged) { Apply-Lang }
             Apply-UiScale
             Refresh-All
         }
     } catch { Write-ErrLog ('Settings apply: ' + $_.Exception.Message) }
+
+    # 周视图密度：只在当前就在周视图时才立刻重画（否则会白算一遍没有人看的轴）
+    try {
+        if ($densityVal -ne $oldDensity -and $script:View -eq 'week') { [void](Set-WeekDensity $densityVal) }
+    } catch { Write-ErrLog ('Set week density: ' + $_.Exception.Message) }
 
     # 周视图时段：只在用户当前就在周视图时才立刻应用（否则会改掉"下次进周视图"的默认值）
     try {
@@ -968,6 +1012,16 @@ function Show-SettingsWindow {
     $script:SetThemeBox = New-ComboField $sp 'Theme' $(if ($script:Theme -eq 'night') { 'Night' } else { 'Light' }) @('Light','Night')
     $script:SetThemeBox.IsEditable = $false
 
+    # 语言（第五轮）。放 Appearance 组里，因为它和主题/字号一样属于"整屏观感"。
+    #   显示值用中文名（中文用户点得懂），落库存 'zh'/'en'。
+    $script:SetLangChoices = [ordered]@{ '中文' = 'zh'; 'English' = 'en' }
+    $curLangName = '中文'
+    foreach ($k in $script:SetLangChoices.Keys) {
+        if ([string]$script:SetLangChoices[$k] -eq [string]$script:Lang) { $curLangName = $k; break }
+    }
+    $script:SetLangBox = New-ComboField $sp 'Language  (sidebar and view names)' $curLangName @('中文','English')
+    $script:SetLangBox.IsEditable = $false
+
     # ================= Window（第四轮新增） =================
     New-SettingsSection $sp 'Window'
     $script:SetTopmost = New-ToggleRow $sp 'Keep the window on top of other windows' `
@@ -978,6 +1032,14 @@ function Show-SettingsWindow {
     $script:SetWeekRange = New-ComboField $sp 'Hours shown in the week view by default' `
         ([string]$script:Settings['WeekViewRange']) @('0-24','8-20','6-22','9-18')
     $script:SetWeekRange.IsEditable = $false
+    # 周视图密度（第五轮）。显示"紧凑/标准/宽松"，落库存像素高。
+    $script:SetDensityChoices = [ordered]@{ 'Compact' = 28; 'Normal' = 40; 'Roomy' = 56 }
+    $curDensityName = 'Normal'
+    foreach ($k in $script:SetDensityChoices.Keys) {
+        if ([int]$script:SetDensityChoices[$k] -eq [int]$script:Settings['WeekDensity']) { $curDensityName = $k; break }
+    }
+    $script:SetDensityBox = New-ComboField $sp 'Row height in the week view' $curDensityName @('Compact','Normal','Roomy')
+    $script:SetDensityBox.IsEditable = $false
 
     # 近 7 天专注柱状
     [void]$sp.Children.Add((New-Txt -Text 'Focus last 7 days (minutes)' -Size 10 -Color (Get-Pal 'InkFaint')))
@@ -1729,11 +1791,28 @@ function Show-AvatarWindow {
 }
 
 # ---------------------------------------------------------------------------
-#  番茄钟完成提示（不走 MessageBox，避免挡住截图与自动化）
+#  番茄钟完成提示 / 可撤销删除提示（不走 MessageBox，避免挡住截图与自动化）
+#
+#  -ActionText + -ActionScript 让同一个提示条变成"5 秒内可撤销"的 Undo 条
+#  （第 5 条外观建议）：Windows 自己的"删除到回收站"就是这个模式。
+#  二次确认挡不住"手比脑子快"，所以确认之后还要留一条退路。
+#
+#  作用域硬规则：-ActionScript 在点击时才被 WPF 回调，那时本函数的局部变量
+#  （$w / $scripts）早已随作用域销毁。所以动作脚本一律挂在 $btn.Tag 上带过去，
+#  处理器里只读 $s.Tag —— 绝不允许捕获创建函数的局部变量。
 # ---------------------------------------------------------------------------
 function Show-Toast {
-    param([string]$Title = 'Notification', [string]$Text = '')
+    param([string]$Title = 'Notification', [string]$Text = '',
+          [string]$ActionText = '', [scriptblock]$ActionScript = $null,
+          [int]$Seconds = 4)
     try {
+        # 同一时刻只留一条提示条：否则连续删两项会叠成一片，且旧定时器会把新的关掉
+        try {
+            if ($null -ne $script:ToastTimer) { $script:ToastTimer.Stop() }
+            if ($null -ne $script:ToastWindow) { $script:ToastWindow.Close() }
+        } catch { }
+        $script:ToastWindow = $null
+
         $w = New-Object System.Windows.Window
         $w.WindowStyle = 'None'
         $w.AllowsTransparency = $true
@@ -1746,19 +1825,55 @@ function Show-Toast {
         $bd.Padding = [System.Windows.Thickness]::new(20, 14, 20, 14)
         $sp = New-Object System.Windows.Controls.StackPanel
         [void]$sp.Children.Add((New-Txt -Text $Title -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
-        [void]$sp.Children.Add((New-Txt -Text $Text -Size 11 -Color (Get-Pal 'InkSoft')))
+
+        if ($ActionText -and $null -ne $ActionScript) {
+            # 两列：左边正文，右边动作按钮。正文用 StackPanel 包一层，
+            # 这样长文本换行时不会把按钮挤到第二行。
+            $row = New-Object System.Windows.Controls.StackPanel
+            $row.Orientation = 'Horizontal'
+            $tx = New-Txt -Text $Text -Size 11 -Color (Get-Pal 'InkSoft')
+            $tx.VerticalAlignment = 'Center'
+            $tx.Margin = [System.Windows.Thickness]::new(0, 8, 14, 0)
+            [void]$row.Children.Add($tx)
+            $btn = New-PixBtn -Text $ActionText -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') `
+                              -H 26 -FontSize 11 -Radius 6 -BorderCol (Get-Pal 'Border')
+            $btn.VerticalAlignment = 'Center'
+            $btn.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+            $btn.Tag = $ActionScript
+            $btn.Add_Click({
+                param($s, $e)
+                $act = $s.Tag
+                try {
+                    if ($null -ne $script:ToastTimer) { $script:ToastTimer.Stop() }
+                    if ($null -ne $script:ToastWindow) {
+                        $script:ToastWindow.Close()
+                        $script:ToastWindow = $null
+                    }
+                } catch { }
+                if ($null -ne $act) {
+                    try { & $act } catch { Write-ErrLog ('Toast action: ' + $_.Exception.Message) }
+                }
+            })
+            [void]$row.Children.Add($btn)
+            [void]$sp.Children.Add($row)
+        } else {
+            $t2 = New-Txt -Text $Text -Size 11 -Color (Get-Pal 'InkSoft')
+            $t2.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+            [void]$sp.Children.Add($t2)
+        }
+
         $bd.Child = $sp
         $w.Content = $bd
         $wa = [System.Windows.SystemParameters]::WorkArea
-        $w.Left = $wa.Right - 300
-        $w.Top = $wa.Bottom - 130
+        $w.Left = $wa.Right - 320
+        $w.Top = $wa.Bottom - 150
         $w.Show()
         # 注意：定时器与窗口必须挂到 $script: 上。
         # 事件处理器 scriptblock 真正被 WPF 回调时，函数局部变量（$t / $w）已经随作用域消失，
         # StrictMode 下会直接抛"检索不到变量"，被 catch 吞掉后就表现为"Toast 永不关闭"。
         $script:ToastWindow = $w
         $script:ToastTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $script:ToastTimer.Interval = [timespan]::FromSeconds(4)
+        $script:ToastTimer.Interval = [timespan]::FromSeconds($Seconds)
         $script:ToastTimer.Add_Tick({
             try {
                 $script:ToastTimer.Stop()

@@ -197,8 +197,12 @@ $script:Harness.Add_Tick({
       [void]$script:MainWindow.UpdateLayout()
       $rows = @(Find-ByTag $script:ListStack 'event')
       Check2 '检索不存在的词 -> 事件流为空' ($rows.Count -eq 0) ("got " + $rows.Count)
-      $empties = @($script:ListStack.Children | Where-Object { $_ -is [System.Windows.Controls.TextBlock] -and ([string]$_.Text) -eq 'No events found' })
-      Check2 '检索无结果显示空状态文案' ($empties.Count -eq 1)
+      # 第五轮起空状态不再是裸 TextBlock，而是"文案 + 按钮"的 StackPanel（第 5 条外观建议）。
+      # 断言改成：日程行为 0，且列表里恰好有 1 个"非日程行"的内容块（那个空状态块）。
+      # 不比对具体文案 —— 文案随语言变（zh: 这一周还没有安排 / en: Nothing scheduled ...）。
+      $nonRows = @($script:ListStack.Children | Where-Object { (Find-ByTag $_ 'event').Count -eq 0 })
+      Check2 '检索无结果时不显示任何日程行' ($rows.Count -eq 0) ("rows=" + $rows.Count)
+      Check2 '检索无结果时给出空状态块' ($nonRows.Count -eq 1) ("blocks=" + $nonRows.Count)
       # 恢复
       $script:ListSearch.Text = ''
       return

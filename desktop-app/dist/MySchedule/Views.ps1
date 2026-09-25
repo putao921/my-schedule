@@ -351,13 +351,20 @@ function Week-RangeRows {
 # ---- 自适应高度：让周视图填满窗口，而不是在底部留一条空白 ----
 # 为什么需要：HourHeight 以前是常数 40，窗口拉高时时间轴尺寸不变（08:00–20:00 就只有 480px），
 # 底部空出一大片；窗口压矮时又要滚动。现在按"可视高度 / 时段小时数"反算。
-#   下限 = 40（＝原设计密度）：**永远不会比过去更挤**。窗口不高时算出来的值小于 40，
-#     直接退回 40，维持"内容比视口高 → 滚动"的老行为（也正是过去唯一正确的那种情况）。
+#   下限 = 密度档位（HourHeightBase，默认 40）：**永远不会比选的密度更挤**。
+#     窗口不高时算出来的值小于基准，直接退回基准，维持"内容比视口高 → 滚动"的老行为。
 #   上限 = 220：防"极短的自定义时段（比如 3 小时）把一行拉成一整屏"。
-# 因为下限是 40，**只有"内容比视口矮"这一种情况才会真的触发放大** —— 正是要修的那个情景。
 # 另外这也保证了 1080x720 这个回归基准尺寸下行为基本不变（算出来约等于 40）。
+#
+# 第五轮：HourHeightBase 不再是常量 40，而是由设置里的"周视图密度"驱动
+#   （紧凑 28 / 标准 40 / 宽松 56，见 Set-WeekDensity）。
+#   同时新增一个**放大上限倍率**：不然选"紧凑"也没用 —— 窗口一高，
+#   Reflow 会把 28 一路放大到 220，紧凑档形同虚设。
+#   规则：最多放大到 base 的 1.6 倍。这样"紧凑"是"更矮、更容易滚动"，
+#   而不是"在矮窗口里紧凑、在高窗口里又散开"。
 $script:HourHeightBase = 40.0
 $script:HourHeightMax  = 220.0
+$script:DensityGrowMax = 1.6
 
 function Fit-WeekAxisHeight {
     # 反算并写回 $script:HourHeight。返回 $true = "值变了，调用方要重画"。
@@ -369,8 +376,13 @@ function Fit-WeekAxisHeight {
     if ($hours -le 0.0) { return $false }
     # 减 2px：让"内容高度 == 视口高度"时不至于因取整冒出一条多余的滚动条
     $want = ($h - 2.0) / $hours
+    # 下限 = 当前密度档位（保证不会比用户选的更挤）
     if ($want -lt [double]$script:HourHeightBase) { $want = [double]$script:HourHeightBase }
-    if ($want -gt [double]$script:HourHeightMax)  { $want = [double]$script:HourHeightMax }
+    # 放大上限 = min(绝对上限 220, base × 1.6) —— 后者保证"紧凑档不会在高窗口里散开"
+    $growCap = [double]$script:HourHeightBase * [double]$script:DensityGrowMax
+    $cap = [double]$script:HourHeightMax
+    if ($growCap -lt $cap) { $cap = $growCap }
+    if ($want -gt $cap) { $want = $cap }
     $want = [math]::Round($want * 2.0) / 2.0   # 0.5px 精度，免得浮点抖动导致反复重画
     if ([math]::Abs($want - [double]$script:HourHeight) -lt 0.25) { return $false }
     $script:HourHeight = $want
@@ -432,6 +444,30 @@ function Set-WeekRange {
     $script:Settings['WeekEndHour'] = $EndHour
     Save-Settings
     Update-WeekAxis
+    return $true
+}
+
+function Set-WeekDensity {
+    # 设置周视图密度（每小时像素高）。返回 $true = 已生效。
+    #
+    # 为什么改的是 HourHeightBase 而不是 HourHeight：
+    #   Fit-WeekAxisHeight 会用"可视高度 / 小时数"反算，但**下限是 HourHeightBase**。
+    #   只改 HourHeight 的话，下一次 Reflow（窗口一缩放）就会被 base 顶回去 ——
+    #   表现是"设成紧凑，拖一下窗口又变回标准"。所以必须改 base 本身。
+    #
+    # 为什么不重建整个周视图：和 Set-WeekRange 同理，控件正开着下拉弹层，
+    #   重建会撕掉弹层。这里只改尺寸 + 重画轴层 + 让事件层重新贴位。
+    param([int]$Px)
+    if ($Px -lt 20 -or $Px -gt 80) { return $false }
+    $script:HourHeightBase = [double]$Px
+    $script:HourHeight     = [double]$Px
+    $script:Settings['WeekDensity'] = $Px
+    Save-Settings
+    # Update-WeekAxis 会把轴层按新 HourHeight 重画，并让事件层重新贴回原位。
+    Update-WeekAxis
+    # 紧凑模式下内容可能比视口矮了，此时 Reflow 会把密度向上补一点（上限 220）。
+    # 这是有意的：紧凑是"下限更低"，不是"锁死不变"。
+    try { [void](Reflow-WeekHeight) } catch { }
     return $true
 }
 
@@ -1419,10 +1455,41 @@ function Fill-ListRows {
     $list = @($list | Sort-Object -Property @{E={[string]$_.date}}, @{E={[int]$_.start}})
 
     if ($list.Count -eq 0) {
-        $em = New-Txt -Text "No events found" -Size 12 -Color (Get-Pal 'InkFaint')
+        # 第 5 条外观建议：空状态不能是纯空白（"看起来像界面坏了"）。
+        # 分两种空：① 本来就没安排 → 给"新建日程"入口；
+        #           ② 有安排但被筛选滤没了 → 给"清除筛选"，否则用户会以为日程丢了。
+        $filtered = (-not [string]::IsNullOrWhiteSpace($q)) -or ($tagF -ne 'all')
+        $wrap = New-Object System.Windows.Controls.StackPanel
+        $wrap.HorizontalAlignment = 'Center'
+        $wrap.Margin = [System.Windows.Thickness]::new(0, 34, 0, 0)
+        $em = New-Txt -Text (Get-LangText $(if ($filtered) { 'empty.filtered' } else { 'empty.list' })) `
+                      -Size 12 -Color (Get-Pal 'InkFaint')
         $em.HorizontalAlignment = 'Center'
-        $em.Margin = [System.Windows.Thickness]::new(0, 30, 0, 0)
-        [void]$script:ListStack.Children.Add($em)
+        [void]$wrap.Children.Add($em)
+        $cta = New-PixBtn -Text (Get-LangText $(if ($filtered) { 'empty.clear' } else { 'empty.cta' })) `
+                          -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -H 30 -FontSize 12 `
+                          -Radius 7 -BorderCol (Get-Pal 'Border')
+        $cta.HorizontalAlignment = 'Center'
+        $cta.Margin = [System.Windows.Thickness]::new(0, 12, 0, 0)
+        if ($filtered) {
+            $cta.Add_Click({
+                try {
+                    if ($null -ne $script:ListSearch) { $script:ListSearch.Text = '' }
+                    if ($null -ne $script:ListTagBox) { $script:ListTagBox.SelectedIndex = 0 }
+                    Fill-ListRows
+                } catch { Write-ErrLog ('Empty clear filter: ' + $_.Exception.Message) }
+            })
+        } else {
+            $cta.Add_Click({
+                try {
+                    $d = [datetime]::Today
+                    if ($null -ne $script:Anchor) { $d = $script:Anchor }
+                    Open-EventEditor -Date $d
+                } catch { Write-ErrLog ('Empty new event: ' + $_.Exception.Message) }
+            })
+        }
+        [void]$wrap.Children.Add($cta)
+        [void]$script:ListStack.Children.Add($wrap)
         return
     }
 
@@ -2455,12 +2522,16 @@ function Refresh-All {
 }
 
 function Update-Chrome {
-    # 标题栏
-    $names = @{ month = 'Month view'; week = 'Week view'; list = 'List view'; tasks = 'Tasks view' }
-    if ($null -ne $script:WinTitle) {
-        $script:WinTitle.Text = 'Main window - ' + $names[$script:View]
+    # 标题栏。第五轮：视图名走语言表（原来是写死的英文），
+    #  这样切语言之后标题栏也跟着变，不会出现"侧栏中文 + 标题栏英文"的新混用。
+    $names = @{
+        month = (Get-LangText 'view.month'); week = (Get-LangText 'view.week')
+        list  = (Get-LangText 'view.list');  tasks = (Get-LangText 'view.tasks')
     }
-    if ($null -ne $script:HeroTitle) { $script:HeroTitle.Text = 'My Schedule' }
+    if ($null -ne $script:WinTitle) {
+        $script:WinTitle.Text = (Get-LangText 'sched') + ' - ' + $names[$script:View]
+    }
+    if ($null -ne $script:HeroTitle) { $script:HeroTitle.Text = (Get-LangText 'sched') }
 
     # 视图切换按钮选中态（Tasks 也在这一组里：它现在是一个真正的视图，
     # 以前点了跳 list、自身永远不高亮，看起来像"按了没用"）
@@ -2518,7 +2589,7 @@ function Update-Chrome {
     if ($null -ne $script:HeroDate) {
         $script:HeroDate.Text = ('{0}, {1} {2} {3}  {4:00}:{5:00}' -f `
             $script:DowShort[([int]$now.DayOfWeek + 6) % 7],
-            ($script:MonNames[$now.Month - 1]).Substring(0, 3), $now.Day, $now.Year, $now.Hour, $now.Minute)
+            $script:MonShort[$now.Month - 1], $now.Day, $now.Year, $now.Hour, $now.Minute)
     }
     if ($null -ne $script:HeroStats) {
         $done = @($script:Events | Where-Object { [bool]$_.done }).Count
@@ -2551,8 +2622,8 @@ function Update-Chrome {
         if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = 'This week' }
         if ($null -ne $script:CalPeriod) {
             $script:CalPeriod.Text = ('{0} {1} - {2} {3}' -f
-                ($script:MonNames[$ws[0].Month - 1]).Substring(0, 3), $ws[0].Day,
-                ($script:MonNames[$ws[6].Month - 1]).Substring(0, 3), $ws[6].Day)
+                $script:MonShort[$ws[0].Month - 1], $ws[0].Day,
+                $script:MonShort[$ws[6].Month - 1], $ws[6].Day)
         }
         $notes = @()
         foreach ($d in $ws) { $h = Get-Holiday $d; if ($h) { $notes += ('{0}/{1} {2}' -f $d.Month, $d.Day, $h) } }

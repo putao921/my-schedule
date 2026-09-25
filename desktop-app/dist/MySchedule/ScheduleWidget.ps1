@@ -173,9 +173,13 @@ $script:PaletteLight = [ordered]@{
     Ink          = '#3A2F2C'   # 主文字
     InkSoft      = '#6D5C58'   # 次级文字
     InkFaint     = '#9A8884'   # 弱化文字
-    AccentEvent  = '#C05A6C'   # 事件/主按钮
-    AccentFocus  = '#F2B083'   # 今日/专注
-    AccentTask   = '#9FC4A4'   # 任务卡
+    # ---- 三个强调色的明度分层（第五轮）----
+    #  与夜间板同一套关系：Event 更深 / Focus 更亮 / Task 居中。
+    #  浅色底上要格外小心：Focus 再亮就会和 Card(#FFFDF7) 贴死，所以浅色板的
+    #  "更亮"是把饱和度稍微提上去、明度只加一点点（#F2B083 -> #F5B579）。
+    AccentEvent  = '#B04E62'   # 更深（原 #C05A6C）
+    AccentFocus  = '#F5B579'   # 更亮（原 #F2B083）
+    AccentTask   = '#9FC4A4'   # 居中不动
     AccentTaskD  = '#7EA886'
     Weekend      = '#FBEAEA'   # 周末底
     WeekendHead  = '#F2C9C6'
@@ -190,17 +194,27 @@ $script:PaletteNight = [ordered]@{
     Backdrop     = '#1B1318'
     Chrome       = '#4A333D'
     ChromeDeep   = '#3A2831'
-    Panel        = '#35262E'
+    # ---- 夜间层级差（第五轮）----
+    #  问题：Card #241A20 -> CardAlt #2C2028 只差 8 级、-> Panel #35262E 差 9 级。
+    #  8 级亮度差在真实显示器上几乎看不出"谁是表头、谁是内容"，夜间整屏糊成一块。
+    #  改法：只把上面两层往上抬，Card 不动（它是最暗的"卡片底"，抬了就没有纵深了）。
+    #  现在：Card #241A20 -> CardAlt #302430（+12）-> Panel #3C2C36（+12）。
+    Panel        = '#3C2C36'
     Card         = '#241A20'
-    CardAlt      = '#2C2028'
+    CardAlt      = '#302430'
     Border       = '#E8C6CF'
     BorderSoft   = '#4D3742'
     Ink          = '#F4E9EC'
     InkSoft      = '#CDB6BD'
     InkFaint     = '#A08C93'
-    AccentEvent  = '#D4718A'
-    AccentFocus  = '#C98A56'
-    AccentTask   = '#6F9A78'
+    # ---- 三个强调色的明度分层（第五轮）----
+    #  问题：三个色饱和度接近、明度也接近，月视图里橙条和红色标题条混排时糊成一片。
+    #  改法：只动明度，不动色相 —— 让 Event 更深、Focus 更亮、Task 居中，
+    #  这样即使并排放在一起，也能靠"深浅"区分，而不必依赖色相辨别。
+    #  注意：AccentTaskD 是 Task 的"深版"（用于勾选态等），要保持与之同向。
+    AccentEvent  = '#C25F79'   # 更深（原 #D4718A）
+    AccentFocus  = '#E0A16A'   # 更亮（原 #C98A56）
+    AccentTask   = '#6F9A78'   # 居中不动
     AccentTaskD  = '#8FB897'
     Weekend      = '#3A262C'
     WeekendHead  = '#3E2C35'
@@ -308,6 +322,15 @@ $script:Settings = [ordered]@{
     # WeekViewDefault：新建时周视图默认显示哪一段（0-24 / 8-20 / 6-22 / 9-18）。
     #   存的是"起-止"字符串而不是两个整数，是为了跟 Set-WeekRange 的校验规则共用一套。
     WeekViewRange  = '0-24'
+    # ---- 第五轮新增：语言与周视图密度 ----
+    # Language：界面固定文案用中文还是英文（zh / en）。默认 zh。
+    #   为什么要这个开关而不是直接全中文：星期表头、视图名这些"框架词"，
+    #   有人看着英文更顺眼；但混用才是最难看的（Mon 配"提交读书报告"）。
+    #   开关的价值在于"要么全中要么全英"，而不是"哪个词更好看"。
+    Language       = 'zh'
+    # WeekDensity：周视图每小时像素高（紧凑 28 / 标准 40 / 宽松 56）。
+    #   注意它同时是"密度下限"—— Fit-WeekAxisHeight 只会向上放大，不会低于这个值。
+    WeekDensity    = 40
 }
 
 function Load-Settings {
@@ -486,10 +509,126 @@ function Same-Day { param([datetime]$A, [datetime]$B)
 function Min-To-HHMM { param([int]$M)
     return ('{0:00}:{1:00}' -f ([math]::Floor($M / 60) % 24), ($M % 60))
 }
+function Shorten-Text {
+    # 提示条里塞长标题会把窗口撑得很宽（SizeToContent=WidthAndHeight），
+    # 所以标题一律截断。省略号用 ASCII 三点，避免不同字体下的基线跳动。
+    param([string]$S, [int]$Max = 24)
+    if ([string]::IsNullOrEmpty($S)) { return '' }
+    if ($S.Length -le $Max) { return $S }
+    if ($Max -lt 2) { return '..' }
+    return $S.Substring(0, $Max - 2) + '..'
+}
 $script:DowShort = @('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
 $script:DowZh    = @('周一', '周二', '周三', '周四', '周五', '周六', '周日')
 $script:MonNames = @('January','February','March','April','May','June','July',
                      'August','September','October','November','December')
+$script:MonZh    = @('1月','2月','3月','4月','5月','6月','7月','8月','9月',
+                     '10月','11月','12月')
+# 月份短名（Jan / 1月）。初始化成英文，Initialize-Lang 会按语言重设。
+# 单独一个数组而不是让调用方对 MonNames 做 Substring：中文月名只有 2 个字符，
+# Substring(0,3) 会直接抛越界（这是第五轮实测踩到的）。
+$script:MonShort = @('Jan','Feb','Mar','Apr','May','Jun',
+                     'Jul','Aug','Sep','Oct','Nov','Dec')
+
+# ---------------------------------------------------------------------------
+#  语言表（第五轮）
+#  问题：一屏里同时出现 Mon/Tue/Wed、Tasks、Focus、提交读书报告终稿、Today。
+#  "混用中英"是当前界面看着乱的最大来源 —— 比配色、间距的影响都大。
+#
+#  做法：$script:Lang 驱动下面三样东西
+#    ① 星期表头（月视图 / 周视图 / Hero 日期 / 列表分组）
+#    ② 月份名（CalPeriod 那个 "September 2026"）
+#    ③ 侧栏 7 个导航文字 + 视图标题（XAML 里写死的那批，靠 Set-Lang 事后遍历改）
+#
+#  为什么不做成"完整的 i18n"：本项目的固定文案有几百条，全量抽调是另一个量级的工作，
+#  而且绝大多数是英文（提示、字段名）。这里有意义的是**把框架词统一**，
+#  让"中文内容 + 中文框架"或"英文内容 + 英文框架"两种状态各自自洽即可。
+# ---------------------------------------------------------------------------
+$script:Lang = 'zh'
+
+$script:LangEn = [ordered]@{
+    'nav.month' = 'Month'; 'nav.week' = 'Week'; 'nav.list' = 'List'
+    'nav.tasks' = 'Tasks'; 'nav.focus' = 'Focus'; 'nav.settings' = 'Settings'
+    'nav.profile' = 'Profile'
+    'view.month' = 'Month view'; 'view.week' = 'Week view'; 'view.list' = 'List view'
+    'view.tasks' = 'Tasks view'
+    'daily.note' = 'DAILY NOTE'
+    'sched' = 'My Schedule'
+    'undo.task' = 'Task deleted'; 'undo.event' = 'Event deleted'
+    'undo.deleted' = 'Deleted: '; 'undo.btn' = 'Undo'
+    'empty.list' = 'Nothing scheduled for this week yet'
+    'empty.cta' = 'Add an event'
+    'empty.filtered' = 'No matching events'
+    'empty.clear' = 'Clear filter'
+}
+$script:LangZh = [ordered]@{
+    'nav.month' = '月视图'; 'nav.week' = '周视图'; 'nav.list' = '列表'
+    'nav.tasks' = '任务'; 'nav.focus' = '专注'; 'nav.settings' = '设置'
+    'nav.profile' = '我的'
+    'view.month' = '月视图'; 'view.week' = '周视图'; 'view.list' = '列表视图'
+    'view.tasks' = '任务视图'
+    'daily.note' = '每日一句'
+    'sched' = '我的日程'
+    'undo.task' = '任务已删除'; 'undo.event' = '日程已删除'
+    'undo.deleted' = '已删除：'; 'undo.btn' = '撤销'
+    'empty.list' = '这一周还没有安排'
+    'empty.cta' = '新建日程'
+    'empty.filtered' = '没有符合条件的日程'
+    'empty.clear' = '清除筛选'
+}
+
+function Get-LangText {
+    # 按当前语言取词。键不存在时返回 $Key 本身（便于发现漏配，而不是静默显示空白）。
+    param([string]$Key)
+    if ($script:Lang -eq 'zh') {
+        if ($script:LangZh.Contains($Key)) { return [string]$script:LangZh[$Key] }
+    } else {
+        if ($script:LangEn.Contains($Key)) { return [string]$script:LangEn[$Key] }
+    }
+    return $Key
+}
+
+function Initialize-Lang {
+    # 把语言落到"读词用的那几个数组"上。
+    # 为什么重算 $script:DowShort 而不是在每个调用点写 if：
+    #   DowShort 有 3 个调用点（月视图表头 / 周视图表头 / Hero 日期），
+    #   在每个点加分支会让"以后再加一处"变成新的漏点。改成"数组本身就是对的"最省事。
+    #
+    # MonShort 是"月份短名"。以前调用点直接对 MonNames 做 .Substring(0,3) 取前三个字母
+    #   （September -> Sep）。中文月名（"9月"）只有 2 个字符，Substring(0,3) 会**抛越界** ——
+    #   所以短名必须独立成数组，不能让调用方自己去切。
+    if ($script:Lang -eq 'zh') {
+        $script:DowShort = @('周一', '周二', '周三', '周四', '周五', '周六', '周日')
+        $script:MonNames = @($script:MonZh)
+        $script:MonShort = @($script:MonZh)
+    } else {
+        $script:DowShort = @('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+        $script:MonNames = @('January','February','March','April','May','June','July',
+                             'August','September','October','November','December')
+        $script:MonShort = @('Jan','Feb','Mar','Apr','May','Jun',
+                             'Jul','Aug','Sep','Oct','Nov','Dec')
+    }
+}
+
+function Set-Lang {
+    # 切语言的**唯一入口**。以前是调用点各写一遍
+    #     $script:Lang = $v; Initialize-Lang; Apply-Lang
+    # 三连，设置窗口和启动序列各来一次 —— 两处只要有一处漏了 Apply-Lang，
+    # 就变成"值存进去了但界面没变"（第五轮最典型的静默故障）。
+    # 收成一个函数：设值 + 重建取词数组 + 刷 XAML 文案，顺序写死在这里。
+    #
+    # Apply-Lang 定义在 Care.ps1，而本函数定义在 ScheduleWidget.ps1 ——
+    # 分片是按文件顺序执行的，ScheduleWidget.ps1 在 Care.ps1 之前，
+    # 所以**定义期**看不到 Apply-Lang。但这里是在**调用期**才解析，
+    # 那时全部分片都已点源完毕，是安全的。故必须放在 try 里防御。
+    param([string]$Code)
+    $v = ([string]$Code).ToLowerInvariant()
+    if (@('zh', 'en') -notcontains $v) { return $false }
+    $script:Lang = $v
+    Initialize-Lang
+    try { Apply-Lang } catch { }
+    return $true
+}
 
 function Is-Weekend { param([datetime]$D)
     return ($D.DayOfWeek -eq [System.DayOfWeek]::Saturday -or $D.DayOfWeek -eq [System.DayOfWeek]::Sunday)
@@ -776,6 +915,10 @@ $script:SetTbPomo = $null
 $script:AutoCloseTimer = $null
 $script:ToastWindow    = $null
 $script:ToastTimer      = $null
+# 删除撤销（第五轮）：最近一次删除的对象副本 + 原索引 + 类型。
+# 只留一次 —— 实际事故都是"刚删完就后悔"，多级撤销与本工具体量不成比例。
+$script:UndoState      = $null
+$script:LastUndoAt     = $null
 # 交互自查专用：为 $true 时，会弹模态窗口的动作只记录不真弹（否则 ShowDialog 会卡死调度器）。
 $script:SuppressModal  = $false
 $script:LastModalCall  = ''
@@ -797,6 +940,16 @@ try {
     $script:UiScaleUser = $us
 } catch { $script:UiScaleUser = 1.0 }
 [void](Update-UiScale)
+
+# 恢复语言（第五轮）。必须在 Build-Window 之前设好 —— Apply-Lang 在构建末尾
+# 按它刷侧栏导航文字，晚了就会先按默认语言画一帧再跳变。
+try {
+    $lg = ([string]$script:Settings['Language']).ToLowerInvariant()
+    if (@('zh','en') -notcontains $lg) { $lg = 'zh' }   # 配置被手改坏时回落中文
+    $script:Lang = $lg
+} catch { $script:Lang = 'zh' }
+# 注意：周视图密度要等分片加载之后再恢复 —— HourHeightBase 定义在 Views.ps1 里，
+# 在这里赋值会被那个文件的 `$script:HourHeightBase = 40.0` 覆盖掉。见下面第 8.1 节。
 
 # 主题/视图/置顶覆盖（测试与快捷启动用；覆盖值不落盘）
 $script:ThemeOverrideApplied = $false
@@ -839,6 +992,30 @@ foreach ($part in @('Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1')) {
         . ([scriptblock]::Create([System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8)))
     }
     Write-Trace ('part loaded: ' + $part)
+}
+
+# ---------------------------------------------------------------------------
+#  8.1 恢复周视图密度（第五轮）—— 必须放在分片加载之后
+#
+#  为什么不能跟字号/语言一起放在第 8 节开头：
+#    $script:HourHeightBase 定义在 Views.ps1 里（第 359 行 `= 40.0`）。
+#    脚本前面的赋值会被那个文件的赋值**静默覆盖** —— 因为分片是在这之后点源的。
+#    表现是"设置里选了紧凑 28，重启后又回到 40"，而且日志干净、不报错。
+#    这类"顺序问题"只能靠"谁定义谁负责"来避：值定义在哪个文件，就在它加载后恢复。
+#
+#  HourHeightBase 同时是 Fit-WeekAxisHeight 的**密度下限**（那里只会上调、不会下调），
+#  所以设它等于设"这套皮肤一小时占多高"。HourHeight 也要一起设，否则首帧
+#  会先按旧值画一次再被 Reflow 纠正（肉眼能看到跳一下）。
+# ---------------------------------------------------------------------------
+try {
+    $wd = [int]$script:Settings['WeekDensity']
+    if ($wd -lt 20 -or $wd -gt 80) { $wd = 40 }   # 配置被手改坏时回落标准档
+    $script:HourHeightBase = [double]$wd
+    $script:HourHeight     = [double]$wd
+    Write-Trace ('week density = ' + $wd)
+} catch {
+    $script:HourHeightBase = 40.0
+    $script:HourHeight     = 40.0
 }
 
 # 覆盖层编辑器已被独立窗口取代，这里显式收掉，避免误用旧版本
@@ -888,6 +1065,66 @@ function Duplicate-Event {
     Refresh-All
 }
 
+# ---------------------------------------------------------------------------
+#  删除的可撤销提示（第 5 条外观建议）
+#
+#  设计取舍：
+#  * 二次确认（MessageBox Yes/No）保留 —— 它挡的是"点错按钮"；
+#    Undo 提示条挡的是"确认之后立刻后悔"。两者是不同性质的事故，不能互相替代。
+#  * 撤销用的副本放在 $script:UndoState 而不是闭包里 —— 同上，作用域硬规则。
+#  * 只保留最近一次删除。多级撤销需要一条操作栈，与本工具的体量不成比例；
+#    而实际事故几乎都是"刚删完就后悔"，一次足够。
+# ---------------------------------------------------------------------------
+function Show-UndoToast {
+    param([string]$Kind, [int]$Index = 0, [string]$Title = '')
+    if ($script:SuppressModal -or $TestMode) { return }
+    try {
+        # 调用方（Remove-Task / Remove-Event）已经在 $script:UndoState 里放好
+        # Kind / Index / Snapshot；这里只负责把它变成一条可点的提示条。
+        if ($null -eq $script:UndoState) { $script:UndoState = @{} }
+        $script:UndoState['Kind'] = $Kind
+        $script:UndoState['Index'] = $Index
+        $script:UndoState['Time'] = (Get-Date)
+
+        if ($Kind -eq 'task') {
+            $label = (Get-LangText 'undo.task')
+        } else {
+            $label = (Get-LangText 'undo.event')
+        }
+        $verb = (Get-LangText 'undo.deleted')
+        $txt = $verb + (Shorten-Text $Title 22)
+        Show-Toast -Title $label -Text $txt -ActionText (Get-LangText 'undo.btn') -Seconds 5 `
+            -ActionScript { Undo-Delete }
+    } catch { Write-ErrLog ('Undo toast: ' + $_.Exception.Message) }
+}
+
+function Undo-Delete {
+    try {
+        $st = $script:UndoState
+        if ($null -eq $st) { return }
+        $script:UndoState = $null
+        $snap = $st.Snapshot
+        if ($null -eq $snap) { return }
+        if ([string]$st.Kind -eq 'task') {
+            $idx = [int]$st.Index
+            if ($idx -lt 0) { $idx = 0 }
+            if ($idx -gt $script:Tasks.Count) { $idx = $script:Tasks.Count }
+            $script:Tasks.Insert($idx, $snap)
+            Save-Data
+            Fill-Tasks
+        } else {
+            $idx = [int]$st.Index
+            if ($idx -lt 0) { $idx = 0 }
+            if ($idx -gt $script:Events.Count) { $idx = $script:Events.Count }
+            $script:Events.Insert($idx, $snap)
+            Save-Data
+            Refresh-All
+        }
+        $script:LastUndoAt = (Get-Date)
+        Write-Trace 'undo applied'
+    } catch { Write-ErrLog ('Undo: ' + $_.Exception.Message) }
+}
+
 function Remove-Event {
     param([string]$Id)
     $hit = @($script:Events | Where-Object { [string]$_.id -eq [string]$Id })
@@ -897,9 +1134,17 @@ function Remove-Event {
             [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
         if ($answer -ne [System.Windows.MessageBoxResult]::Yes) { return }
     }
+    # 记住原索引：撤销要插回原位，而不是塞到末尾（否则排序看着像"撤销没生效"）
+    $oldIndex = 0
+    for ($i = 0; $i -lt $script:Events.Count; $i++) {
+        if ([string]$script:Events[$i].id -eq [string]$Id) { $oldIndex = $i; break }
+    }
+    $snap = $hit[0]
     [void]$script:Events.Remove($hit[0])
     Save-Data
     Refresh-All
+    $script:UndoState = @{ Kind = 'event'; Index = $oldIndex; Snapshot = $snap }
+    Show-UndoToast -Kind 'event' -Index $oldIndex -Title ([string]$snap.title)
 }
 
 function Open-DayAgenda {
@@ -933,9 +1178,16 @@ function Remove-Task {
             [System.Windows.MessageBoxImage]::Question)
         if ($answer -ne [System.Windows.MessageBoxResult]::Yes) { return }
     }
+    $oldIndex = 0
+    for ($i = 0; $i -lt $script:Tasks.Count; $i++) {
+        if ([string]$script:Tasks[$i].id -eq [string]$Id) { $oldIndex = $i; break }
+    }
+    $snap = $hit[0]
     [void]$script:Tasks.Remove($hit[0])
     Save-Data
     Fill-Tasks
+    $script:UndoState = @{ Kind = 'task'; Index = $oldIndex; Snapshot = $snap }
+    Show-UndoToast -Kind 'task' -Index $oldIndex -Title ([string]$snap.text)
 }
 
 function Move-Task {
@@ -2594,7 +2846,7 @@ function Invoke-HandlerAudit {
         } catch { Write-AuditRow 'settings theme and window opts' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 29e. Cancel 真的"不保存"：改一堆设置再 Cancel，一个都不许落库 ----
-        #   29b 的 ③ 只验了番茄钟这一次。设置项涨到 7 个之后，
+        #   29b 的 ③ 只验了番茄钟这一次。设置项涨到 9 个之后（第五轮又加了语言与密度），
         #   任何一项漏了"只在 Save 路径落库"都会变成静默数据污染 —— 这条把它们一次性钉住。
         try {
             $keepTheme1 = [string]$script:Theme
@@ -2603,6 +2855,8 @@ function Invoke-HandlerAudit {
             $keepTray1 = [bool]$script:Settings['CloseToTray']
             $keepRange1 = [string]$script:Settings['WeekViewRange']
             $keepPomo1 = [int]$script:Settings['PomodoroMin']
+            $keepLang1 = [string]$script:Lang
+            $keepDensity1 = [int]$script:Settings['WeekDensity']
 
             $script:DlgClosed = ''
             $sw7 = Show-SettingsWindow
@@ -2614,6 +2868,8 @@ function Invoke-HandlerAudit {
             $script:SetTopmost.IsChecked = $true
             $script:SetCloseToTray.IsChecked = $true
             $script:SetWeekRange.Text = '9-18'
+            if ($keepLang1 -eq 'zh') { $script:SetLangBox.Text = 'English' } else { $script:SetLangBox.Text = '中文' }
+            $script:SetDensityBox.Text = 'Roomy'
             [void](Invoke-Click (Find-DialogButton $sw7 'DlgCancel'))
 
             $okC = ($script:DlgClosed -eq 'cancel-all') -and
@@ -2622,12 +2878,15 @@ function Invoke-HandlerAudit {
                    ([bool]$script:Settings['Topmost'] -eq $keepTop1) -and
                    ([bool]$script:Settings['CloseToTray'] -eq $keepTray1) -and
                    ([string]$script:Settings['WeekViewRange'] -eq $keepRange1) -and
-                   ([int]$script:Settings['PomodoroMin'] -eq $keepPomo1)
+                   ([int]$script:Settings['PomodoroMin'] -eq $keepPomo1) -and
+                   ([string]$script:Lang -eq $keepLang1) -and
+                   ([int]$script:Settings['WeekDensity'] -eq $keepDensity1)
 
             Write-AuditRow 'settings cancel saves nothing' $okC `
                 ('closed=' + $script:DlgClosed + ' theme=' + $script:Theme + ' scale=' + $script:Settings['UiScale'] +
                  ' top=' + $script:Settings['Topmost'] + ' tray=' + $script:Settings['CloseToTray'] +
-                 ' range=' + $script:Settings['WeekViewRange'] + ' pomo=' + $script:Settings['PomodoroMin'])
+                 ' range=' + $script:Settings['WeekViewRange'] + ' pomo=' + $script:Settings['PomodoroMin'] +
+                 ' lang=' + $script:Lang + ' density=' + $script:Settings['WeekDensity'])
         } catch { Write-AuditRow 'settings cancel saves nothing' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 29f. 窗口变大变小时字号跟着自适应（第四轮新增，用户第 4 项） ----
@@ -3156,6 +3415,136 @@ function Invoke-HandlerAudit {
                 (($caseLog -join ' ') + ' zeroKept=' + [string]$zeroKept + ' zeroTotal=' + [string]$zeroTotal +
                  ' maxTotal=' + [string]$maxTotal)
         } catch { Write-AuditRow 'pomodoro duration 0-99 free' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 38. 第五轮：语言切换 / 周视图密度 / 删除撤销 / 空状态入口 ----
+        #   这四条都是"改设置之后必须真的生效"，但生效点在三个不同的地方：
+        #     语言 → XAML 里的导航文字（Apply-Lang 事后遍历改）
+        #     密度 → 周视图轴高（Set-WeekDensity 改 HourHeightBase）
+        #     撤销 → 数据数组 + 界面（Undo-Delete 插回原位）
+        #   所以必须逐项断"改完之后**读回来是对的**"，只断"函数被调用了"没有意义。
+        try {
+            # ---- 38a. 语言：切到 en 后导航文字变英文，切回 zh 复原 ----
+            $keepLang2 = [string]$script:Lang
+            [void](Set-Lang 'en')
+            $enMonth = Get-LangText 'nav.month'
+            $enDow = [string]$script:DowShort[0]
+            [void](Set-Lang 'zh')
+            $zhMonth = Get-LangText 'nav.month'
+            $zhDow = [string]$script:DowShort[0]
+            # 非法值必须被拒（否则设置里塞进任何字符串都能过）
+            $rejLang = -not (Set-Lang 'fr')
+            $okLang = ($enMonth -eq 'Month') -and ($enDow -eq 'Mon') -and
+                      ($zhMonth -eq '月视图') -and ($zhDow -eq '周一') -and $rejLang
+            Write-AuditRow 'lang switch zh/en' $okLang `
+                ('en=' + $enMonth + '/' + $enDow + ' zh=' + $zhMonth + '/' + $zhDow + ' rej=' + $rejLang)
+            [void](Set-Lang $keepLang2)
+
+            # ---- 38b. 语言：中文下月份短名不能崩（曾因 Substring(0,3) 越界） ----
+            #   "1月"只有 2 个字符，老写法 .Substring(0,3) 会直接抛 —— 这条专门钉住回归。
+            $keepLang3 = [string]$script:Lang
+            $msOk = $true
+            $msDump = ''
+            foreach ($lg in @('zh', 'en')) {
+                [void](Set-Lang $lg)
+                $msDump += ($lg + '=[' + (@($script:MonShort) -join '|') + '] ')
+                foreach ($m in @($script:MonShort)) {
+                    if ([string]::IsNullOrEmpty([string]$m)) { $msOk = $false }
+                }
+                if (@($script:MonShort).Count -ne 12) { $msOk = $false }
+            }
+            # 真正去渲染一次日历期间标题（这里才是当年抛越界的那行代码路径）
+            try {
+                Update-Chrome
+                $periodTxt = ''
+                if ($null -ne $script:CalPeriod) { $periodTxt = [string]$script:CalPeriod.Text }
+                if ([string]::IsNullOrWhiteSpace($periodTxt)) { $msOk = $false }
+                $msDump += ('period=' + $periodTxt)
+            } catch { $msOk = $false; $msDump += ('periodCRASH=' + $_.Exception.Message) }
+            Write-AuditRow 'month short names safe' $msOk (Shorten-Text $msDump 70)
+            [void](Set-Lang $keepLang3)
+
+            # ---- 38c. 周视图密度：三档都要落到 HourHeightBase 且落库 ----
+            $keepDensity2 = [int]$script:Settings['WeekDensity']
+            $denOk = $true
+            $denDump = ''
+            foreach ($case in @(@{ v = 28; n = 'Compact' }, @{ v = 40; n = 'Normal' }, @{ v = 56; n = 'Roomy' })) {
+                [void](Set-WeekDensity ([int]$case.v))
+                $hit = ([double]$script:HourHeightBase -eq [double]$case.v) -and
+                       ([int]$script:Settings['WeekDensity'] -eq [int]$case.v)
+                if (-not $hit) { $denOk = $false }
+                $denDump += ($case.n + '=' + $script:HourHeightBase + $(if ($hit) { '' } else { '!!' }) + ' ')
+            }
+            # 越界值必须被拒（否则"紧凑"能填成 5px 把周视图压成一条线）
+            $rejLow = -not (Set-WeekDensity 5)
+            $rejHigh = -not (Set-WeekDensity 200)
+            Write-AuditRow 'week density 3 steps' ($denOk -and $rejLow -and $rejHigh) `
+                ($denDump + 'rejLow=' + $rejLow + ' rejHigh=' + $rejHigh)
+            [void](Set-WeekDensity $keepDensity2)
+
+            # ---- 38d. 删除撤销：删任务 -> Undo 后对象带着原 id 回到原索引 ----
+            $before = @($script:Tasks).Count
+            if ($before -ge 2) {
+                $victim = $script:Tasks[1]
+                $vId = [string]$victim.id
+                $vText = [string]$victim.text
+                # 绕过 Yes/No：直接走"删除 + 记录快照"那两步（就是 Remove-Task 的实体）
+                $hitIdx = 1
+                $snapT = $script:Tasks[$hitIdx]
+                [void]$script:Tasks.Remove($snapT)
+                Save-Data
+                Fill-Tasks
+                $script:UndoState = @{ Kind = 'task'; Index = $hitIdx; Snapshot = $snapT }
+                $afterDel = @($script:Tasks).Count
+                $goneNow = (@($script:Tasks | Where-Object { [string]$_.id -eq $vId }).Count -eq 0)
+                $hadToast = ($null -ne $script:UndoState)
+                Undo-Delete
+                $afterUndo = @($script:Tasks).Count
+                $backNow = (@($script:Tasks | Where-Object { [string]$_.id -eq $vId }).Count -eq 1)
+                $posOk = ([string]$script:Tasks[$hitIdx].id -eq $vId)
+                $txtOk = ([string]$script:Tasks[$hitIdx].text -eq $vText)
+                Write-AuditRow 'delete undo restores task' `
+                    (($afterDel -eq ($before - 1)) -and $goneNow -and $hadToast -and
+                     ($afterUndo -eq $before) -and $backNow -and $posOk -and $txtOk) `
+                    ('n ' + $before + '->' + $afterDel + '->' + $afterUndo + ' gone=' + $goneNow +
+                     ' back=' + $backNow + ' pos=' + $posOk + ' txt=' + $txtOk)
+            } else {
+                Write-AuditRow 'delete undo restores task' $false ('not enough tasks: ' + $before)
+            }
+
+            # ---- 38e. 空状态：列表搜不到东西时给出"块 + 可点按钮"，而不是纯空白 ----
+            try {
+                Set-View 'list'
+                $keepQ3 = ''
+                if ($null -ne $script:ListSearch) {
+                    $keepQ3 = [string]$script:ListSearch.Text
+                    $script:ListSearch.Text = 'ZZZ-NO-SUCH-EVENT-9Q7'
+                }
+                Fill-ListRows
+                $rows3 = @(Find-AllTagged $script:ListStack 'event')
+                # 空状态是一个 StackPanel（内含文案 + 按钮）；按钮是唯一的可点元素
+                $ctaBtn = $null
+                foreach ($child in $script:ListStack.Children) {
+                    if ($child -is [System.Windows.Controls.StackPanel]) {
+                        foreach ($g in $child.Children) {
+                            if ($g -is [System.Windows.Controls.Button]) { $ctaBtn = $g }
+                        }
+                    }
+                }
+                $ctaTxt = ''
+                if ($null -ne $ctaBtn) {
+                    # New-PixBtn 把 Content 设成 TextBlock（不是字符串），所以要取 .Text
+                    $cc = $ctaBtn.Content
+                    if ($cc -is [System.Windows.Controls.TextBlock]) { $ctaTxt = [string]$cc.Text }
+                    elseif ($null -ne $cc) { $ctaTxt = [string]$cc }
+                }
+                $okEmpty = ($rows3.Count -eq 0) -and ($null -ne $ctaBtn) -and ($ctaTxt.Length -gt 0)
+                Write-AuditRow 'list empty state has CTA' $okEmpty `
+                    ('rows=' + $rows3.Count + ' btn=' + $ctaTxt)
+                if ($null -ne $script:ListSearch) { $script:ListSearch.Text = $keepQ3 }
+                Fill-ListRows
+            } catch { Write-AuditRow 'list empty state has CTA' $false ('crash ' + $_.Exception.Message) }
+
+        } catch { Write-AuditRow 'round5 features' $false ('crash ' + $_.Exception.Message) }
     } catch {
         $ln = ''
         $stmt = ''
@@ -3475,6 +3864,34 @@ function Invoke-TestActions {
                     }
                 }
                 'start'  { Toggle-Pomodoro }
+                'toastshot' {
+                    # "toastshot:<name>"：单独拍**提示条那个窗口**。
+                    # 为什么不能靠普通 shot：提示条是另一个 Topmost 窗口，不在 MainWindow 的
+                    # 可视树里 —— Save-Shot 抓 MainWindow 时它根本不在画面里。
+                    # 用 RenderTargetBitmap 把它自己渲染出来（不能 CopyFromScreen，
+                    # 自动化会话里没有真实桌面）。
+                    if ($AllowShot -and $ScreenshotPath -and $null -ne $script:ToastWindow) {
+                        try {
+                            $tw = $script:ToastWindow
+                            $tw.UpdateLayout()
+                            $wpx = [int][math]::Ceiling($tw.ActualWidth)
+                            $hpx = [int][math]::Ceiling($tw.ActualHeight)
+                            if ($wpx -gt 0 -and $hpx -gt 0) {
+                                $rtb = New-Object System.Windows.Media.Imaging.RenderTargetBitmap(
+                                    $wpx, $hpx, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
+                                $rtb.Render($tw)
+                                $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
+                                $enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($rtb))
+                                $dir = [System.IO.Path]::GetDirectoryName($ScreenshotPath)
+                                $p = Join-Path $dir ($arg + '.png')
+                                $fs = [System.IO.File]::Create($p)
+                                $enc.Save($fs)
+                                $fs.Close()
+                                [void]$out.Add('toastshot: ' + $p)
+                            }
+                        } catch { [void]$out.Add('toastshot-err: ' + $_.Exception.Message) }
+                    }
+                }
                 'stats'  { Open-StatsPanel }
                 'edit'   { Open-EventEditor -Id $arg }
                 'add'    { Open-EventEditor }
@@ -3484,6 +3901,62 @@ function Invoke-TestActions {
                     if ($arg -match '^(\d{1,2})-(\d{1,2})$') {
                         [void](Set-WeekRange ([int]$Matches[1]) ([int]$Matches[2]))
                     }
+                }
+                'lang' {
+                    # "lang:en" 切语言（截图用例用）。走 Set-Lang 这一条路，
+                    # 和设置窗口 Save 时用的是同一个入口。
+                    [void](Set-Lang $arg)
+                }
+                'density' {
+                    # "density:56" 切周视图密度（截图用例用）
+                    if ($arg -match '^\d+$') { [void](Set-WeekDensity ([int]$arg)) }
+                }
+                'undo' {
+                    # 撤销上一次删除（截图用例用：证明提示条上的按钮真能撤销）
+                    Undo-Delete
+                }
+                'undodemo' {
+                    # "undodemo"：模拟"用户确认删除"之后的状态 —— 真的从 Tasks 里摘掉一项、
+                    # 记好快照、并把可撤销提示条弹出来。截图要拍的就是这条提示条。
+                    # 与 Remove-Task 的唯一差别是不弹 Yes/No（截图流程点不了 MessageBox）。
+                    #
+                    # 这里**故意绕开 Show-UndoToast 的 $TestMode 守卫**：那个守卫是为了
+                    # 不让自动化流程被弹窗挡住，但截图流程恰恰要拍这个提示条本身。
+                    # 提示条是独立的 Topmost 窗口，MainWindow 的截图抓不到它 ——
+                    # 所以下面单独给它拍一张（shot 目录里叫 r7-undo-toast-window.png）。
+                    try {
+                        if (@($script:Tasks).Count -ge 2) {
+                            $i = @($script:Tasks).Count - 1
+                            $snap = $script:Tasks[$i]
+                            [void]$script:Tasks.Remove($snap)
+                            Save-Data
+                            Fill-Tasks
+                            $script:UndoState = @{ Kind = 'task'; Index = $i; Snapshot = $snap }
+                            Show-Toast -Title (Get-LangText 'undo.task') `
+                                -Text ((Get-LangText 'undo.deleted') + (Shorten-Text ([string]$snap.text) 22)) `
+                                -ActionText (Get-LangText 'undo.btn') -Seconds 30 `
+                                -ActionScript { Undo-Delete }
+                            [void]$out.Add('undodemo: toast shown, tasks=' + @($script:Tasks).Count)
+                        } else {
+                            [void]$out.Add('undodemo: skipped (need >=2 tasks)')
+                        }
+                    } catch { [void]$out.Add('undodemo-err: ' + $_.Exception.Message) }
+                }
+                'emptydemo' {
+                    # "emptydemo"：把列表搜索框填成一串必然搜不到的词，制造空状态。
+                    try {
+                        Set-View 'list'
+                        if ($null -ne $script:ListSearch) { $script:ListSearch.Text = 'ZZZ-NO-SUCH-EVENT-9Q7' }
+                        Fill-ListRows
+                    } catch { [void]$out.Add('emptydemo-err: ' + $_.Exception.Message) }
+                }
+                'clearfilter' {
+                    # "clearfilter"：清掉列表搜索与标签筛选，恢复有内容的列表。
+                    try {
+                        if ($null -ne $script:ListSearch) { $script:ListSearch.Text = '' }
+                        if ($null -ne $script:ListTagBox) { $script:ListTagBox.SelectedIndex = 0 }
+                        Fill-ListRows
+                    } catch { [void]$out.Add('clearfilter-err: ' + $_.Exception.Message) }
                 }
                 'anchor' {
                     # "anchor:2027-02-01" 把日历锚点挪到指定日期（截图用例用）。

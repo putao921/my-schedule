@@ -602,6 +602,62 @@ function Collect-XamlFontNodes {
     Write-Trace ('xaml font nodes = ' + @($script:XamlFontNodes).Count)
 }
 
+function Set-NavLabel {
+    # 把某个导航按钮里的文字改掉。
+    # 为什么"按按钮 Name 找 TextBlock"而不是给每个 TextBlock 起 x:Name：
+    #   起了新 Name 就要在 Build-Window 的 $n[] 里接走（项目有静态规则查这个），
+    #   为了改 7 个文字而新增 7 个 x:Name + 7 行赋值，不划算。
+    #   导航按钮的结构是固定的（图标 + 一行文字），取其中唯一的 TextBlock 即可。
+    #
+    # 为什么不复用 Find-AllOfType：
+    #   它定义在 ScheduleWidget.ps1 第 1170 行，而 Build-Window 在 1126 行就被调用 ——
+    #   本项目的分片是"整段按顺序执行"的，调用点在前、定义在后会直接抛
+    #   CommandNotFoundException。所以这里用一个自带的极小遍历，不跨文件依赖。
+    #   （教训：Build-Window 路径上只能用"定义在它之前"的函数。）
+    param($Btn, [string]$Text)
+    if ($null -eq $Btn -or [string]::IsNullOrWhiteSpace($Text)) { return }
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Btn)
+    $guard = 0
+    while ($stack.Count -gt 0 -and $guard -lt 200) {
+        $guard++
+        $n = $stack.Pop()
+        if ($null -eq $n) { continue }
+        $tb = $n -as [System.Windows.Controls.TextBlock]
+        if ($null -ne $tb) {
+            # 图标是 Path 不是 TextBlock，所以这里找到的就是那行文字。
+            $tb.Text = $Text
+            return
+        }
+        $kids = @()
+        if ($n -is [System.Windows.Controls.Panel]) { $kids = $n.Children }
+        elseif ($n -is [System.Windows.Controls.Decorator]) { $kids = @($n.Child) }
+        elseif ($n -is [System.Windows.Controls.ContentControl]) { $kids = @($n.Content) }
+        foreach ($k in $kids) { $stack.Push($k) }
+    }
+}
+
+function Apply-Lang {
+    # 把当前语言刷到界面上"XAML 里写死的那批固定文案"上。
+    # 与 Apply-UiScale 同族：都是"代码 new 出来的控件管不到的那部分"。
+    #
+    # 覆盖范围（有意只做框架词，不做全量 i18n）：
+    #   侧栏 7 个导航文字 / 视图标题栏 / Hero 标题 / DAILY NOTE
+    # 不覆盖：各弹窗里的字段名、提示、Tooltip —— 那些是英文且量大，
+    #   全量抽调属于另一个量级的工作，硬塞进这一轮只会做出一半。
+    if ($null -eq $script:MainWindow) { return }
+    Set-NavLabel $script:NavMonth    (Get-LangText 'nav.month')
+    Set-NavLabel $script:NavWeek     (Get-LangText 'nav.week')
+    Set-NavLabel $script:NavList     (Get-LangText 'nav.list')
+    Set-NavLabel $script:NavTask     (Get-LangText 'nav.tasks')
+    Set-NavLabel $script:NavFocus    (Get-LangText 'nav.focus')
+    Set-NavLabel $script:NavSettings (Get-LangText 'nav.settings')
+    Set-NavLabel $script:NavProfile  (Get-LangText 'nav.profile')
+    if ($null -ne $script:DailyNoteTitle) { $script:DailyNoteTitle.Text = (Get-LangText 'daily.note') }
+    # 标题栏 / Hero 标题在 Update-Chrome 里按语言表刷新（那里本来就在做这件事）
+    try { Update-Chrome } catch { }
+}
+
 function Apply-UiScale {
     # 把当前倍率正式落到界面上。三件事：
     #   ① 重算 $script:UiScale（User × Auto）
@@ -770,7 +826,7 @@ function Build-Window {
         'CalLabel','CalNote','CalPeriod','ViewHost','UiOverlay',
         'IcNavMonth','IcNavWeek','IcNavList','IcNavTask','IcNavFocus','IcNavSettings','IcNavProfile',
         'IcViewMonth','IcViewWeek','IcViewList','IcAdd','IcFocusMenu','IcPin','IcTheme','IcCollapse','IcMore',
-        'IcPrev','IcNext','IcMin','IcMax','IcClose')) {
+        'IcPrev','IcNext','IcMin','IcMax','IcClose','DailyNoteTitle')) {
         $n[$name] = $w.FindName($name)
     }
     $script:WinTitle     = $n['WinTitle']
@@ -796,6 +852,7 @@ function Build-Window {
     $script:NavFocus     = $n['NavFocus']
     $script:NavSettings  = $n['NavSettings']
     $script:NavProfile   = $n['NavProfile']
+    $script:DailyNoteTitle = $n['DailyNoteTitle']
     $script:BtnViewMonth = $n['BtnViewMonth']
     $script:BtnViewWeek  = $n['BtnViewWeek']
     $script:BtnViewList  = $n['BtnViewList']
@@ -1013,6 +1070,13 @@ function Build-Window {
     # Apply-UiScale 每次都用它 × 当前倍率，才不会累计放大（见 Collect-XamlFontNodes）。
     Collect-XamlFontNodes $w.Content
     Apply-UiScale
+
+    # ---- 语言（第五轮）----
+    # 和 Apply-UiScale 同理：XAML 里写死的侧栏导航文字 / DAILY NOTE 改不到，
+    # 只能等树建好之后按 Name 找出来改。Initialize-Lang 先把"取词用的数组"
+    # 设对（DowShort / MonNames），Apply-Lang 再刷 XAML 那批文案。
+    Initialize-Lang
+    Apply-Lang
 
     Attach-ViewHandlers $script:NodeHost
 

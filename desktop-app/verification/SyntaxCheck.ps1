@@ -8,7 +8,8 @@ function W { param([string]$t) $lines.Add($t) }
 
 $files = @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1',
            'verification\RegressionHarness.ps1', 'verification\RunApp.ps1',
-           'verification\RunShots10.ps1', 'verification\SyntaxCheck.ps1')
+           'verification\RunShots10.ps1', 'verification\RunShots11.ps1',
+           'verification\SyntaxCheck.ps1')
 $errTotal = 0
 W ("Root: " + $Root)
 W ("Time: " + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))

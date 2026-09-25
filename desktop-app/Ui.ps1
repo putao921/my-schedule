@@ -412,7 +412,7 @@ $windowXaml = @"
 
         <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Margin="10,0,10,12">
           <Border Height="2" Background="__BorderSoft__" Margin="0,0,0,8" Opacity="0.6"/>
-          <TextBlock Text="DAILY NOTE" FontSize="9" Foreground="__InkFaint__"
+          <TextBlock x:Name="DailyNoteTitle" Text="DAILY NOTE" FontSize="9" Foreground="__InkFaint__"
                      HorizontalAlignment="Center" FontFamily="Consolas"/>
           <Border Height="4" Background="__Border__" CornerRadius="2" Margin="0,5,0,0"/>
           <Border Height="4" Background="__Shadow__" CornerRadius="2"
