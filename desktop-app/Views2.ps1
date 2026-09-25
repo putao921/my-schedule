@@ -136,16 +136,163 @@ function New-ComboField {
     return $cb
 }
 
+function New-ChoiceField {
+    # 下拉框的"可本地化"版本（第六轮第二项建议：弹窗字段名接进语言表）。
+    #
+    # 为什么不能在 New-ComboField 里直接把选项文案换成中文：
+    #   **下拉框的文案既是"显示"又是"取值"**。全项目回读处都长这样：
+    #       ([string]$cb.Text).ToLowerInvariant()      # 'Daily' -> 'daily'
+    #       if ($cb.Text -like '5*') { $reminderMin = 5 }
+    #   一旦把 'High' 显示成'高'，那段解析逻辑立刻失效，而且**不报错**，
+    #   只是"改了选项却不生效"—— 又是最难查的那一类。
+    #
+    # 做法：显示文案与语义取值**分开存**。
+    #   · Items 里放本地化后的文案（用户看得懂）；
+    #   · $cb.Tag 里放稳定的语义值（'daily' / '5' / 'high' ……永远英文小写）；
+    #   · 每次选择变化就把选中文案反查回语义值写进 Tag；
+    #   · 解析处一律读 $cb.Tag，不再读 .Text。
+    #   · $cb.ToolTip 存一个 "值→文案" 的映射表，供反查用。
+    #
+    # $Pairs：有序的 @( @{ V='daily'; K='opt.rep.daily' }, ... )，V 是语义值、K 是语言键。
+    param($Parent, [string]$LabelKey, [string]$Value, $Pairs)
+    [void]$Parent.Children.Add((New-Txt -Text (Get-LangText $LabelKey) -Size 11 -Color (Get-Pal 'InkFaint')))
+    $cb = New-Object System.Windows.Controls.ComboBox
+    $cb.IsEditable = $false          # 只能选，不能手打 —— 手打会造出 Tag 对不上的野值
+    $cb.Height = 36
+    $cb.FontSize = (Scale-Ui 13)     # 走 Scale-Ui：新控件必须跟全局字号倍率走
+    $cb.Margin = [System.Windows.Thickness]::new(0, 3, 0, 12)
+    $cb.Background = Brush (Get-Pal 'CardAlt')
+    $cb.Foreground = Brush (Get-Pal 'Ink')
+    $cb.BorderBrush = Brush (Get-Pal 'Border')
+    $cb.BorderThickness = [System.Windows.Thickness]::new(2)
+    $cb.Padding = [System.Windows.Thickness]::new(7, 3, 7, 3)
+    # 值 <-> 文案 双向表
+    $v2t = @{}
+    $t2v = @{}
+    $ordered = New-Object System.Collections.Generic.List[string]
+    foreach ($p in @($Pairs)) {
+        $v = [string]$p['V']
+        $t = Get-LangText ([string]$p['K'])
+        $v2t[$v] = $t
+        $t2v[$t] = $v
+        [void]$ordered.Add($v)
+        [void]$cb.Items.Add($t)
+    }
+    $cb.ToolTip = $t2v            # 只用于反查；不去显示（ComboBox 的 ToolTip 不弹）
+    $cb.Tag = $Value              # 语义值，永远是这个（解析处读它）
+    if ($v2t.ContainsKey($Value)) { $cb.SelectedItem = $v2t[$Value] }
+    elseif ($ordered.Count -gt 0) { $cb.SelectedIndex = 0; $cb.Tag = $ordered[0] }
+    # 选择变化 -> 把语义值同步回 Tag。处理器读不到局部变量，所以 $t2v 走 Tag。
+    $cb.Add_SelectionChanged({
+        param($s, $e)
+        try {
+            $m = $s.ToolTip
+            $sel = [string]$s.SelectedItem
+            if ($null -ne $m -and $m -is [hashtable] -and $m.ContainsKey($sel)) { $s.Tag = [string]$m[$sel] }
+        } catch { }
+    })
+    Apply-SharedComboStyle $cb
+    [void]$Parent.Children.Add($cb)
+    return $cb
+}
+
+function Set-ChoiceFieldValue {
+    # 把一个 New-ChoiceField 拨到指定语义值（打开编辑窗、切语言重建时用）。
+    #   注意：不能只设 $cb.Tag —— 界面上显示的还是旧文案，用户会以为没生效。
+    #   也不能只设 SelectedItem —— SelectionChanged 是异步派发的，Tag 不一定跟得上，
+    #   所以两个都设，Tag 手工再写一次兜底。
+    param([System.Windows.Controls.ComboBox]$Cb, [string]$Value)
+    if ($null -eq $Cb) { return }
+    $m = $Cb.ToolTip
+    if ($null -ne $m -and $m -is [hashtable]) {
+        foreach ($k in @($m.Keys)) {
+            if ([string]$m[$k] -eq $Value) {
+                $Cb.SelectedItem = $k
+                $Cb.Tag = $Value
+                return
+            }
+        }
+    }
+    $Cb.Tag = $Value
+}
+
 function New-SettingsSection {
     # 设置窗口里的分组小标题（第四轮：设置项从 1 项涨到 7 项，必须分组，
     # 否则一长条全是控件、找不到自己要改的那一项在哪）。
     # 上面留一条细分隔线，视觉上把"上一组"和"这一组"切开。
+    #
+    # 第六轮补一句：分组还在，但**同屏只留一组**了 —— 见 New-SettingsTabs。
+    # 这条函数没被废弃，因为"当前页"内部仍需要它做小标题（例如 Window 页里
+    # 没有子分组时它就是页面头顶那行说明）。
     param($Parent, [string]$Text)
     $line = New-Bd -Bg (Get-Pal 'BorderSoft') -Border '' -Radius 0
     $line.Height = 1.5
     $line.Margin = [System.Windows.Thickness]::new(0, 14, 0, 8)
     [void]$Parent.Children.Add($line)
     [void]$Parent.Children.Add((New-Txt -Text $Text -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
+}
+
+function New-SettingsTabs {
+    # 设置窗口分页（第六轮，用户第 1 条 "按照你说的建议全部修改"）。
+    #
+    # 为什么必须做：第五轮之后设置项涨到 9 个，截图里设置窗已经要滚两屏。
+    #   "找一项设置要滚半天"会让以后每加一项都变成负担 —— 分页的价值不在好看，
+    #   而在于**它还允许继续加设置项**。
+    #
+    # 做法：一排页签 + 一个内容区，切页时只换内容区的 Child。
+    #   为什么不用 WPF 自带 TabControl：它的默认模板样式与本项目风格（像素边框、
+    #   无系统圆角、主题色板）差太多，改模板的成本高于自己搭 4 个按钮 + 1 个 Border。
+    #   而且本项目所有弹窗都不吃系统样式 —— 保持一致比省几行代码重要。
+    #
+    # 返回 @{ Strip; Host; Buttons; Show } —— Show 是"按 key 切页"的函数（scriptblock），
+    #   由调用方持有；用 scriptblock 而不是往 $script: 塞状态，是因为同一时刻只有一个
+    #   设置窗，没必要把页签状态做成全局。
+    #
+    # ⚠ 硬规则：页签按钮的 Add_Click 里**不能捕获本函数的局部变量**
+    #   （WPF 处理器跑的时候本函数的作用域早没了）。所以：
+    #     · 页面容器 $host、按钮表 $btns 存到 $script: 一份（名字带前缀避免撞车）；
+    #     · 每个按钮的 key 通过它自己的 Tag 带进处理器（Tag 是形参天然带入）。
+    # ⚠ 变量名不能叫 $host：$Host 是 PowerShell 的只读自动变量（控制台宿主对象），
+    #   赋值会抛"无法覆盖变量 Host，因为该变量为只读变量或常量"。
+    #   而且因为它在函数体里才炸，整个 Show-SettingsWindow 一打开就崩 ——
+    #   与 New-EditorField 里 $Host 那个坑是同一类（见该函数注释）。
+    #   这里改用 $pageHost。
+    param([string[]]$Keys, [string[]]$Labels)
+    $strip = New-Object System.Windows.Controls.StackPanel
+    $strip.Orientation = 'Horizontal'
+    $strip.Margin = [System.Windows.Thickness]::new(0, 0, 0, 4)
+
+    $pageHost = New-Object System.Windows.Controls.Border
+    $pageHost.Background = Brush (Get-Pal 'Card')
+    $pageHost.BorderBrush = Brush (Get-Pal 'BorderSoft')
+    $pageHost.BorderThickness = [System.Windows.Thickness]::new(0, 2, 0, 0)
+    $pageHost.Padding = [System.Windows.Thickness]::new(0)
+
+    $btns = New-Object System.Collections.Generic.List[object]
+    $n = [math]::Min($Keys.Count, $Labels.Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        $key = [string]$Keys[$i]
+        $b = New-PixBtn -Text ([string]$Labels[$i]) -Bg (Get-Pal 'CardAlt') `
+                        -Fg (Get-Pal 'InkSoft') -W 92 -H 32 -FontSize 11
+        $b.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
+        # ⚠ Tag 必须在这里**另赋一个 hashtable**，不能走 New-PixBtn 的 -Tag 形参：
+        #   那个形参声明成 [string]，传 hashtable 会被 PS 悄悄转成
+        #   "System.Collections.Hashtable" 字符串，后面 $b.Tag['key'] 就是"给字符串
+        #   下标"→ 抛"参数类型不匹配"。直接赋值绕开形参的类型转换。
+        $b.Tag = @{ kind = 'settab'; key = $key }
+        $b.Add_Click({
+            param($s, $e)
+            try {
+                $e.Handled = $true
+                # 切页：真实逻辑挂在 $script: 上（处理器读不到局部变量）
+                if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow ([string]$s.Tag['key']) }
+            } catch { Write-ErrLog ('Settings tab: ' + $_.Exception.Message) }
+        })
+        [void]$btns.Add($b)
+        [void]$strip.Children.Add($b)
+    }
+
+    return @{ Strip = $strip; Host = $pageHost; Buttons = $btns }
 }
 
 function New-ToggleRow {
@@ -364,15 +511,7 @@ function New-DialogSaveButton {
     param([string]$Text = 'Save')
     return (New-DialogBarButton -Text $Text -Name 'DlgSave' `
         -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 64.0 `
-        -Tip 'Save and close  (same as the x button)')
-}
-
-function New-DialogCancelButton {
-    # 次按钮：走卡片底色，和标题栏同色系，表示"什么都不做直接走"。
-    param([string]$Text = 'Cancel')
-    return (New-DialogBarButton -Text $Text -Name 'DlgCancel' `
-        -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 68.0 `
-        -Tip 'Close without saving  (same as Esc)')
+        -Tip (Get-LangText 'tpl.save'))
 }
 
 function New-DialogCloseButton {
@@ -395,7 +534,9 @@ function New-DialogCloseButton {
     $btn.Height = 24
     $btn.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     $btn.Cursor = [System.Windows.Input.Cursors]::Hand
-    $btn.ToolTip = 'Save and close  (Esc = discard changes)'
+    # × 的语义现在是**唯一**的"不保存并关闭"（Cancel 已删）—— 提示文字必须说清楚，
+    # 否则用户会以为它还兼着保存（旧文案正是 'Save and close'）。
+    $btn.ToolTip = (Get-LangText 'tpl.close')
     $tpl = @"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -423,7 +564,16 @@ function New-DialogCloseButton {
 }
 
 function Bind-DialogChromeButtons {
-    # 把标题栏三件套接上：Save 与 × 走同一条保存路径，Cancel 走"放弃修改"。
+    # 把标题栏两件套接上：Save 与 × 走同一条保存路径。
+    #
+    # 第五轮（用户第 3 条反馈）：**Cancel 已删**。
+    #   原来 Save / Cancel / × 三个按钮里，Cancel 与 × 都是"不保存并关闭"，
+    #   同一行里两个同义按钮只会让人反复试。现在只留：
+    #     · Save -> 保存并关闭（转发一次 Click 给 ×，复用它的处理器）
+    #     · ×    -> 不保存并关闭（Esc 等价）
+    #   所以这里只剩 Save 一个转发分支。函数名保留 Bind-DialogChromeButtons
+    #   而不是改成 Bind-DialogSaveButton：调用点有 6 个弹窗，改名要动 6 处，
+    #   而"标题栏按钮的绑定"这个职责没变。
     #
     # 为什么必须放在各弹窗挂完 $chrome.BtnClose.Add_Click 之后再调：
     #   Save 的实现是 RaiseEvent(ClickEvent) 打到 × 上，复用它的处理器。
@@ -437,16 +587,13 @@ function Bind-DialogChromeButtons {
     #
     # 作用域：处理器里只能读 $script: 和形参 —— 这个函数的局部变量（$close / $Win）
     #   在处理器真正触发时早已随作用域销毁，StrictMode 下直接抛"检索不到变量"，
-    #   而异常会被下面的 catch 吞掉，表现成"点 Save / Cancel 没反应"。
-    #   所以两个引用一律走 $s.Tag（$s 就是被点的那个按钮，是形参天然带进来的）：
-    #     · BtnSave.Tag   = 同 chrome 里的 × 按钮
-    #     · BtnCancel.Tag = 该弹窗的 Window
+    #   而异常会被下面的 catch 吞掉，表现成"点 Save 没反应"。
+    #   所以引用一律走 $s.Tag（$s 就是被点的那个按钮，是形参天然带进来的）：
+    #     · BtnSave.Tag = 同 chrome 里的 × 按钮
     param($Chrome, $Win)
     if ($null -eq $Chrome) { return }
     $save = $Chrome['BtnSave']
-    $cancel = $Chrome['BtnCancel']
     $close = $Chrome['BtnClose']
-    # Tag 上放窗体引用。注意 Button.Tag 默认是 $null，直接赋值即可。
     if ($null -ne $save -and $null -ne $close) {
         $save.Tag = @{ kind = 'dlg-save'; close = $close }
         $save.Add_Click({
@@ -459,18 +606,6 @@ function Bind-DialogChromeButtons {
                     [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
                 $e.Handled = $true
             } catch { Write-ErrLog ('Dialog save: ' + $_.Exception.Message) }
-        })
-    }
-    if ($null -ne $cancel) {
-        $cancel.Tag = @{ kind = 'dlg-cancel'; win = $Win }
-        $cancel.Add_Click({
-            param($s, $e)
-            try {
-                $w = $null
-                if ($null -ne $s -and $null -ne $s.Tag -and ($s.Tag -is [hashtable])) { $w = $s.Tag['win'] }
-                Close-DialogWindow $w $false
-                $e.Handled = $true
-            } catch { Write-ErrLog ('Dialog cancel: ' + $_.Exception.Message) }
         })
     }
 }
@@ -492,15 +627,22 @@ function Get-EditorChrome {
     $bar.BorderBrush = Brush (Get-Pal 'Border')
     $bar.BorderThickness = [System.Windows.Thickness]::new(2, 2, 2, 0)
     $bar.CornerRadius = [System.Windows.CornerRadius]::new(10, 10, 0, 0)
-    # 标题栏 = [标题(占满)] + [Save] + [Cancel] + [×]。用 Grid 而不是 DockPanel：
+    # 标题栏 = [标题(占满)] + [Save] + [×]。用 Grid 而不是 DockPanel：
     # DockPanel 要先加的被停靠项，写反了标题会被按钮挤到中间。
     # 固定宽度列的尺寸必须在这里跟按钮的 Width + Margin 对齐，改一处要同步另一处，
     # 否则 Save 会被裁掉一半（Grid 不会因为内容超宽就撑开）。
+    #
+    # 第五轮（用户第 3 条反馈）：**删掉了 Cancel**。
+    #   原因：× 的语义本来就是"不保存并关闭"（Esc 也是），和 Cancel 完全重合 ——
+    #   一行里放两个功能相同的按钮，用户会以为它们有区别而反复试。
+    #   现在标题栏只保留"Save（保存）+ ×（放弃关闭）"，是二选一，语义无歧义。
+    #   后果：Esc 与 × 仍然都等于"放弃"；审计里按 Name 找 'DlgCancel' 的地方
+    #   一并改掉了（否则会静默找到 $null，那条断言变成假绿）。
     $barGrid = New-Object System.Windows.Controls.Grid
     $cdTitle = New-Object System.Windows.Controls.ColumnDefinition
     $cdTitle.Width = [System.Windows.GridLength]::new(1, 'Star')
     $barGrid.ColumnDefinitions.Add($cdTitle)
-    foreach ($px in @(70.0, 74.0, 34.0)) {
+    foreach ($px in @(70.0, 34.0)) {
         $cd = New-Object System.Windows.Controls.ColumnDefinition
         $cd.Width = [System.Windows.GridLength]::new($px, 'Pixel')
         $barGrid.ColumnDefinitions.Add($cd)
@@ -517,14 +659,9 @@ function Get-EditorChrome {
     [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
     [void]$barGrid.Children.Add($btnSave)
 
-    $btnCancel = New-DialogCancelButton
-    $btnCancel.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnCancel, 2)
-    [void]$barGrid.Children.Add($btnCancel)
-
     $btnClose = New-DialogCloseButton
     $btnClose.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnClose, 3)
+    [System.Windows.Controls.Grid]::SetColumn($btnClose, 2)
     [void]$barGrid.Children.Add($btnClose)
 
     $bar.Child = $barGrid
@@ -546,7 +683,7 @@ function Get-EditorChrome {
     $root.Padding = [System.Windows.Thickness]::new(0)
     $root.Child = $wrap
     return @{ Root = $root; Bar = $bar; BarText = $barTxt;
-              BtnSave = $btnSave; BtnCancel = $btnCancel; BtnClose = $btnClose }
+              BtnSave = $btnSave; BtnClose = $btnClose }
 }
 
 # ---------------------------------------------------------------------------
@@ -564,8 +701,11 @@ function Show-EventEditorWindow {
 
     $dStr = Fmt-Date $script:Selected
     $sStr = '09:00'; $eStr = '10:00'; $tStr = ''; $tagStr = 'work'
-    $repeatVal = 'None'; $everyVal = '1'; $untilVal = ''
-    $monthLastVal = $false; $reminderVal = 'No reminder'
+    # 下拉框的初值一律用**语义值**（英文小写 / 数字字符串），不再用英文文案：
+    #   文案现在随语言变，'None'/'Daily' 这类字面量在中界面下根本不存在，
+    #   拿它去 New-ChoiceField 会匹配不上而静默落到第一项。
+    $repeatVal = 'none'; $everyVal = '1'; $untilVal = ''
+    $monthLastVal = $false; $reminderVal = '0'
     if (-not [string]::IsNullOrWhiteSpace($PrefillDate)) { $dStr = $PrefillDate }
     if ($PrefillStart -ge 0) { $sStr = Min-To-HHMM $PrefillStart }
     if ($PrefillEnd -gt $PrefillStart) { $eStr = Min-To-HHMM $PrefillEnd }
@@ -577,17 +717,15 @@ function Show-EventEditorWindow {
         $tagStr = [string]$script:EdEv.tag
         if (-not $tagStr) { $tagStr = 'work' }
         if ($script:EdEv.PSObject.Properties.Name -contains 'repeat') {
-            $rp = [string]$script:EdEv.repeat
-            if ($rp -eq 'daily') { $repeatVal = 'Daily' }
-            elseif ($rp -eq 'weekly') { $repeatVal = 'Weekly' }
-            elseif ($rp -eq 'monthly') { $repeatVal = 'Monthly' }
+            $rp = ([string]$script:EdEv.repeat).ToLowerInvariant()
+            if ($rp -eq 'daily' -or $rp -eq 'weekly' -or $rp -eq 'monthly') { $repeatVal = $rp }
         }
         if ($script:EdEv.PSObject.Properties.Name -contains 'repeatEvery') { $everyVal = [string]$script:EdEv.repeatEvery }
         if ($script:EdEv.PSObject.Properties.Name -contains 'repeatUntil') { $untilVal = [string]$script:EdEv.repeatUntil }
         if ($script:EdEv.PSObject.Properties.Name -contains 'repeatMonthMode') { $monthLastVal = ([string]$script:EdEv.repeatMonthMode -eq 'last') }
         if ($script:EdEv.PSObject.Properties.Name -contains 'reminderMin') {
             $rm = [int]$script:EdEv.reminderMin
-            if ($rm -gt 0) { $reminderVal = [string]$rm + ' min before' }
+            if ($rm -gt 0) { $reminderVal = [string]$rm }
         }
     }
 
@@ -605,11 +743,11 @@ function Show-EventEditorWindow {
     $sp = New-Object System.Windows.Controls.StackPanel
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 388
-    [void]$sp.Children.Add((New-Txt -Text $(if ($script:EdEditing) { 'Edit event' } else { 'New event' }) `
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText $(if ($script:EdEditing) { 'fld.ed.title' } else { 'fld.ed.new' })) `
         -Size 18 -Color (Get-Pal 'Ink') -Weight 'Bold'))
 
-    $script:EdTbTitle = New-EditorField $sp 'Title' $tStr
-    $script:EdTbDate  = New-EditorField $sp 'Date (yyyy-MM-dd)' $dStr
+    $script:EdTbTitle = New-EditorField $sp (Get-LangText 'fld.ed.titleF') $tStr
+    $script:EdTbDate  = New-EditorField $sp (Get-LangText 'fld.ed.date') $dStr
 
     $row = New-Object System.Windows.Controls.Grid
     $cdA = New-Object System.Windows.Controls.ColumnDefinition
@@ -620,7 +758,7 @@ function Show-EventEditorWindow {
     $cdC.Width = [System.Windows.GridLength]::new(1, 'Star'); $row.ColumnDefinitions.Add($cdC)
 
     $colA = New-Object System.Windows.Controls.StackPanel
-    [void]$colA.Children.Add((New-Txt -Text 'Start (HH:mm)' -Size 11 -Color (Get-Pal 'InkFaint')))
+    [void]$colA.Children.Add((New-Txt -Text (Get-LangText 'fld.ed.start') -Size 11 -Color (Get-Pal 'InkFaint')))
     $script:EdTbStart = New-Object System.Windows.Controls.TextBox
     $script:EdTbStart.Text = $sStr; $script:EdTbStart.Height = 32; $script:EdTbStart.FontSize = 13
     $script:EdTbStart.Background = Brush (Get-Pal 'CardAlt'); $script:EdTbStart.Foreground = Brush (Get-Pal 'Ink')
@@ -631,7 +769,7 @@ function Show-EventEditorWindow {
     [System.Windows.Controls.Grid]::SetColumn($colA, 0); [void]$row.Children.Add($colA)
 
     $colB = New-Object System.Windows.Controls.StackPanel
-    [void]$colB.Children.Add((New-Txt -Text 'End (HH:mm)' -Size 11 -Color (Get-Pal 'InkFaint')))
+    [void]$colB.Children.Add((New-Txt -Text (Get-LangText 'fld.ed.end') -Size 11 -Color (Get-Pal 'InkFaint')))
     $script:EdTbEnd = New-Object System.Windows.Controls.TextBox
     $script:EdTbEnd.Text = $eStr; $script:EdTbEnd.Height = 32; $script:EdTbEnd.FontSize = 13
     $script:EdTbEnd.Background = Brush (Get-Pal 'CardAlt'); $script:EdTbEnd.Foreground = Brush (Get-Pal 'Ink')
@@ -645,25 +783,27 @@ function Show-EventEditorWindow {
     [void]$sp.Children.Add($row)
 
     # 重复与提醒
-    $script:EdRepeat = New-ComboField $sp 'Repeat' $repeatVal @('None','Daily','Weekly','Monthly')
-    $script:EdRepeat.IsEditable = $false
-    $script:EdEvery = New-EditorField $sp 'Repeat every N days / weeks / months' $everyVal
-    $script:EdUntil = New-EditorField $sp 'Repeat until (optional, yyyy-MM-dd)' $untilVal
+    $script:EdRepeat = New-ChoiceField $sp 'fld.ed.repeat' $repeatVal @(
+        @{ V = 'none'; K = 'opt.rep.none' }, @{ V = 'daily'; K = 'opt.rep.daily' },
+        @{ V = 'weekly'; K = 'opt.rep.weekly' }, @{ V = 'monthly'; K = 'opt.rep.monthly' })
+    $script:EdEvery = New-EditorField $sp (Get-LangText 'fld.ed.every') $everyVal
+    $script:EdUntil = New-EditorField $sp (Get-LangText 'fld.ed.until') $untilVal
     $monthRow = New-Object System.Windows.Controls.StackPanel
     $monthRow.Orientation = 'Horizontal'
     $monthRow.Margin = [System.Windows.Thickness]::new(0, -5, 0, 10)
     $script:EdMonthLast = New-Object System.Windows.Controls.CheckBox
-    $script:EdMonthLast.Content = 'Monthly: use the last day of month'
+    $script:EdMonthLast.Content = (Get-LangText 'fld.ed.monthLast')
     $script:EdMonthLast.IsChecked = $monthLastVal
     $script:EdMonthLast.FontSize = 11
     $script:EdMonthLast.Foreground = Brush (Get-Pal 'InkSoft')
     [void]$monthRow.Children.Add($script:EdMonthLast)
     [void]$sp.Children.Add($monthRow)
-    $script:EdReminder = New-ComboField $sp 'Reminder' $reminderVal @('No reminder','5 min before','10 min before','15 min before')
-    $script:EdReminder.IsEditable = $false
+    $script:EdReminder = New-ChoiceField $sp 'fld.ed.reminder' $reminderVal @(
+        @{ V = '0'; K = 'opt.rem.no' }, @{ V = '5'; K = 'opt.rem.5' },
+        @{ V = '10'; K = 'opt.rem.10' }, @{ V = '15'; K = 'opt.rem.15' })
 
     # 标签按钮组
-    [void]$sp.Children.Add((New-Txt -Text 'Tag' -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.ed.tag') -Size 10 -Color (Get-Pal 'InkFaint')))
     $tagRow = New-Object System.Windows.Controls.StackPanel
     $tagRow.Orientation = 'Horizontal'
     $tagRow.Margin = [System.Windows.Thickness]::new(0, 2, 0, 12)
@@ -767,14 +907,15 @@ function Show-EventEditorWindow {
                 return
             }
         }
-        $repeat = ([string]$script:EdRepeat.Text).ToLowerInvariant()
+        # 读 .Tag（语义值），不读 .Text：文案现在随语言变，'Daily' 在中界面下不存在。
+        $repeat = ([string]$script:EdRepeat.Tag).ToLowerInvariant()
         if (@('none','daily','weekly','monthly') -notcontains $repeat) { $repeat = 'none' }
         $monthMode = 'day'
         if ([bool]$script:EdMonthLast.IsChecked) { $monthMode = 'last' }
         $reminderMin = 0
-        if ([string]$script:EdReminder.Text -like '5*') { $reminderMin = 5 }
-        elseif ([string]$script:EdReminder.Text -like '10*') { $reminderMin = 10 }
-        elseif ([string]$script:EdReminder.Text -like '15*') { $reminderMin = 15 }
+        $remTag = [string]$script:EdReminder.Tag
+        if ($remTag -match '^\d+$') { $reminderMin = [int]$remTag }
+        if ($reminderMin -lt 0 -or $reminderMin -gt 99) { $reminderMin = 0 }
 
         if ($script:EdEditing) {
             # 只改用户看得见的四个字段，其余（id / note / done）原样保留
@@ -835,16 +976,14 @@ function Save-SettingsDialogValues {
     }
 
     # ---- 字号档位 ----
+    # 第六轮起一律读 .Tag（语义值）：可选文案已经本地化了，读 .Text 在中文界面下
+    # 必然匹配不上，然后静默回落 Normal —— 用户会觉得"选了大字号却没用"。
     $scaleVal = 1.0
-    $scaleName = [string]$script:SetUiScale.Text
-    if ($script:SetScaleChoices.Contains($scaleName)) {
-        $scaleVal = [double]$script:SetScaleChoices[$scaleName]
+    $scaleKey = ([string]$script:SetUiScale.Tag).ToLowerInvariant()
+    if ($script:SetScaleChoices.Contains($scaleKey)) {
+        $scaleVal = [double]$script:SetScaleChoices[$scaleKey]
     } else {
-        # 用户手打了别的字（ComboBox 是可编辑的）：不报错，静默回落到 Normal，
-        # 但把控件文字改回去 —— 否则用户会以为"我输入的值生效了"。
         $scaleVal = 1.0
-        $scaleName = 'Normal'
-        $script:SetUiScale.Text = 'Normal'
     }
 
     # ---- 周视图默认时段 ----
@@ -858,30 +997,24 @@ function Save-SettingsDialogValues {
     }
     if (-not $rangeOk) { $weekRange = '0-24' }
 
-    # ---- 语言（第五轮） ----
-    # 显示名 -> 语言码。不在表里就回落中文（并把控件文字改回去，理由同字号档位）。
-    $langVal = 'zh'
-    $langName = [string]$script:SetLangBox.Text
-    if ($script:SetLangChoices.Contains($langName)) {
-        $langVal = [string]$script:SetLangChoices[$langName]
-    } else {
-        $langVal = 'zh'; $script:SetLangBox.Text = '中文'
-    }
+    # ---- 语言（第五轮 / 第六轮改读 Tag） ----
+    $langVal = ([string]$script:SetLangBox.Tag).ToLowerInvariant()
+    if (@('zh','en') -notcontains $langVal) { $langVal = 'zh' }
 
-    # ---- 周视图密度（第五轮） ----
+    # ---- 视图密度（第五轮；第六轮拆成周/月两个键） ----
     $densityVal = 40
-    $densityName = [string]$script:SetDensityBox.Text
-    if ($script:SetDensityChoices.Contains($densityName)) {
-        $densityVal = [int]$script:SetDensityChoices[$densityName]
-    } else {
-        $densityVal = 40; $script:SetDensityBox.Text = 'Normal'
-    }
+    $densityKey = ([string]$script:SetDensityBox.Tag).ToLowerInvariant()
+    if ($script:SetDensityChoices.Contains($densityKey)) { $densityVal = [int]$script:SetDensityChoices[$densityKey] }
+    $monthDensityVal = 40
+    $monthDenKey = ([string]$script:SetMonthDensityBox.Tag).ToLowerInvariant()
+    if ($script:SetDensityChoices.Contains($monthDenKey)) { $monthDensityVal = [int]$script:SetDensityChoices[$monthDenKey] }
 
     # ---- 落库 ----
     $oldTheme = [string]$script:Theme
     $oldScale = [double]$script:Settings['UiScale']
     $oldLang = [string]$script:Lang
     $oldDensity = [int]$script:Settings['WeekDensity']
+    $oldMonthDensity = [int]$script:Settings['MonthDensity']
     $script:Settings['PomodoroMin'] = $m
     $script:Settings['UiScale'] = $scaleVal
     $script:Settings['UiAdaptive'] = [bool]$script:SetUiAdaptive.IsChecked
@@ -890,7 +1023,12 @@ function Save-SettingsDialogValues {
     $script:Settings['WeekViewRange'] = $weekRange
     $script:Settings['Language'] = $langVal
     $script:Settings['WeekDensity'] = $densityVal
-    $newTheme = ([string]$script:SetThemeBox.Text).ToLowerInvariant()
+    $script:Settings['MonthDensity'] = $monthDensityVal
+    # 提示条角落（第六轮）：只影响下一次弹提示条的位置，不需要重建界面。
+    $corner = ([string]$script:SetToastCorner.Tag).ToLowerInvariant()
+    if (@('bl','br','tl','tr') -notcontains $corner) { $corner = 'br' }
+    $script:Settings['ToastCorner'] = $corner
+    $newTheme = ([string]$script:SetThemeBox.Tag).ToLowerInvariant()
     if (@('light','night') -notcontains $newTheme) { $newTheme = 'light' }
     $script:Settings['Theme'] = $newTheme
 
@@ -937,6 +1075,13 @@ function Save-SettingsDialogValues {
         if ($densityVal -ne $oldDensity -and $script:View -eq 'week') { [void](Set-WeekDensity $densityVal) }
     } catch { Write-ErrLog ('Set week density: ' + $_.Exception.Message) }
 
+    # 月视图密度（第六轮）：同理，只在当前就在月视图时重画。
+    #   月视图没法"局部改尺寸"——日期格的最小高度是在建格子时烘上去的，
+    #   所以这里只能整体重建月视图。好在月视图重建很轻（几十个格子）。
+    try {
+        if ($monthDensityVal -ne $oldMonthDensity -and $script:View -eq 'month') { Refresh-All }
+    } catch { Write-ErrLog ('Set month density: ' + $_.Exception.Message) }
+
     # 周视图时段：只在用户当前就在周视图时才立刻应用（否则会改掉"下次进周视图"的默认值）
     try {
         if ($weekRange -match '^(\d{1,2})-(\d{1,2})$') {
@@ -962,87 +1107,179 @@ function Show-SettingsWindow {
     $sp = New-Object System.Windows.Controls.StackPanel
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 408
-    [void]$sp.Children.Add((New-Txt -Text 'Settings & focus stats' -Size 18 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.st.title') -Size 18 -Color (Get-Pal 'Ink') -Weight 'Bold'))
     $who = ''
     try { $who = [string]$env:USERNAME } catch { }
     if ([string]::IsNullOrWhiteSpace($who)) { $who = 'unknown' }
-    [void]$sp.Children.Add((New-Txt -Text ('Windows user: ' + $who) -Size 11 -Color (Get-Pal 'InkSoft')))
-    [void]$sp.Children.Add((New-Txt -Text '数据目录（每台电脑每个账户一份，互相隔离）' `
-        -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$sp.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.user') + $who) -Size 11 -Color (Get-Pal 'InkSoft')))
+    # 数据目录这一段（第四节）第六轮挪到"数据"页了 —— 它是数据类信息，
+    #   和字号/主题不在一个心智抽屉里。这里只留一行极简说明（谁在用哪份数据）。
 
-    $dirBox = New-Object System.Windows.Controls.TextBox
-    $dirBox.Text = $script:DataDir
-    $dirBox.Height = 32; $dirBox.FontSize = 12
-    $dirBox.IsReadOnly = $true
-    $dirBox.Margin = [System.Windows.Thickness]::new(0, 2, 0, 12)
-    $dirBox.Background = Brush (Get-Pal 'CardAlt'); $dirBox.Foreground = Brush (Get-Pal 'InkSoft')
-    $dirBox.BorderBrush = Brush (Get-Pal 'BorderSoft'); $dirBox.BorderThickness = [System.Windows.Thickness]::new(2)
-    $dirBox.Padding = [System.Windows.Thickness]::new(6, 3, 6, 3)
-    $dirBox.VerticalContentAlignment = 'Center'
-    [void]$sp.Children.Add($dirBox)
+    # ===========================================================================
+    #  分页（第六轮，用户第 1 条）
+    #  设置项涨到 9 个之后，一屏已经要滚两屏。分页的收益不在"好看"，在**它决定了
+    #  以后还能不能继续加设置项**。四个页：
+    #    外观 Appearance —— 字号、自适应、主题、语言、周密度
+    #    窗口 Window     —— 置顶、关闭到托盘、周时段、番茄钟
+    #    数据 Data       —— 数据目录、打开文件夹、近 7 天统计
+    #    关于 About      —— 版本、快捷键
+    #  做法：四个 StackPanel 各存一份引用（$script:SetPageAppear 等），切页只换
+    #  $script:SetPageHost.Child。为什么不用 Visibility 切换：四个页面叠在一起时
+    #  窗口高度会按"最高的那页"算，短页下方留一大片空白 —— 直接换 Child 更干净。
+    #  注意：**所有控件都要在本次函数里全部建出来**（不论当前显示哪一页），
+    #  因为 Save-SettingsDialogValues 会读它们中的每一个；分页只影响"看不看得见"。
+    # ===========================================================================
+    $tabs = New-SettingsTabs @('appear','window','data','about') `
+        @((Get-LangText 'set.tab.appear'), (Get-LangText 'set.tab.window'), `
+          (Get-LangText 'set.tab.data'), (Get-LangText 'set.tab.about'))
+    [void]$sp.Children.Add($tabs.Strip)
+    [void]$sp.Children.Add($tabs.Host)
+    $script:SetPageHost = $tabs.Host
 
-    $script:SetTbPomo = New-EditorField $sp 'Session length (0-99 minutes; 0 = no countdown)' ([string]$script:Settings['PomodoroMin'])
+    $pa = New-Object System.Windows.Controls.StackPanel   # 外观
+    $pw = New-Object System.Windows.Controls.StackPanel   # 窗口
+    $pd = New-Object System.Windows.Controls.StackPanel   # 数据
+    $pb = New-Object System.Windows.Controls.StackPanel   # 关于
+    $script:SetPageAppear = $pa
+    $script:SetPageWindow = $pw
+    $script:SetPageData   = $pd
+    $script:SetPageAbout  = $pb
+    # 页签按钮表：切页时要改每个按钮的配色（选中态用强调色）
+    $script:SetTabButtons = $tabs.Buttons
+    # 切页函数体存在 $script: 上，供页签按钮的处理器调用。
+    # 为什么不是普通函数：它要读四个页面引用与按钮表，做成函数就得把引用再传一遍；
+    # 直接闭包成 scriptblock 读 $script: 更短，而且这里是"同一时刻只有一个设置窗"的场景。
+    $script:SetTabsShow = {
+        param([string]$Key)
+        try {
+            switch ($Key) {
+                'appear' { $script:SetPageHost.Child = $script:SetPageAppear }
+                'window' { $script:SetPageHost.Child = $script:SetPageWindow }
+                'data'   { $script:SetPageHost.Child = $script:SetPageData }
+                'about'  { $script:SetPageHost.Child = $script:SetPageAbout }
+            }
+            $script:SetTabActive = $Key
+            foreach ($b in $script:SetTabButtons) {
+                # ⚠⚠ 本函数最容易踩的一个坑：**PowerShell 变量名大小写不敏感**。
+                #   页签的 key 存在 $b.Tag['key'] 里，如果循环里写
+                #       $key = [string]$b.Tag['key']
+                #   那它和上面的形参 `$Key` 是**同一个变量** —— 第一轮循环就把
+                #   $Key 覆盖成了第一个页签的 key，之后所有比较都错位一格。
+                #   表现极具迷惑性：只有"第一个页签（appear）"能高亮，
+                #   其它页签永远不高亮；而且切页逻辑本身完全正常
+                #   （switch 在循环之前就执行完了），审计里只看到 highlight=False。
+                #   所以这里的局部变量**绝不能叫 $key**，一律用 $tabKey。
+                $tabKey = [string]$b.Tag['key']
+                $on = ($null -ne $b.Tag) -and ($b.Tag -is [hashtable]) -and ($tabKey -eq $Key)
+                $bg = Get-Pal 'CardAlt'
+                $fg = Get-Pal 'InkSoft'
+                if ($on) { $bg = Get-Pal 'AccentFocus'; $fg = Get-Pal 'Ink' }
+                # ⚠ 不能直接 $b.Background = ... ：New-PixBtn 把底色**烘进
+                #   ControlTemplate**（模板字符串里写死 Background="$Bg"），模板优先于
+                #   控件自身的 Background 属性，运行期改它视觉上毫无反应（不报错，
+                #   最难查的那种）。正确做法是 ApplyTemplate 之后把模板里那个名为 bd
+                #   的 Border 取回来，改它自己的 Background —— 与同文件
+                #   Update-TagChipSelection 用的是同一套做法。
+                try { [void]$b.ApplyTemplate() } catch { }
+                $bd = $null
+                try { $bd = $b.Template.FindName('bd', $b) } catch { }
+                if ($null -ne $bd) { $bd.Background = Brush $bg }
+                $txt = $b.Content
+                if ($txt -is [System.Windows.Controls.TextBlock]) { $txt.Foreground = Brush $fg }
+            }
+        } catch { Write-ErrLog ('SetTabsShow: ' + $_.Exception.Message) }
+    }
 
-    # ================= 外观（第四轮新增） =================
+    # ================= 外观页 =================
     #  这一组是用户报的"在 setting 处增加修改字号、调整主题以及其他软件常用设置"。
     #  为什么字号用"档位下拉"而不是滑块：档位是离散的、可预期的（小/标准/大/特大），
     #  滑块会让人反复调、还调不出"和默认一样"的那个点。
-    New-SettingsSection $sp 'Appearance'
     # 档位键做成"显示文字 -> 倍率"的映射表，存在 $script: 上：
     # 处理器里要用它做反查，而它是本函数的局部变量（处理器触发时已销毁）。
     $script:SetScaleChoices = [ordered]@{
-        'Small'  = 0.85
-        'Normal' = 1.00
-        'Large'  = 1.15
-        'Huge'   = 1.30
+        'small'  = 0.85
+        'normal' = 1.00
+        'large'  = 1.15
+        'huge'   = 1.30
     }
-    # 反查当前档位名：存的是倍率，配置被手改成一个"不在档位表里"的值时回落到 Normal。
+    # 反查当前档位：存的是倍率，配置被手改成一个"不在档位表里"的值时回落到 normal。
     $curScale = [double]$script:Settings['UiScale']
-    $curScaleName = 'Normal'
+    $curScaleName = 'normal'
     foreach ($k in $script:SetScaleChoices.Keys) {
         if ([math]::Abs([double]$script:SetScaleChoices[$k] - $curScale) -lt 0.001) { $curScaleName = $k; break }
     }
-    $script:SetUiScale = New-ComboField $sp 'Text size  (also follows the window width)' $curScaleName @('Small','Normal','Large','Huge')
-    $script:SetUiScale.IsEditable = $false
+    $script:SetUiScale = New-ChoiceField $pa 'fld.st.scale' $curScaleName @(
+        @{ V = 'small'; K = 'opt.scale.small' }, @{ V = 'normal'; K = 'opt.scale.normal' },
+        @{ V = 'large'; K = 'opt.scale.large' }, @{ V = 'huge'; K = 'opt.scale.huge' })
 
-    $script:SetUiAdaptive = New-ToggleRow $sp 'Let text size follow the window width' `
+    $script:SetUiAdaptive = New-ToggleRow $pa (Get-LangText 'fld.st.adaptive') `
         ([bool]$script:Settings['UiAdaptive']) `
-        'On: text grows a little in wide windows and shrinks in narrow ones. Off: text size only depends on the choice above.'
+        (Get-LangText 'hint.st.adaptive')
 
-    $script:SetThemeBox = New-ComboField $sp 'Theme' $(if ($script:Theme -eq 'night') { 'Night' } else { 'Light' }) @('Light','Night')
-    $script:SetThemeBox.IsEditable = $false
+    $script:SetThemeBox = New-ChoiceField $pa 'fld.st.theme' ([string]$script:Settings['Theme']) @(
+        @{ V = 'light'; K = 'opt.theme.light' }, @{ V = 'night'; K = 'opt.theme.night' })
 
-    # 语言（第五轮）。放 Appearance 组里，因为它和主题/字号一样属于"整屏观感"。
-    #   显示值用中文名（中文用户点得懂），落库存 'zh'/'en'。
-    $script:SetLangChoices = [ordered]@{ '中文' = 'zh'; 'English' = 'en' }
-    $curLangName = '中文'
-    foreach ($k in $script:SetLangChoices.Keys) {
-        if ([string]$script:SetLangChoices[$k] -eq [string]$script:Lang) { $curLangName = $k; break }
-    }
-    $script:SetLangBox = New-ComboField $sp 'Language  (sidebar and view names)' $curLangName @('中文','English')
-    $script:SetLangBox.IsEditable = $false
+    # 语言（第五轮）。放外观页里，因为它和主题/字号一样属于"整屏观感"。
+    #   第六轮改成 New-ChoiceField：语义值 'zh'/'en' 存进 Tag，不再靠"显示名反查"。
+    #   顺带解决一个隐患 —— 以前下拉里显示的是"中文/English"，切到英文界面后
+    #   这两个词仍然是中文，看着像没生效；现在它是唯二不该被翻译的项（语言名本身），
+    #   所以直接从语言表里取，双语下都显示"中文 / English"这组**固定**名称。
+    $script:SetLangBox = New-ChoiceField $pa 'fld.st.lang' ([string]$script:Lang) @(
+        @{ V = 'zh'; K = 'opt.lang.zh' }, @{ V = 'en'; K = 'opt.lang.en' })
 
-    # ================= Window（第四轮新增） =================
-    New-SettingsSection $sp 'Window'
-    $script:SetTopmost = New-ToggleRow $sp 'Keep the window on top of other windows' `
-        ([bool]$script:Settings['Topmost'])
-    $script:SetCloseToTray = New-ToggleRow $sp 'Closing the window hides it to the tray' `
-        ([bool]$script:Settings['CloseToTray']) `
-        'On: the x button hides the window and the app keeps running in the tray. Off: the x button asks whether to quit.'
-    $script:SetWeekRange = New-ComboField $sp 'Hours shown in the week view by default' `
-        ([string]$script:Settings['WeekViewRange']) @('0-24','8-20','6-22','9-18')
-    $script:SetWeekRange.IsEditable = $false
     # 周视图密度（第五轮）。显示"紧凑/标准/宽松"，落库存像素高。
-    $script:SetDensityChoices = [ordered]@{ 'Compact' = 28; 'Normal' = 40; 'Roomy' = 56 }
-    $curDensityName = 'Normal'
+    #   第六轮两处改动：① 挪到外观页（它是"看起来多密"，不是"窗口怎么表现"）；
+    #                  ② 拆成 WeekDensity / MonthDensity 两个键 —— 周视图要"紧密排满"、
+    #                     月视图要"一格能看清"，同一个值满足不了两个诉求。
+    $script:SetDensityChoices = [ordered]@{ 'compact' = 28; 'normal' = 40; 'roomy' = 56 }
+    $curDensityName = 'normal'
     foreach ($k in $script:SetDensityChoices.Keys) {
         if ([int]$script:SetDensityChoices[$k] -eq [int]$script:Settings['WeekDensity']) { $curDensityName = $k; break }
     }
-    $script:SetDensityBox = New-ComboField $sp 'Row height in the week view' $curDensityName @('Compact','Normal','Roomy')
-    $script:SetDensityBox.IsEditable = $false
+    $script:SetDensityBox = New-ChoiceField $pa 'fld.st.density' $curDensityName @(
+        @{ V = 'compact'; K = 'opt.dens.compact' }, @{ V = 'normal'; K = 'opt.dens.normal' },
+        @{ V = 'roomy'; K = 'opt.dens.roomy' })
+    # 月视图密度（第六轮新增）。月视图的"一格"是日期格，行高含义与周视图不同。
+    $curMonthDen = 'normal'
+    foreach ($k in $script:SetDensityChoices.Keys) {
+        if ([int]$script:SetDensityChoices[$k] -eq [int]$script:Settings['MonthDensity']) { $curMonthDen = $k; break }
+    }
+    $script:SetMonthDensityBox = New-ChoiceField $pa 'fld.st.densityMonth' $curMonthDen @(
+        @{ V = 'compact'; K = 'opt.dens.compact' }, @{ V = 'normal'; K = 'opt.dens.normal' },
+        @{ V = 'roomy'; K = 'opt.dens.roomy' })
+
+    # ================= 窗口页 =================
+    $script:SetTopmost = New-ToggleRow $pw (Get-LangText 'fld.st.topmost') `
+        ([bool]$script:Settings['Topmost'])
+    $script:SetCloseToTray = New-ToggleRow $pw (Get-LangText 'fld.st.tray') `
+        ([bool]$script:Settings['CloseToTray']) `
+        (Get-LangText 'fld.st.trayHint')
+    $script:SetWeekRange = New-ComboField $pw (Get-LangText 'fld.st.weekRange') `
+        ([string]$script:Settings['WeekViewRange']) @('0-24','8-20','6-22','9-18')
+    $script:SetWeekRange.IsEditable = $false
+    # 提示条角落（第六轮）：撤销条贴在屏幕哪个角。默认 br = 老版本的写死位置。
+    $script:SetToastCorner = New-ChoiceField $pw 'fld.st.toastCorner' ([string]$script:Settings['ToastCorner']) @(
+        @{ V = 'br'; K = 'opt.corner.br' }, @{ V = 'bl'; K = 'opt.corner.bl' },
+        @{ V = 'tl'; K = 'opt.corner.tl' }, @{ V = 'tr'; K = 'opt.corner.tr' })
+    # 番茄钟（第三轮就有）挪到窗口页：它算"运行期行为"，不是"长什么样"。
+    $script:SetTbPomo = New-EditorField $pw (Get-LangText 'fld.st.pomo') ([string]$script:Settings['PomodoroMin'])
+
+    # ================= 数据页 =================
+    [void]$pd.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.dir') + ' — ' + $script:DataDir) -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$pd.Children.Add((New-Txt -Text (Get-LangText 'fld.st.dirHint') -Size 10 -Color (Get-Pal 'InkFaint')))
+    $dirBox2 = New-Object System.Windows.Controls.TextBox
+    $dirBox2.Text = $script:DataDir
+    $dirBox2.Height = 32; $dirBox2.FontSize = 12
+    $dirBox2.IsReadOnly = $true
+    $dirBox2.Margin = [System.Windows.Thickness]::new(0, 4, 0, 12)
+    $dirBox2.Background = Brush (Get-Pal 'CardAlt'); $dirBox2.Foreground = Brush (Get-Pal 'InkSoft')
+    $dirBox2.BorderBrush = Brush (Get-Pal 'BorderSoft'); $dirBox2.BorderThickness = [System.Windows.Thickness]::new(2)
+    $dirBox2.Padding = [System.Windows.Thickness]::new(6, 3, 6, 3)
+    $dirBox2.VerticalContentAlignment = 'Center'
+    [void]$pd.Children.Add($dirBox2)
 
     # 近 7 天专注柱状
-    [void]$sp.Children.Add((New-Txt -Text 'Focus last 7 days (minutes)' -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$pd.Children.Add((New-Txt -Text 'Focus last 7 days (minutes)' -Size 10 -Color (Get-Pal 'InkFaint')))
     $vals = @(Get-FocusStats)
     $chart = New-Object System.Windows.Controls.Grid
     $chart.Height = 116
@@ -1072,7 +1309,7 @@ function Show-SettingsWindow {
         [System.Windows.Controls.Grid]::SetColumn($col, $i)
         [void]$chart.Children.Add($col)
     }
-    [void]$sp.Children.Add($chart)
+    [void]$pd.Children.Add($chart)
 
     $total = 0; foreach ($v in $vals) { $total += [int]$v }
     $pomoLen = [int]$script:Settings['PomodoroMin']
@@ -1081,31 +1318,45 @@ function Show-SettingsWindow {
     $doneN = @($script:Events | Where-Object { [bool]$_.done }).Count
     $allN = @($script:Events).Count
     $openN = @($script:Tasks | Where-Object { -not [bool]$_.done }).Count
-    [void]$sp.Children.Add((New-Txt -Text ("This week {0} min · {1} pomodoros" -f $total, $pomos) `
+    [void]$pd.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.thisWeek') -f $total, $pomos) `
         -Size 12 -Color (Get-Pal 'Ink') -Weight 'Semi'))
-    [void]$sp.Children.Add((New-Txt -Text ("Events {0} (done {1}) · Open tasks {2}" -f $allN, $doneN, $openN) `
+    [void]$pd.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.totals') -f $allN, $doneN, $openN) `
         -Size 11 -Color (Get-Pal 'InkSoft')))
+    # Reset timer / Open folder 是"数据类"动作，跟着数据页走
+    $btnRow = New-Object System.Windows.Controls.StackPanel
+    $btnRow.Orientation = 'Horizontal'
+    $btnRow.HorizontalAlignment = 'Right'
+    $btnRow.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
+    # 只留两个"动作"按钮；保存/放弃统一走标题栏的 Save / ×（语义见 New-DialogSaveButton 注释）。
+    $bReset = New-PixBtn -Text (Get-LangText 'fld.st.reset') -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 110 -H 34 -FontSize 12
+    $bOpen = New-PixBtn -Text (Get-LangText 'fld.st.openDir') -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 106 -H 34 -FontSize 12
+    $bReset.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+    [void]$btnRow.Children.Add($bReset)
+    [void]$btnRow.Children.Add($bOpen)
+    [void]$pd.Children.Add($btnRow)
+
+    # ================= 关于页 =================
+    [void]$pb.Children.Add((New-Txt -Text 'My Schedule' -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$pb.Children.Add((New-Txt -Text 'PowerShell 5.1 + WPF · 单文件·零依赖·纯本地' -Size 10 -Color (Get-Pal 'InkSoft')))
+    $verTxt = 'v0.6'
+    try { if ($null -ne $script:AppVersion) { $verTxt = [string]$script:AppVersion } } catch { }
+    [void]$pb.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.version') + $verTxt) -Size 11 -Color (Get-Pal 'Ink')))
+    [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'fld.st.shortcuts') -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
+    foreach ($k in @('sc.newEvent', 'sc.search', 'sc.esc', 'sc.undo')) {
+        [void]$pb.Children.Add((New-Txt -Text (Get-LangText $k) -Size 10 -Color (Get-Pal 'InkSoft')))
+    }
 
     # 校验错误行：默认折叠，只有在 Save-SettingsDialogValues 返回 $false 时才显形。
-    #  为什么放在按钮行上方而不是底部：底部按钮行已撤销，这里是唯一"离眼睛近"的地方；
-    #  而且错误行出现/消失会推挤下面的按钮，反而更醒目。
+    #  为什么放在页签区**下面**（$sp 而非某一页）：错误是"整窗级"的，跟着某一页走会在
+    #  切页后消失，反而让人以为保存成功了。
     $script:SetErr = New-Txt -Text '' -Size 10 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
     $script:SetErr.Visibility = 'Collapsed'
     $script:SetErr.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
     $script:SetErr.TextWrapping = 'Wrap'
     [void]$sp.Children.Add($script:SetErr)
 
-    $btnRow = New-Object System.Windows.Controls.StackPanel
-    $btnRow.Orientation = 'Horizontal'
-    $btnRow.HorizontalAlignment = 'Right'
-    $btnRow.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
-    # 只留两个"动作"按钮；保存/放弃统一走标题栏的 Save / Cancel / ×（三者语义见 New-DialogSaveButton 注释）。
-    $bReset = New-PixBtn -Text 'Reset timer' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 110 -H 34 -FontSize 12
-    $bOpen = New-PixBtn -Text 'Open folder' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 106 -H 34 -FontSize 12
-    $bReset.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
-    [void]$btnRow.Children.Add($bReset)
-    [void]$btnRow.Children.Add($bOpen)
-    [void]$sp.Children.Add($btnRow)
+    # 默认停在外观页（用户最常改的那一页）
+    & $script:SetTabsShow 'appear'
 
     $chrome = Get-EditorChrome 'Settings' $sp
     $script:SetWin.Content = $chrome.Root
@@ -1255,25 +1506,26 @@ function Show-TaskEditorWindow {
     $dueVal = ''
     $tagVal = 'task'
     $doneVal = $false
-    $priorityVal = 'Medium'
+    $priorityVal = 'medium'      # 语义值（下拉框的文案随语言变，值不变）
     $projectVal = ''
     $estimatedVal = '0'
     $actualVal = '0'
     $dueTimeVal = '09:00'
-    $reminderVal = 'No reminder'
+    $reminderVal = '0'
     $subtaskLines = ''
     if ($script:TkEditing) {
         $textVal = [string]$script:TkTask.text
         if ($null -ne $script:TkTask.due) { $dueVal = [string]$script:TkTask.due }
         if (-not [string]::IsNullOrWhiteSpace([string]$script:TkTask.tag)) { $tagVal = [string]$script:TkTask.tag }
         $doneVal = [bool]$script:TkTask.done
-        if ($script:TkTask.PSObject.Properties.Name -contains 'priority') { $priorityVal = [string]$script:TkTask.priority }
+        if ($script:TkTask.PSObject.Properties.Name -contains 'priority') { $priorityVal = ([string]$script:TkTask.priority).ToLowerInvariant() }
+        if (@('high','medium','low') -notcontains $priorityVal) { $priorityVal = 'medium' }
         if ($script:TkTask.PSObject.Properties.Name -contains 'project') { $projectVal = [string]$script:TkTask.project }
         if ($script:TkTask.PSObject.Properties.Name -contains 'estimatedMin') { $estimatedVal = [string]$script:TkTask.estimatedMin }
         if ($script:TkTask.PSObject.Properties.Name -contains 'actualMin') { $actualVal = [string]$script:TkTask.actualMin }
         if ($script:TkTask.PSObject.Properties.Name -contains 'dueTime') { $dueTimeVal = [string]$script:TkTask.dueTime }
         if ($script:TkTask.PSObject.Properties.Name -contains 'reminderMin' -and [int]$script:TkTask.reminderMin -gt 0) {
-            $reminderVal = [string]$script:TkTask.reminderMin + ' min before'
+            $reminderVal = [string]$script:TkTask.reminderMin
         }
         if ($script:TkTask.PSObject.Properties.Name -contains 'subtasks') {
             $ls = New-Object System.Collections.ArrayList
@@ -1299,15 +1551,16 @@ function Show-TaskEditorWindow {
     $sp = New-Object System.Windows.Controls.StackPanel
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 390
-    [void]$sp.Children.Add((New-Txt -Text $(if ($script:TkEditing) { 'Edit task' } else { 'New task' }) `
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText $(if ($script:TkEditing) { 'fld.tk.title' } else { 'fld.tk.new' })) `
         -Size 18 -Color (Get-Pal 'Ink') -Weight 'Bold'))
 
-    $script:TkText = New-EditorField $sp 'Task content' $textVal
-    $script:TkDue = New-EditorField $sp 'Due date (optional, yyyy-MM-dd)' $dueVal
-    $script:TkDueTime = New-EditorField $sp 'Due time (HH:mm)' $dueTimeVal
-    $script:TkPriority = New-ComboField $sp 'Priority' $priorityVal @('High','Medium','Low')
-    $script:TkPriority.IsEditable = $false
-    $script:TkProject = New-EditorField $sp 'Project / list' $projectVal
+    $script:TkText = New-EditorField $sp (Get-LangText 'fld.tk.text') $textVal
+    $script:TkDue = New-EditorField $sp (Get-LangText 'fld.tk.due') $dueVal
+    $script:TkDueTime = New-EditorField $sp (Get-LangText 'fld.tk.dueTime') $dueTimeVal
+    $script:TkPriority = New-ChoiceField $sp 'fld.tk.priority' $priorityVal @(
+        @{ V = 'high'; K = 'opt.pri.high' }, @{ V = 'medium'; K = 'opt.pri.mid' },
+        @{ V = 'low'; K = 'opt.pri.low' })
+    $script:TkProject = New-EditorField $sp (Get-LangText 'fld.tk.project') $projectVal
 
     $metricRow = New-Object System.Windows.Controls.Grid
     for ($i = 0; $i -lt 3; $i++) {
@@ -1317,7 +1570,7 @@ function Show-TaskEditorWindow {
         [void]$metricRow.ColumnDefinitions.Add($cd)
     }
     $eCol = New-Object System.Windows.Controls.StackPanel
-    [void]$eCol.Children.Add((New-Txt -Text 'Estimated minutes' -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$eCol.Children.Add((New-Txt -Text (Get-LangText 'fld.tk.estimated') -Size 10 -Color (Get-Pal 'InkFaint')))
     $script:TkEstimated = New-Object System.Windows.Controls.TextBox
     $script:TkEstimated.Text = $estimatedVal; $script:TkEstimated.Height = 30; $script:TkEstimated.FontSize = 12
     $script:TkEstimated.Background = Brush (Get-Pal 'CardAlt'); $script:TkEstimated.Foreground = Brush (Get-Pal 'Ink')
@@ -1325,7 +1578,7 @@ function Show-TaskEditorWindow {
     [void]$eCol.Children.Add($script:TkEstimated)
     [System.Windows.Controls.Grid]::SetColumn($eCol, 0); [void]$metricRow.Children.Add($eCol)
     $aCol = New-Object System.Windows.Controls.StackPanel
-    [void]$aCol.Children.Add((New-Txt -Text 'Actual minutes' -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$aCol.Children.Add((New-Txt -Text (Get-LangText 'fld.tk.actual') -Size 10 -Color (Get-Pal 'InkFaint')))
     $script:TkActual = New-Object System.Windows.Controls.TextBox
     $script:TkActual.Text = $actualVal; $script:TkActual.Height = 30; $script:TkActual.FontSize = 12
     $script:TkActual.Background = Brush (Get-Pal 'CardAlt'); $script:TkActual.Foreground = Brush (Get-Pal 'Ink')
@@ -1335,9 +1588,11 @@ function Show-TaskEditorWindow {
     $metricRow.Margin = [System.Windows.Thickness]::new(0, 0, 0, 10)
     [void]$sp.Children.Add($metricRow)
 
-    $script:TkReminder = New-ComboField $sp 'Reminder' $reminderVal @('No reminder','5 min before','10 min before','15 min before','30 min before')
-    $script:TkReminder.IsEditable = $false
-    [void]$sp.Children.Add((New-Txt -Text 'Subtasks' -Size 11 -Color (Get-Pal 'InkFaint')))
+    $script:TkReminder = New-ChoiceField $sp 'fld.ed.reminder' $reminderVal @(
+        @{ V = '0'; K = 'opt.rem.no' }, @{ V = '5'; K = 'opt.rem.5' },
+        @{ V = '10'; K = 'opt.rem.10' }, @{ V = '15'; K = 'opt.rem.15' },
+        @{ V = '30'; K = 'opt.rem.30' })
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.tk.subtasks') -Size 11 -Color (Get-Pal 'InkFaint')))
     $script:TkSubtaskStack = New-Object System.Windows.Controls.StackPanel
     $script:TkSubtaskStack.Margin = [System.Windows.Thickness]::new(0, 4, 0, 6)
     [void]$sp.Children.Add($script:TkSubtaskStack)
@@ -1353,13 +1608,15 @@ function Show-TaskEditorWindow {
     $script:TkNewSubtask.Background = Brush (Get-Pal 'CardAlt'); $script:TkNewSubtask.Foreground = Brush (Get-Pal 'Ink')
     $script:TkNewSubtask.BorderBrush = Brush (Get-Pal 'BorderSoft'); $script:TkNewSubtask.BorderThickness = [System.Windows.Thickness]::new(1)
     [void]$subAddRow.Children.Add($script:TkNewSubtask)
-    $bAddSub = New-PixBtn -Text '+ Add' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 70 -H 30 -FontSize 10
+    $bAddSub = New-PixBtn -Text (Get-LangText 'btn.add') -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 70 -H 30 -FontSize 10
     $bAddSub.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     $bAddSub.Add_Click({ try { $txt = ([string]$script:TkNewSubtask.Text).Trim(); if ($txt) { New-TaskSubtaskRow -Stack $script:TkSubtaskStack -Text $txt -Done $false; $script:TkNewSubtask.Text = '' } } catch { } })
     [void]$subAddRow.Children.Add($bAddSub)
     [void]$sp.Children.Add($subAddRow)
 
-    $script:TkTag = New-ComboField $sp 'Category' $tagVal @('task','work','focus','life')
+    # 分类的四个值是**数据键**（写进 task.tag，还决定卡片竖条颜色），不进语言表 ——
+    #   翻译它会连带改坏筛选逻辑（'work'/'focus'/'life' 是硬编码在各处的语义值）。
+    $script:TkTag = New-ComboField $sp (Get-LangText 'fld.tk.tag') $tagVal @('task','work','focus','life')
     $script:TkTag.IsEditable = $false
     $script:TkTag.SelectedItem = $tagVal
 
@@ -1367,7 +1624,7 @@ function Show-TaskEditorWindow {
     $doneRow.Orientation = 'Horizontal'
     $doneRow.Margin = [System.Windows.Thickness]::new(0, 0, 0, 10)
     $script:TkDone = New-Object System.Windows.Controls.CheckBox
-    $script:TkDone.Content = 'Completed'
+    $script:TkDone.Content = (Get-LangText 'fld.tk.done')
     $script:TkDone.IsChecked = $doneVal
     $script:TkDone.FontSize = 13
     $script:TkDone.Foreground = Brush (Get-Pal 'Ink')
@@ -1426,9 +1683,11 @@ function Show-TaskEditorWindow {
                 $script:TkErr.Visibility = 'Visible'
                 return
             }
+            # 分类是数据键（不翻译），但为了兼容"万一"被本地化过的旧值，仍然读 .Text 并原样落库。
             $tag = [string]$script:TkTag.Text
             if ([string]::IsNullOrWhiteSpace($tag)) { $tag = 'task' }
-            $priority = ([string]$script:TkPriority.Text).ToLowerInvariant()
+            # 优先级 / 提醒读 .Tag（语义值）：文案随语言变，读 .Text 在中文界面下必然失配。
+            $priority = ([string]$script:TkPriority.Tag).ToLowerInvariant()
             if (@('high','medium','low') -notcontains $priority) { $priority = 'medium' }
             $project = ([string]$script:TkProject.Text).Trim()
             $estimated = 0; $actual = 0
@@ -1437,10 +1696,9 @@ function Show-TaskEditorWindow {
             if ($estimated -lt 0) { $estimated = 0 }
             if ($actual -lt 0) { $actual = 0 }
             $reminderMin = 0
-            if ([string]$script:TkReminder.Text -like '5*') { $reminderMin = 5 }
-            elseif ([string]$script:TkReminder.Text -like '10*') { $reminderMin = 10 }
-            elseif ([string]$script:TkReminder.Text -like '15*') { $reminderMin = 15 }
-            elseif ([string]$script:TkReminder.Text -like '30*') { $reminderMin = 30 }
+            $remTag = [string]$script:TkReminder.Tag
+            if ($remTag -match '^\d+$') { $reminderMin = [int]$remTag }
+            if ($reminderMin -lt 0 -or $reminderMin -gt 99) { $reminderMin = 0 }
             $newSubtasks = New-Object System.Collections.ArrayList
             foreach ($row in @($script:TkSubtaskStack.Children)) {
                 if ($null -eq $row -or $null -eq $row.Tag) { continue }
@@ -1536,15 +1794,15 @@ function Show-FocusWindow {
     $sp = New-Object System.Windows.Controls.StackPanel
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 438
-    [void]$sp.Children.Add((New-Txt -Text 'Focus session' -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
-    [void]$sp.Children.Add((New-Txt -Text 'Set whether focus is available, the session length and what you will work on.' `
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.fo.title') -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.fo.sub') `
         -Size 11 -Color (Get-Pal 'InkSoft')))
 
     $enabledRow = New-Object System.Windows.Controls.StackPanel
     $enabledRow.Orientation = 'Horizontal'
     $enabledRow.Margin = [System.Windows.Thickness]::new(0, 14, 0, 6)
     $script:FoEnabled = New-Object System.Windows.Controls.CheckBox
-    $script:FoEnabled.Content = 'Enable focus timer'
+    $script:FoEnabled.Content = (Get-LangText 'fld.fo.enable')
     $script:FoEnabled.IsChecked = [bool]$script:Settings['PomodoroEnabled']
     $script:FoEnabled.FontSize = 13
     $script:FoEnabled.Foreground = Brush (Get-Pal 'Ink')
@@ -1555,24 +1813,24 @@ function Show-FocusWindow {
     # 0-99 自由填：预设把"常用档"和"边界档"都摆出来 —— 0（不计时）与 99 都在里面，
     # 用户一眼就知道上下界在哪，不用去猜输入框能填多少。
     $durationChoices = @('0','5','10','15','20','25','30','45','60','75','90','99')
-    $script:FoTbDuration = New-ComboField $sp 'Session length (choose or type 0-99 minutes; 0 = no countdown)' `
+    $script:FoTbDuration = New-ComboField $sp (Get-LangText 'fld.fo.duration') `
         ([string]$script:Settings['PomodoroMin']) $durationChoices
 
     $breakRow = New-Object System.Windows.Controls.StackPanel
     $breakRow.Orientation = 'Horizontal'
     $breakRow.Margin = [System.Windows.Thickness]::new(0, -4, 0, 8)
     $script:FoBreakEnabled = New-Object System.Windows.Controls.CheckBox
-    $script:FoBreakEnabled.Content = 'Start a break after focus'
+    $script:FoBreakEnabled.Content = (Get-LangText 'fld.fo.breakOn')
     $script:FoBreakEnabled.IsChecked = [bool]$script:Settings['BreakEnabled']
     $script:FoBreakEnabled.FontSize = 12
     $script:FoBreakEnabled.Foreground = Brush (Get-Pal 'Ink')
     [void]$breakRow.Children.Add($script:FoBreakEnabled)
     [void]$sp.Children.Add($breakRow)
-    $script:FoBreakMin = New-ComboField $sp 'Break length (choose or type 0-99 minutes; 0 = skip)' `
+    $script:FoBreakMin = New-ComboField $sp (Get-LangText 'fld.fo.break') `
         ([string]$script:Settings['BreakMin']) @('0','5','10','15','20','30','45','60')
 
     $taskChoices = @($script:Tasks | ForEach-Object { [string]$_.text } | Sort-Object -Unique)
-    $script:FoTbTask = New-ComboField $sp 'Task content (choose an existing task or type a new one)' `
+    $script:FoTbTask = New-ComboField $sp (Get-LangText 'fld.fo.task') `
         ([string]$script:Settings['PomodoroTask']) $taskChoices
 
     $card = New-Bd -Bg (Get-Pal 'CardAlt') -Border (Get-Pal 'Border') -Radius 10
@@ -1801,6 +2059,23 @@ function Show-AvatarWindow {
 #  （$w / $scripts）早已随作用域销毁。所以动作脚本一律挂在 $btn.Tag 上带过去，
 #  处理器里只读 $s.Tag —— 绝不允许捕获创建函数的局部变量。
 # ---------------------------------------------------------------------------
+function Get-ToastWorkArea {
+    # 提示条该贴哪块屏的工作区。优先"主窗口所在的那块屏"，读不到就退回主屏。
+    #
+    #  为什么不直接用 SystemParameters.WorkArea：那是**主屏**的工作区。用户把主窗口
+    #  拖到副屏时，按主屏算边距会让提示条飞到主屏 —— 而提示条是给"当前窗口的操作"
+    #  做反馈的，跑到另一块屏上等于没提示。这里尽量跟着主窗口走。
+    #  WorkArea 是 DIP（与 WPF 的 Left/Top 同单位），不含任务栏，可直接用于贴边。
+    param()
+    try {
+        if ($null -ne $script:MainWindow -and $script:MainWindow.IsLoaded) {
+            $src = [System.Windows.PresentationSource]::FromVisual($script:MainWindow)
+            if ($null -ne $src -and $null -ne $src.WorkingArea) { return $src.WorkingArea }
+        }
+    } catch { }
+    return [System.Windows.SystemParameters]::WorkArea
+}
+
 function Show-Toast {
     param([string]$Title = 'Notification', [string]$Text = '',
           [string]$ActionText = '', [scriptblock]$ActionScript = $null,
@@ -1864,10 +2139,32 @@ function Show-Toast {
 
         $bd.Child = $sp
         $w.Content = $bd
-        $wa = [System.Windows.SystemParameters]::WorkArea
-        $w.Left = $wa.Right - 320
-        $w.Top = $wa.Bottom - 150
+        # ---- 按设置的角落贴边（第六轮：ToastCorner）----
+        # 老版本写死右下。提示条是独立 Topmost 窗口，右下角常与系统托盘/输入法候选框
+        # 重叠，所以给一个"换角落"的开关。四个角都要考虑**多显示器**：
+        #   SystemParameters.WorkArea 是**主屏**的工作区（不含任务栏）。若窗口被拖到
+        #   副屏，按主屏 WorkArea 定位会让提示条跳到主屏上去 —— 但提示条本来就该
+        #   贴在"用户当前看着的那块屏"。这里用一个折中：如果主窗口在某块屏上，
+        #   就用那块屏的工作区；读不到就退回主屏 WorkArea。
+        $wa = Get-ToastWorkArea
+        # 先 Show 出来量一次实际尺寸：提示条是 SizeToContent，Show 之前 ActualWidth 恒为 0，
+        # 直接按 0 算边距会让它贴在屏幕外（老代码用 320/150 两个魔数兜底，正是这个原因）。
         $w.Show()
+        $w.UpdateLayout()
+        $tw = $w.ActualWidth;  if (-not ($tw -gt 0)) { $tw = 320 }
+        $th = $w.ActualHeight; if (-not ($th -gt 0)) { $th = 150 }
+        $mx = 16; $my = 16
+        $corner = 'br'
+        try { if ($null -ne $script:Settings -and $script:Settings.Contains('ToastCorner')) { $corner = [string]$script:Settings['ToastCorner'] } } catch { }
+        switch ($corner) {
+            'bl' { $w.Left = $wa.Left + $mx;              $w.Top = $wa.Bottom - $th - $my }
+            'tl' { $w.Left = $wa.Left + $mx;              $w.Top = $wa.Top + $my }
+            'tr' { $w.Left = $wa.Right - $tw - $mx;       $w.Top = $wa.Top + $my }
+            default { $w.Left = $wa.Right - $tw - $mx;    $w.Top = $wa.Bottom - $th - $my }
+        }
+        # 兜底：任何计算失误都不能让提示条跑出可视区（出屏 = 用户以为"没提示"）
+        if ($w.Left -lt ($wa.Left - 4)) { $w.Left = $wa.Left + $mx }
+        if ($w.Top  -lt ($wa.Top  - 4)) { $w.Top  = $wa.Top  + $my }
         # 注意：定时器与窗口必须挂到 $script: 上。
         # 事件处理器 scriptblock 真正被 WPF 回调时，函数局部变量（$t / $w）已经随作用域消失，
         # StrictMode 下会直接抛"检索不到变量"，被 catch 吞掉后就表现为"Toast 永不关闭"。

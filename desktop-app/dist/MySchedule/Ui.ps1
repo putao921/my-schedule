@@ -411,6 +411,12 @@ $windowXaml = @"
         </ScrollViewer>
 
         <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Margin="10,0,10,12">
+          <!-- 撤销反馈条（第六轮）：Ctrl+Z 撤销后在这里报"还能撤几次"，
+               栈空时提示"没有可撤销的操作了"。默认空字符串 -> 不占视觉重量；
+               有内容时不换行、淡色，不抢导航的注意力。 -->
+          <TextBlock x:Name="UndoHint" Text="" FontSize="10" Foreground="__InkFaint__"
+                     HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                     Margin="0,0,0,6"/>
           <Border Height="2" Background="__BorderSoft__" Margin="0,0,0,8" Opacity="0.6"/>
           <TextBlock x:Name="DailyNoteTitle" Text="DAILY NOTE" FontSize="9" Foreground="__InkFaint__"
                      HorizontalAlignment="Center" FontFamily="Consolas"/>

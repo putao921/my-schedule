@@ -9,6 +9,7 @@ function W { param([string]$t) $lines.Add($t) }
 $files = @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1',
            'verification\RegressionHarness.ps1', 'verification\RunApp.ps1',
            'verification\RunShots10.ps1', 'verification\RunShots11.ps1',
+           'verification\RunShots12.ps1', 'verification\Run6.ps1',
            'verification\SyntaxCheck.ps1')
 $errTotal = 0
 W ("Root: " + $Root)
@@ -306,6 +307,59 @@ if (@($notAssigned).Count -eq 0) {
     W '[OK  ] 每个取用的名字都赋值给了 $script:（不会出现"检索不到变量"）'
 } else {
     W ('[BAD ] 取了却忘了赋值给 $script: 共 ' + @($notAssigned).Count + ' 个: ' + ($notAssigned -join ','))
+    $errTotal++
+}
+
+# --------------------------------------------------------------------------
+#  禁止运行期改 PixBtn 的 .Background（第六轮实测的静默失效）
+#  坑：New-PixBtn 把底色**烘进 ControlTemplate**（模板字符串里 Background="$Bg"），
+#      模板优先于控件属性 —— 运行期 $btn.Background = ... **不报错也不生效**。
+#      正确做法：ApplyTemplate() 之后 Template.FindName('bd', $btn)，改那个 Border。
+#      本轮 setTabsShow 的第一版就是这么写错的：改了 .Background，四个页签一个都不亮。
+#      与"裸字号""Substring 越界"同一类：跑起来不报错、只是功能悄悄不对，只能静态拦。
+#
+#  判定方式必须**跟变量来源**，不能只看变量名：项目里 $b 常是 Border（New-Bd，
+#  改 .Background 完全正确）或普通 Button（日挑选格，也正确）。所以先扫出
+#  "$x = New-PixBtn ..." 登记的变量集（按函数隔离），再找这些变量被改 .Background
+#  的地方。变量取自 New-PixBtn 才判红 —— 只有它们会被模板烘焙色盖住。
+# --------------------------------------------------------------------------
+W ''
+$pixBgBad = @()
+foreach ($name in @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1')) {
+    $p = Join-Path $Root $name
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $txt = [System.IO.File]::ReadAllText($p)
+    $n = 0
+    $pixVars = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($ln in ($txt -split "`r?`n")) {
+        $n++
+        if ($ln -match '^\s*#') { continue }
+        # 函数边界：进入新函数就清空（同一变量名在不同函数里含义不同）
+        if ($ln -match '^\s*function\s+[A-Za-z]') { $pixVars.Clear(); continue }
+        # 登记来自 New-PixBtn 的变量：$x = New-PixBtn ...  或  $script:X = New-PixBtn ...
+        #   ⚠ 两种形态写成**两条独立正则**，不要用 (\$script:)? 这种可选前缀：
+        #     `^\s*(\$script:)?([A-Za-z_]...)` 在"无前缀"时**匹配不上** ——
+        #     `$` 是被 `\$script:` 里的 `\$` 吃掉的，可选组一旦缺席就没东西吃 `$`，
+        #     而捕获组 `[A-Za-z_]` 又匹配不了 `$`。实测 p 只中 script 形态、q 只中普通形态。
+        #   （同理：登记出的变量名不含 `$`，下面找 .Background 时才拼 `\$`。）
+        $m = [regex]::Match($ln, '^\s*\$script:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*New-PixBtn\b')
+        if (-not $m.Success) { $m = [regex]::Match($ln, '^\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*New-PixBtn\b') }
+        if ($m.Success) { [void]$pixVars.Add($m.Groups[1].Value); continue }
+        # 命中：某个 PixBtn 变量被改 .Background（且不是走 Template.FindName）
+        foreach ($v in @($pixVars)) {
+            if ($ln -match ('\$' + [regex]::Escape($v) + '\.Background\s*=')) {
+                if ($ln -notmatch 'Template\.FindName') {
+                    $pixBgBad += ($name + ':' + $n + '  ' + $ln.Trim())
+                }
+            }
+        }
+    }
+}
+if (@($pixBgBad).Count -eq 0) {
+    W '[OK  ] 没有运行期改 PixBtn .Background 的写法（模板烘焙底色，改了不生效）'
+} else {
+    W ('[BAD ] 运行期改 PixBtn 底色 ' + @($pixBgBad).Count + ' 处（应走 Template.FindName(''bd'')）:')
+    foreach ($l in $pixBgBad) { W ('      ' + $l) }
     $errTotal++
 }
 

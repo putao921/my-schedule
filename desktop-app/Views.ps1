@@ -43,6 +43,26 @@ function New-PixBtn {
     $btn.Tag = $Tag
     $btn.Height = (Scale-Ui $H)
     if ($W -gt 0) { $btn.Width = (Scale-Ui $W) }
+    Set-PixBtnLook -Btn $btn -Bg $Bg -Fg $Fg -FontSize $FontSize -Radius $Radius -BorderCol $BorderCol
+    $btn.Content = (New-Txt -Text $Text -Size $FontSize -Color $Fg -Weight 'Semi')
+    return $btn
+}
+
+function Set-PixBtnLook {
+    # 像素风按钮的模板工厂：把"一个 PixBtn 长什么样"这件事收在一处。
+    #   目前只有 New-PixBtn 调用它（造新按钮）。
+    #
+    # ⚠ 为什么运行期换配色**不走这个函数**（曾经的写法，本轮已废弃）：
+    #   New-PixBtn 把底色**烘进 ControlTemplate**（模板字符串里写死 Background="$Bg"），
+    #   模板里的值优先于控件自身的 Background 属性 —— 所以想高亮一个已存在的按钮，
+    #   重新生成整份模板是"大炮打蚊子"，还会顺手重置 IsMouseOver/IsPressed 等瞬时状态。
+    #   更干净的做法是：ApplyTemplate 之后用 Template.FindName('bd', $btn) 取回
+    #   模板里那个真正在画底色的 Border，改它自己的 Background。
+    #   （见 Views2.ps1 的 SetTabsShow / Update-TagChipSelection，两处同一套做法。）
+    param([System.Windows.Controls.Button]$Btn, [string]$Bg, [string]$Fg,
+          [double]$FontSize = 11, [int]$Radius = 7, [string]$BorderCol = '')
+    if ($null -eq $Btn) { return }
+    if (-not $BorderCol) { $BorderCol = Get-Pal 'Border' }
     # 圆角跟着一起缩放：字号涨了、按钮大了，圆角还停在 7px 会显得"方"，
     # 失去像素风的圆润感。至少 4px，免得小倍率下退化成尖角。
     $rad = [int][math]::Round([double]$Radius * [double]$script:UiScale)
@@ -70,9 +90,10 @@ function New-PixBtn {
 </ControlTemplate>
 "@
     $reader = New-Object System.Xml.XmlNodeReader ([xml]$tpl)
-    $btn.Template = [System.Windows.Markup.XamlReader]::Load($reader)
-    $btn.Content = (New-Txt -Text $Text -Size $FontSize -Color $Fg -Weight 'Semi')
-    return $btn
+    $Btn.Template = [System.Windows.Markup.XamlReader]::Load($reader)
+    # 这里**不碰 $Btn.Content**：文字由 New-PixBtn 自己写（它才知道字体大小该用哪个值）。
+    #   第六轮曾经在这里"回读文字再重建"，结果 New-PixBtn 造按钮时内容还是 $null，
+    #   被填成一个空 TextBlock —— 全项目 PixBtn 文字集体消失。教训：内容归调用方管。
 }
 
 # ---------------------------------------------------------------------------
@@ -281,6 +302,13 @@ function New-MonthCell {
 
     $outer.Tag = @{ kind = 'day'; date = $Date }
     $outer.Cursor = [System.Windows.Input.Cursors]::Hand
+    # 月视图密度（第六轮）：给日期格一个**最小高度**。
+    #   行本身仍是 1*（按剩余空间均分），所以"窗口拉高时格子跟着高"这条不变；
+    #   密度只在窗口矮、格子会被压扁时兜底 —— 否则事件条会被压成一条线看不清。
+    #   为什么不做成"固定行高"：那会让窗口变大时下方留一片空白，
+    #   与"月视图要铺满"的观感相冲突。下限 + 均分是两边都照顾到的唯一做法。
+    $monthMin = [double]$script:Settings['MonthDensity'] * [double]$script:UiScale
+    if ($monthMin -gt 0) { $outer.MinHeight = $monthMin }
     return $outer
 }
 
@@ -1969,7 +1997,38 @@ function Fill-Tasks {
         $boxBg = Get-Pal 'Card'
         if ($tDone) { $boxBg = Get-Pal 'AccentTaskD' }
         $box.Template = (Get-CheckTemplate $boxBg)
+        # 方块要能被"看出来可以点"：15px 的小方块没有文字，光靠形状不够明显。
+        # 提示文字随当前状态给"点下去会发生什么"，这是最容易理解的写法。
+        if ($tDone) { $box.ToolTip = (Get-LangText 'tip.checkboxDone') }
+        else { $box.ToolTip = (Get-LangText 'tip.checkbox') }
         [System.Windows.Controls.Grid]::SetColumn($box, 0)
+        # 点方块 = 立刻勾选/取消勾选（不走 260ms 的"等双击"延迟）。
+        #
+        # 为什么要给方块单独的处理器（用户反馈"点击前面的方块无反应"）：
+        #   卡片上所有点按都走 Attach-TaskClick / 卡片自己的 Up 处理器，而它们**开头就
+        #   有一道 `Test-BtnTag` 过滤**：凡是点在 kind 属于
+        #   ('task-edit','task-delete','task-focus','task-postpone') 的 Button 上就 `return`。
+        #   方块的 Tag.kind 是 'task'（为了 Test-AncestorTag 能把它认成任务卡），
+        #   于是它没被那道过滤拦住 —— 但真正致命的是下一步：
+        #   `Test-AncestorTag` 从事件源往上走，**第一个带 kind 的祖先就是方块自己**
+        #   （Tag 在方块身上，而它是 Button），返回 {kind='task'}，
+        #   和"点在卡片空白处"的结果**完全一样** —— 没有任何代码能区分这两者。
+        #   结果就是"点方块"要么被 260ms 延迟吞掉（用户以为没反应），要么被拖拽阈值影响。
+        #
+        #   修法：给方块挂自己的 Click，并且设 $e.Handled = $true 把路由截断，
+        #   让外层那些 Up 处理器彻底收不到这次点击（否则会叠加成"勾一次又排一次待勾选"）。
+        #   代价是失去"单击方块 + 双击卡片正文 = 只编辑不勾选"这个组合 ——
+        #   但方块本来就是独立的勾选控件，点它就该勾，这是更符合直觉的语义。
+        $box.Add_Click({
+            param($s, $e)
+            try {
+                $e.Handled = $true
+                # 点方块代表"明确要勾选"，先撤销那次等着变双击的待勾选，
+                # 免得落地成"勾了又被勾回去"的抖动。
+                Cancel-PendingTaskToggle
+                Toggle-TaskDone -Id ([string]$s.Tag['id'])
+            } catch { Write-ErrLog ('Task checkbox: ' + $_.Exception.Message) }
+        })
         [void]$head.Children.Add($box)
 
         $tt = New-Txt -Text $tText -Size 12 -Color (Get-Pal 'Ink')

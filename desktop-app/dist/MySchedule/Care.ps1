@@ -42,11 +42,28 @@ function Test-AncestorTag {
 }
 
 function Test-BtnTag {
+    # 从事件源往上找"最近的带 Tag 的 Button"，返回它的 Tag。
+    #
+    # 为什么要跳过 kind='task' 的按钮（第五轮新增）：
+    #   任务卡最左边那个 15x15 的勾选方块**本身就是 Button，Tag 是 {kind='task'}**。
+    #   它有自己的 Add_Click（点它立刻勾选并 Handled=true），所以本函数返回什么
+    #   其实都无所谓了 —— 但那道 Handled 只在真实路由里生效；审计里的合成事件
+    #   是直接打到卡片上的，方块的 Click 不会参与，于是 Test-BtnTag 会在这里
+    #   返回方块的 {kind='task'}。把它当成"命中了任务卡"，外层的 Up 处理器
+    #   就会把这个合成事件当成"点卡片正文"再走一遍 —— 语义重复、结果难预测。
+    #   跳过它之后，返回值永远是"真正的功能按钮"（Edit/Delete/Focus/Postpone/Expand）
+    #   或者 $null，语义干净。
     param($Start)
     $cur = $Start
     $hop = 0
     while ($null -ne $cur -and $hop -lt 24) {
-        try { if ($cur -is [System.Windows.Controls.Button] -and $null -ne $cur.Tag) { return $cur.Tag } } catch { }
+        try {
+            if ($cur -is [System.Windows.Controls.Button] -and $null -ne $cur.Tag) {
+                $tg = $cur.Tag
+                $isCardBody = ($tg -is [hashtable]) -and $tg.ContainsKey('kind') -and ([string]$tg['kind'] -eq 'task')
+                if (-not $isCardBody) { return $tg }
+            }
+        } catch { }
         $cur = $cur.Parent
         $hop++
     }
@@ -121,6 +138,25 @@ function Cancel-PendingTaskToggle {
     if ($null -ne $script:TaskClickTimer) { $script:TaskClickTimer.Stop() }
 }
 
+function Toggle-TaskDone {
+    # 立刻把某个任务在"完成 / 未完成"之间翻转并存盘刷新。
+    #
+    # 与 Invoke-PendingTaskToggle 的关系：
+    #   · Invoke-PendingTaskToggle 翻转的是"被延迟记在 $script:PendingTaskId 里的那一项"，
+    #     服务于"单击卡片正文（等 260ms 确认不是双击）"这条路径。
+    #   · 本函数按 **id 直接翻转**，服务于"点卡片前的方块"这条路径 ——
+    #     方块是明确的勾选控件，不需要等双击判定，点了就该立刻生效。
+    #   两者共用下面这段翻转动作用，避免"勾选逻辑"出现两份实现。
+    param([string]$Id)
+    if ([string]::IsNullOrWhiteSpace($Id)) { return $false }
+    $hit = @($script:Tasks | Where-Object { [string]$_.id -eq [string]$Id })
+    if ($hit.Count -eq 0) { return $false }
+    $hit[0].done = (-not [bool]$hit[0].done)
+    Save-Data
+    Fill-Tasks
+    return $true
+}
+
 function Invoke-PendingTaskToggle {
     # 延时结束，把单击真的落地成"勾选 / 取消勾选"。
     # 单独抽成函数有两个用处：
@@ -129,13 +165,7 @@ function Invoke-PendingTaskToggle {
     param()
     $id = [string]$script:PendingTaskId
     $script:PendingTaskId = ''
-    if ([string]::IsNullOrWhiteSpace($id)) { return $false }
-    $hit = @($script:Tasks | Where-Object { [string]$_.id -eq $id })
-    if ($hit.Count -eq 0) { return $false }
-    $hit[0].done = (-not [bool]$hit[0].done)
-    Save-Data
-    Fill-Tasks
-    return $true
+    return (Toggle-TaskDone -Id $id)
 }
 
 function Attach-TaskClick {
@@ -826,7 +856,7 @@ function Build-Window {
         'CalLabel','CalNote','CalPeriod','ViewHost','UiOverlay',
         'IcNavMonth','IcNavWeek','IcNavList','IcNavTask','IcNavFocus','IcNavSettings','IcNavProfile',
         'IcViewMonth','IcViewWeek','IcViewList','IcAdd','IcFocusMenu','IcPin','IcTheme','IcCollapse','IcMore',
-        'IcPrev','IcNext','IcMin','IcMax','IcClose','DailyNoteTitle')) {
+        'IcPrev','IcNext','IcMin','IcMax','IcClose','DailyNoteTitle','UndoHint')) {
         $n[$name] = $w.FindName($name)
     }
     $script:WinTitle     = $n['WinTitle']
@@ -853,6 +883,9 @@ function Build-Window {
     $script:NavSettings  = $n['NavSettings']
     $script:NavProfile   = $n['NavProfile']
     $script:DailyNoteTitle = $n['DailyNoteTitle']
+    # 撤销反馈条（第六轮）：Apply-UndoHintText 往它上面写，切主题重建后必须重新绑定，
+    #   否则 Ctrl+Z 的"还剩几次"提示会在换肤之后彻底消失（旧控件已随旧树一起丢掉）。
+    $script:UndoHint     = $n['UndoHint']
     $script:BtnViewMonth = $n['BtnViewMonth']
     $script:BtnViewWeek  = $n['BtnViewWeek']
     $script:BtnViewList  = $n['BtnViewList']

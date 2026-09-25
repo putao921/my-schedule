@@ -331,6 +331,19 @@ $script:Settings = [ordered]@{
     # WeekDensity：周视图每小时像素高（紧凑 28 / 标准 40 / 宽松 56）。
     #   注意它同时是"密度下限"—— Fit-WeekAxisHeight 只会向上放大，不会低于这个值。
     WeekDensity    = 40
+    # MonthDensity：月视图每个日期格的**最小行高**（第六轮拆出来）。
+    #   为什么不能和周视图共用一个值：
+    #     · 周视图的诉求是"一天里塞下最多条目"，用户愿意挤；
+    #     · 月视图的诉求是"一眼看清哪天有几件事"，格子太扁时事件条会被压成一条线。
+    #   所以两者是**相反的偏好**，同一个值必然让一边难受。
+    MonthDensity   = 40
+    # ---- 第六轮新增：提示条出现的角落 ----
+    # ToastCorner：撤销提示条（那个带 Undo 按钮的小浮窗）贴在屏幕哪个角。
+    #   四个取值：bl（左下）/ br（右下，默认）/ tl（左上）/ tr（右上）。
+    #   为什么需要它：提示条是独立 Topmost 窗口，位置写死在屏幕右下 —— 而右下角
+    #   也是系统托盘/输入法候选框的地盘，有人反馈"删完想点撤销，提示条被挡住"。
+    #   默认保持 br 不变（不动老用户的肌肉记忆），要换的人自己去设置里选。
+    ToastCorner    = 'br'
 }
 
 function Load-Settings {
@@ -556,10 +569,110 @@ $script:LangEn = [ordered]@{
     'sched' = 'My Schedule'
     'undo.task' = 'Task deleted'; 'undo.event' = 'Event deleted'
     'undo.deleted' = 'Deleted: '; 'undo.btn' = 'Undo'
+    'undo.none' = 'Nothing left to undo'
+    'undo.more' = 'Still undoable: '
     'empty.list' = 'Nothing scheduled for this week yet'
     'empty.cta' = 'Add an event'
     'empty.filtered' = 'No matching events'
     'empty.clear' = 'Clear filter'
+    'tpl.save' = 'Save and close'
+    'tpl.close' = 'Close without saving  (Esc)'
+    'tip.checkbox' = 'Mark done'
+    'tip.checkboxDone' = 'Mark not done'
+    # 设置窗口分页（第六轮）：四个页签
+    'set.tab.appear' = 'Appearance'
+    'set.tab.window' = 'Window'
+    'set.tab.data' = 'Data'
+    'set.tab.about' = 'About'
+    # ===== 弹窗字段名（第六轮第二项建议）=====
+    #  以前这类标题是英文硬编码在 Views2.ps1 里的，导致"中文界面 + 英文表单"的割裂。
+    #  全部改走 Get-LangText，键名以 fld. 开头、按弹窗分组（ed=日程 / tk=任务 / fo=专注 / st=设置）。
+    # ---- 日程弹窗 ----
+    'fld.ed.title'    = 'Edit event'
+    'fld.ed.new'      = 'New event'
+    'fld.ed.titleF'   = 'Title'
+    'fld.ed.date'     = 'Date (yyyy-MM-dd)'
+    'fld.ed.start'    = 'Start (HH:mm)'
+    'fld.ed.end'      = 'End (HH:mm)'
+    'fld.ed.repeat'   = 'Repeat'
+    'fld.ed.every'    = 'Repeat every N days / weeks / months'
+    'fld.ed.until'    = 'Repeat until (optional, yyyy-MM-dd)'
+    'fld.ed.monthLast'= 'Monthly: use the last day of month'
+    'fld.ed.reminder' = 'Reminder'
+    'fld.ed.tag'      = 'Tag'
+    # ---- 重复选项 ----
+    'opt.rep.none'    = 'None'; 'opt.rep.daily' = 'Daily'
+    'opt.rep.weekly'  = 'Weekly'; 'opt.rep.monthly' = 'Monthly'
+    # ---- 提醒选项 ----
+    'opt.rem.no'      = 'No reminder'
+    'opt.rem.5'       = '5 min before'; 'opt.rem.10' = '10 min before'
+    'opt.rem.15'      = '15 min before'; 'opt.rem.30' = '30 min before'
+    # ---- 任务弹窗 ----
+    'fld.tk.title'    = 'Edit task'; 'fld.tk.new' = 'New task'
+    'fld.tk.text'     = 'Task content'
+    'fld.tk.due'      = 'Due date (optional, yyyy-MM-dd)'
+    'fld.tk.dueTime'  = 'Due time (HH:mm)'
+    'fld.tk.priority' = 'Priority'
+    'fld.tk.project'  = 'Project / list'
+    'fld.tk.category' = 'Category'
+    'fld.tk.estimated'= 'Estimated minutes'
+    'fld.tk.actual'   = 'Actual minutes'
+    'fld.tk.subtasks' = 'Subtasks'
+    'fld.tk.done'     = 'Completed'
+    'fld.tk.tag'      = 'Category'
+    'btn.add'         = '+ Add'
+    'opt.pri.high'    = 'High'; 'opt.pri.mid' = 'Medium'; 'opt.pri.low' = 'Low'
+    # ---- 专注弹窗 ----
+    'fld.fo.title'    = 'Focus session'
+    'fld.fo.sub'      = 'Set whether focus is available, the session length and what you will work on.'
+    'fld.fo.enable'   = 'Enable focus timer'
+    'fld.fo.breakOn'  = 'Start a break after focus'
+    'fld.fo.duration' = 'Session length (choose or type 0-99 minutes; 0 = no countdown)'
+    'fld.fo.break'    = 'Break length (choose or type 0-99 minutes; 0 = skip)'
+    'fld.fo.task'     = 'Task content (choose an existing task or type a new one)'
+    # ---- 设置弹窗 ----
+    'fld.st.title'    = 'Settings & focus stats'
+    'fld.st.user'     = 'Windows user: '
+    'fld.st.scale'    = 'Text size  (also follows the window width)'
+    'fld.st.adaptive' = 'Let text size follow the window width'
+    'fld.st.theme'    = 'Theme'
+    'fld.st.lang'     = 'Language  (sidebar and view names)'
+    'fld.st.density'  = 'Row height in the week view'
+    'fld.st.densityMonth' = 'Row height in the month view'
+    'fld.st.topmost'  = 'Keep the window on top of other windows'
+    'fld.st.tray'     = 'Closing the window hides it to the tray'
+    'fld.st.trayHint' = 'On: the x button hides the window and the app keeps running in the tray. Off: the x button asks whether to quit.'
+    'hint.st.adaptive'= 'On: text grows a little in wide windows and shrinks in narrow ones. Off: text size only depends on the choice above.'
+    'fld.st.weekRange'= 'Hours shown in the week view by default'
+    'fld.st.toastCorner' = 'Where the undo / reminder pop-up appears'
+    'opt.corner.br'   = 'Bottom right'; 'opt.corner.bl' = 'Bottom left'
+    'opt.corner.tl'   = 'Top left'; 'opt.corner.tr' = 'Top right'
+    'fld.st.pomo'     = 'Session length (0-99 minutes; 0 = no countdown)'
+    'fld.st.dir'      = 'Data folder'
+    'fld.st.dirHint'  = 'One copy per computer per account; they stay separate.'
+    'fld.st.reset'    = 'Reset timer'
+    'fld.st.openDir'  = 'Open folder'
+    'fld.st.version'  = 'Version '
+    'fld.st.shortcuts'= 'Shortcuts'
+    'fld.st.thisWeek' = 'This week {0} min · {1} pomodoros'
+    'fld.st.totals'   = 'Events {0} (done {1}) · Open tasks {2}'
+    'sc.newEvent'     = 'Ctrl+N  New event'
+    'sc.search'       = 'Ctrl+F  Search'
+    'sc.esc'          = 'Esc     Close current dialog'
+    'sc.undo'         = 'Ctrl+Z  Undo delete'
+    'opt.scale.small' = 'Small'; 'opt.scale.normal' = 'Normal'
+    'opt.scale.large' = 'Large'; 'opt.scale.huge' = 'Huge'
+    'opt.theme.light' = 'Light'; 'opt.theme.night' = 'Night'
+    'opt.dens.compact'= 'Compact'; 'opt.dens.normal' = 'Normal'; 'opt.dens.roomy' = 'Roomy'
+    # 语言名**不翻译**：中文用户也要能一眼找到 "English" 这一项来切回去。
+    'opt.lang.zh'     = '中文'; 'opt.lang.en' = 'English'
+    # ---- 头像弹窗 ----
+    'fld.av.title'    = 'Choose an avatar'
+    'fld.av.random'   = 'Random'
+    'fld.av.pick'     = 'Pick a face from the grid below'
+    # ---- 当日议程 ----
+    'fld.day.title'   = 'Agenda'
+    'fld.day.empty'   = 'Nothing scheduled for this day'
 }
 $script:LangZh = [ordered]@{
     'nav.month' = '月视图'; 'nav.week' = '周视图'; 'nav.list' = '列表'
@@ -571,10 +684,108 @@ $script:LangZh = [ordered]@{
     'sched' = '我的日程'
     'undo.task' = '任务已删除'; 'undo.event' = '日程已删除'
     'undo.deleted' = '已删除：'; 'undo.btn' = '撤销'
+    'undo.none' = '没有可撤销的操作了'
+    'undo.more' = '还可撤销 '
     'empty.list' = '这一周还没有安排'
     'empty.cta' = '新建日程'
     'empty.filtered' = '没有符合条件的日程'
     'empty.clear' = '清除筛选'
+    'tpl.save' = '保存并关闭'
+    'tpl.close' = '不保存直接关闭（Esc）'
+    'tip.checkbox' = '标记为已完成'
+    'tip.checkboxDone' = '标记为未完成'
+    # 设置窗口分页（第六轮）：四个页签
+    'set.tab.appear' = '外观'
+    'set.tab.window' = '窗口'
+    'set.tab.data' = '数据'
+    'set.tab.about' = '关于'
+    # ===== 弹窗字段名（第六轮第二项建议）=====
+    # ---- 日程弹窗 ----
+    'fld.ed.title'    = '编辑日程'
+    'fld.ed.new'      = '新建日程'
+    'fld.ed.titleF'   = '标题'
+    'fld.ed.date'     = '日期（yyyy-MM-dd）'
+    'fld.ed.start'    = '开始（HH:mm）'
+    'fld.ed.end'      = '结束（HH:mm）'
+    'fld.ed.repeat'   = '重复'
+    'fld.ed.every'    = '每隔 N 天 / 周 / 月重复一次'
+    'fld.ed.until'    = '重复截止日（可选，yyyy-MM-dd）'
+    'fld.ed.monthLast'= '按月重复时使用当月最后一天'
+    'fld.ed.reminder' = '提醒'
+    'fld.ed.tag'      = '标签'
+    # ---- 重复选项 ----
+    'opt.rep.none'    = '不重复'; 'opt.rep.daily' = '每天'
+    'opt.rep.weekly'  = '每周'; 'opt.rep.monthly' = '每月'
+    # ---- 提醒选项 ----
+    'opt.rem.no'      = '不提醒'
+    'opt.rem.5'       = '提前 5 分钟'; 'opt.rem.10' = '提前 10 分钟'
+    'opt.rem.15'      = '提前 15 分钟'; 'opt.rem.30' = '提前 30 分钟'
+    # ---- 任务弹窗 ----
+    'fld.tk.title'    = '编辑任务'; 'fld.tk.new' = '新建任务'
+    'fld.tk.text'     = '任务内容'
+    'fld.tk.due'      = '截止日期（可选，yyyy-MM-dd）'
+    'fld.tk.dueTime'  = '截止时间（HH:mm）'
+    'fld.tk.priority' = '优先级'
+    'fld.tk.project'  = '项目 / 清单'
+    'fld.tk.category' = '分类'
+    'fld.tk.estimated'= '预计用时（分钟）'
+    'fld.tk.actual'   = '实际用时（分钟）'
+    'fld.tk.subtasks' = '子任务'
+    'fld.tk.done'     = '已完成'
+    'fld.tk.tag'      = '分类'
+    'btn.add'         = '+ 添加'
+    'opt.pri.high'    = '高'; 'opt.pri.mid' = '中'; 'opt.pri.low' = '低'
+    # ---- 专注弹窗 ----
+    'fld.fo.title'    = '专注计时'
+    'fld.fo.sub'      = '设置是否启用专注、一次专注多久，以及这次要做什么。'
+    'fld.fo.enable'   = '启用专注计时'
+    'fld.fo.breakOn'  = '专注结束后自动开始休息'
+    'fld.fo.duration' = '专注时长（可选或输入 0-99 分钟；0 = 不计时）'
+    'fld.fo.break'    = '休息时长（可选或输入 0-99 分钟；0 = 不休息）'
+    'fld.fo.task'     = '任务内容（选一个已有任务，或直接输入新任务）'
+    # ---- 设置弹窗 ----
+    'fld.st.title'    = '设置与专注统计'
+    'fld.st.user'     = 'Windows 用户：'
+    'fld.st.scale'    = '文字大小（同时跟随窗口宽度）'
+    'fld.st.adaptive' = '文字大小跟随窗口宽度'
+    'fld.st.theme'    = '主题'
+    'fld.st.lang'     = '语言（侧栏与视图名称）'
+    'fld.st.density'  = '周视图的行高'
+    'fld.st.densityMonth' = '月视图的行高'
+    'fld.st.topmost'  = '让窗口始终显示在其他窗口之上'
+    'fld.st.tray'     = '关闭窗口时隐藏到托盘'
+    'fld.st.trayHint' = '开启：点 × 只是隐藏窗口，程序继续在托盘运行。关闭：点 × 会询问是否退出。'
+    'hint.st.adaptive'= '开启：窗口变宽时文字略放大、变窄时略缩小。关闭：文字大小只由上面那项决定。'
+    'fld.st.weekRange'= '周视图默认显示的时间段'
+    'fld.st.toastCorner' = '撤销 / 提醒提示条出现的位置'
+    'opt.corner.br'   = '右下角'; 'opt.corner.bl' = '左下角'
+    'opt.corner.tl'   = '左上角'; 'opt.corner.tr' = '右上角'
+    'fld.st.pomo'     = '专注时长（0-99 分钟；0 = 不计时）'
+    'fld.st.dir'      = '数据目录'
+    'fld.st.dirHint'  = '每台电脑每个账户一份，互相隔离'
+    'fld.st.reset'    = '重置计时'
+    'fld.st.openDir'  = '打开目录'
+    'fld.st.version'  = '版本 '
+    'fld.st.shortcuts'= '快捷键'
+    'fld.st.thisWeek' = '本周专注 {0} 分钟 · {1} 个番茄钟'
+    'fld.st.totals'   = '日程 {0}（已完成 {1}）· 未完成任务 {2}'
+    'sc.newEvent'     = 'Ctrl+N  新建日程'
+    'sc.search'       = 'Ctrl+F  搜索'
+    'sc.esc'          = 'Esc     关闭当前弹窗'
+    'sc.undo'         = 'Ctrl+Z  撤销'
+    'opt.scale.small' = '小'; 'opt.scale.normal' = '标准'
+    'opt.scale.large' = '大'; 'opt.scale.huge' = '特大'
+    'opt.theme.light' = '浅色'; 'opt.theme.night' = '夜间'
+    'opt.dens.compact'= '紧凑'; 'opt.dens.normal' = '标准'; 'opt.dens.roomy' = '宽松'
+    # 语言名**不翻译**（与英文表同值）：切到英文界面后仍要点得到"中文"切回来。
+    'opt.lang.zh'     = '中文'; 'opt.lang.en' = 'English'
+    # ---- 头像弹窗 ----
+    'fld.av.title'    = '选择头像'
+    'fld.av.random'   = '随机一个'
+    'fld.av.pick'     = '从下面的方格里挑一个脸'
+    # ---- 当日议程 ----
+    'fld.day.title'   = '当日议程'
+    'fld.day.empty'   = '这一天还没有安排'
 }
 
 function Get-LangText {
@@ -915,10 +1126,25 @@ $script:SetTbPomo = $null
 $script:AutoCloseTimer = $null
 $script:ToastWindow    = $null
 $script:ToastTimer      = $null
-# 删除撤销（第五轮）：最近一次删除的对象副本 + 原索引 + 类型。
-# 只留一次 —— 实际事故都是"刚删完就后悔"，多级撤销与本工具体量不成比例。
+# 删除撤销（第五轮；第六轮升级为多级）。
+#   $script:UndoStack —— 操作栈，**新的在末尾**，最多 $script:UndoDepth 条。
+#   每条是一个 hashtable：@{ Kind='event'|'task'; Index=<原索引>; Snapshot=<对象副本>; Label=<提示文本> }
+#
+#  为什么第六轮要从"只留一次"升级成栈：
+#    第五轮的判断是"实际事故都是刚删完就后悔"。但在审阅一批重复条目时，
+#    连续删三条是常态 —— 这时只留一层，前两条就真的找不回来了，
+#    而"刚删完就后悔"恰恰也适用于第 2、3 条。深度取 5：再多就变成
+#    "要按 5 下才知道有没有恢复全"，反而不好用，而且每层都是一个完整对象副本。
+#  $script:UndoState 仍然保留：它是**栈顶的别名**（同一次删除的引用，不是拷贝）。
+#    这样第五轮写好的所有调用点（$script:UndoState = @{...} 那种）不用改，
+#    但它们必须改走 Push-Undo —— 见下。旧写法只在审计里还有一处兜底使用。
+$script:UndoStack      = New-Object System.Collections.ArrayList
+$script:UndoDepth      = 5
 $script:UndoState      = $null
 $script:LastUndoAt     = $null
+# 撤销反馈条控件（侧栏底部那行小字）。在 Care.ps1 绑定 XAML 时赋值；
+# 换主题会重建整棵树，所以每次 Build-Window 都要重新绑定。
+$script:UndoHint       = $null
 # 交互自查专用：为 $true 时，会弹模态窗口的动作只记录不真弹（否则 ShowDialog 会卡死调度器）。
 $script:SuppressModal  = $false
 $script:LastModalCall  = ''
@@ -1071,21 +1297,31 @@ function Duplicate-Event {
 #  设计取舍：
 #  * 二次确认（MessageBox Yes/No）保留 —— 它挡的是"点错按钮"；
 #    Undo 提示条挡的是"确认之后立刻后悔"。两者是不同性质的事故，不能互相替代。
-#  * 撤销用的副本放在 $script:UndoState 而不是闭包里 —— 同上，作用域硬规则。
-#  * 只保留最近一次删除。多级撤销需要一条操作栈，与本工具的体量不成比例；
-#    而实际事故几乎都是"刚删完就后悔"，一次足够。
+#  * 撤销用的副本放在 $script:UndoStack 而不是闭包里 —— 同上，作用域硬规则。
+#  * 第六轮起是**多级**（深度 5）撤销；单级时代的"只保留最近一次"结论已被
+#    审阅重复条目时"连删三条"的真实用法推翻，理由见下面 $script:UndoStack 的注释。
 # ---------------------------------------------------------------------------
+function Sync-UndoHint {
+    # 把当前栈深写到侧栏状态条上（第六轮）。
+    #   为什么单独抽出来：删除后（弹 Toast）、撤销后（被动提示）、撤销到空
+    #   这三条路径都要刷新这行字，分别写三遍必然有一处漏掉 —— 漏掉的表现
+    #   就是条上留着过期数字。统一走这个函数，深度为 0 时给"没有可撤销"。
+    try {
+        $n = Get-UndoDepth
+        if ($n -gt 0) {
+            Apply-UndoHintText ((Get-LangText 'undo.more') + $n)
+        } else {
+            Apply-UndoHintText (Get-LangText 'undo.none')
+        }
+    } catch { }
+}
+
 function Show-UndoToast {
     param([string]$Kind, [int]$Index = 0, [string]$Title = '')
     if ($script:SuppressModal -or $TestMode) { return }
     try {
-        # 调用方（Remove-Task / Remove-Event）已经在 $script:UndoState 里放好
-        # Kind / Index / Snapshot；这里只负责把它变成一条可点的提示条。
-        if ($null -eq $script:UndoState) { $script:UndoState = @{} }
-        $script:UndoState['Kind'] = $Kind
-        $script:UndoState['Index'] = $Index
-        $script:UndoState['Time'] = (Get-Date)
-
+        # 调用方（Remove-Task / Remove-Event）已经在撤销栈里压好条目；
+        # 这里只负责把它变成一条可点的提示条。
         if ($Kind -eq 'task') {
             $label = (Get-LangText 'undo.task')
         } else {
@@ -1093,16 +1329,35 @@ function Show-UndoToast {
         }
         $verb = (Get-LangText 'undo.deleted')
         $txt = $verb + (Shorten-Text $Title 22)
+        # 栈里还有更早的删除时，在提示条上标一下"还能撤几次" ——
+        # 不标的话用户不知道多级撤销存在，等于白做。
+        $n = Get-UndoDepth
+        if ($n -gt 1) { $txt = $txt + '  (' + $n + ')' }
+        Sync-UndoHint                      # 弹窗之外，主窗口里也留一份可读的层次
         Show-Toast -Title $label -Text $txt -ActionText (Get-LangText 'undo.btn') -Seconds 5 `
             -ActionScript { Undo-Delete }
     } catch { Write-ErrLog ('Undo toast: ' + $_.Exception.Message) }
 }
 
 function Undo-Delete {
+    # 第六轮：从**栈顶**弹一条恢复。连续调用就是逐级回退（Ctrl+Z 连按）。
+    #   栈空时静默返回，并给一条"没有可撤销的操作"的提示 ——
+    #   没提示的话用户会以为快捷键失灵，一直按个不停。
     try {
-        $st = $script:UndoState
-        if ($null -eq $st) { return }
+        if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
+        if ($script:UndoStack.Count -le 0) {
+            $script:UndoState = $null
+            try { Apply-UndoHintText (Get-LangText 'undo.none') } catch { }
+            Write-Trace 'undo empty'
+            return
+        }
+        $st = $script:UndoStack[$script:UndoStack.Count - 1]
+        $script:UndoStack.RemoveAt($script:UndoStack.Count - 1)
         $script:UndoState = $null
+        if ($script:UndoStack.Count -gt 0) {
+            $script:UndoState = $script:UndoStack[$script:UndoStack.Count - 1]
+        }
+        if ($null -eq $st) { return }
         $snap = $st.Snapshot
         if ($null -eq $snap) { return }
         if ([string]$st.Kind -eq 'task') {
@@ -1121,8 +1376,48 @@ function Undo-Delete {
             Refresh-All
         }
         $script:LastUndoAt = (Get-Date)
-        Write-Trace 'undo applied'
+        Write-Trace ('undo applied, remaining=' + $script:UndoStack.Count)
+        # 撤销后刷新状态条上的"还剩几次"。
+        #   走 Sync-UndoHint：栈刚好撤空时它给"没有可撤销"，不会有旧数字残留
+        #   （"撤空时什么都不写、上一条提示留在条上"是第六轮实测到的坑）。
+        Sync-UndoHint
     } catch { Write-ErrLog ('Undo: ' + $_.Exception.Message) }
+}
+
+function Apply-UndoHintText {
+    # 把"还剩几次可撤销 / 没有可撤销"写到状态条上。
+    #   为什么不复用 Show-Toast：这里的提示是**被动反馈**（不要求用户点），
+    #   而 Toast 带按钮、会抢焦点；连按 Ctrl+Z 时弹一串 Toast 反而碍事。
+    #   状态条左下角那块正好一直空着。
+    param([string]$Text)
+    try {
+        if ($null -eq $script:UndoHint) { return }
+        $script:UndoHint.Text = [string]$Text
+    } catch { }
+}
+
+function Push-Undo {
+    # 把一次删除压进撤销栈（第六轮：多级撤销）。
+    #
+    # 入参 Snapshot / Index / Kind 与第五轮一致；额外收一个 Label（提示条里显示的对象名）。
+    # 满了就**从头部丢最老的一条** —— ArrayList.RemoveAt(0) 对 5 个元素来说可以忽略不计，
+    # 不必为了这点开销去套环形缓冲。
+    param([string]$Kind, [int]$Index, $Snapshot, [string]$Label = '')
+    try {
+        if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
+        [void]$script:UndoStack.Add(@{
+            Kind = $Kind; Index = $Index; Snapshot = $Snapshot
+            Label = $Label; Time = (Get-Date)
+        })
+        while ($script:UndoStack.Count -gt [int]$script:UndoDepth) { $script:UndoStack.RemoveAt(0) }
+        # 栈顶别名：保持第五轮的 $script:UndoState 语义（"最近一次删除"）
+        $script:UndoState = $script:UndoStack[$script:UndoStack.Count - 1]
+    } catch { Write-ErrLog ('Push-Undo: ' + $_.Exception.Message) }
+}
+
+function Get-UndoDepth {
+    if ($null -eq $script:UndoStack) { return 0 }
+    return [int]$script:UndoStack.Count
 }
 
 function Remove-Event {
@@ -1143,7 +1438,7 @@ function Remove-Event {
     [void]$script:Events.Remove($hit[0])
     Save-Data
     Refresh-All
-    $script:UndoState = @{ Kind = 'event'; Index = $oldIndex; Snapshot = $snap }
+    Push-Undo -Kind 'event' -Index $oldIndex -Snapshot $snap -Label ([string]$snap.title)
     Show-UndoToast -Kind 'event' -Index $oldIndex -Title ([string]$snap.title)
 }
 
@@ -1186,7 +1481,7 @@ function Remove-Task {
     [void]$script:Tasks.Remove($hit[0])
     Save-Data
     Fill-Tasks
-    $script:UndoState = @{ Kind = 'task'; Index = $oldIndex; Snapshot = $snap }
+    Push-Undo -Kind 'task' -Index $oldIndex -Snapshot $snap -Label ([string]$snap.text)
     Show-UndoToast -Kind 'task' -Index $oldIndex -Title ([string]$snap.text)
 }
 
@@ -1388,9 +1683,11 @@ function Find-DialogClose {
 }
 
 function Find-DialogButton {
-    # 按 Name 找弹窗标题栏上的按钮（'DlgSave' / 'DlgCancel' / 'DlgClose'）。
-    # 第四轮标题栏从"只有一个 ×"变成三件套，断言要能分别点它们，
+    # 按 Name 找弹窗标题栏上的按钮（'DlgSave' / 'DlgClose'）。
+    # 第四轮标题栏从"只有一个 ×"扩成三件套，断言要能分别点它们，
     # 所以把"按 Name 找按钮"抽出来，而不是复制三遍 Find-AllOfType 循环。
+    # 第五轮删掉 Cancel 后只剩两个 Name，但"按 Name 找"这件事没变；
+    # 它还兼着一个职责：找 'DlgCancel' 返回 $null 就是"Cancel 确实没被加回来"的证据。
     param($El, [string]$Name, [string]$WinName = '')
     if ($null -eq $El) { return $null }
     foreach ($b in @(Find-AllOfType $El ([System.Windows.Controls.Primitives.ButtonBase]))) {
@@ -1932,12 +2229,19 @@ function Invoke-HandlerAudit {
         } catch { Write-AuditRow 'search box placeholder' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 13. 两个独立窗口能构建（这里曾因参数名 $Host 直接抛异常）----
+        #   第六轮补：设置窗口分页后，"外观"页里没有 TextBox（全是下拉/开关），
+        #   TextBox 在"窗口"页（番茄钟时长）与"数据"页（目录），所以找 TextBox 之前
+        #   要先切到有 TextBox 的那一页 —— 否则这条会变成"重构正确但断言报错"。
         foreach ($w in @(@('event editor', 'editor'), @('settings window', 'settings'))) {
             $win = $null
             $why = ''
             try {
                 if ([string]$w[1] -eq 'editor') { $win = Show-EventEditorWindow -Id '' }
-                else { $win = Show-SettingsWindow }
+                else {
+                    $win = Show-SettingsWindow
+                    # 切到"窗口"页（番茄钟时长是 TextBox）
+                    if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow 'window' }
+                }
             } catch { $why = $_.Exception.Message }
             $ok = ($null -ne $win) -and ($null -ne $win.Content)
             $tb = $false
@@ -2030,11 +2334,15 @@ function Invoke-HandlerAudit {
             $script:EdTbDate.Text = (Fmt-Date ([datetime]::Today))
             $script:EdTbStart.Text = '08:00'
             $script:EdTbEnd.Text = '09:00'
-            $script:EdRepeat.Text = 'Weekly'
+            # 第六轮：重复/提醒改成 New-ChoiceField 之后，语义值在 .Tag、不在 .Text。
+            #   审计要模拟"用户选了某一项"，必须走 Set-ChoiceFieldValue ——
+            #   直接写 .Text 是写不进 Items 的合法值（IsEditable=false），
+            #   表现为"设了没生效"，而 Save 读到 Tag 仍是默认值。
+            Set-ChoiceFieldValue $script:EdRepeat 'weekly'
             $script:EdEvery.Text = '2'
             $script:EdUntil.Text = (Fmt-Date ([datetime]::Today.AddMonths(2)))
             $script:EdMonthLast.IsChecked = $false
-            $script:EdReminder.Text = '15 min before'
+            Set-ChoiceFieldValue $script:EdReminder '15'
             [void](Invoke-Click (Find-DialogClose $ew))
             $repHit = @($script:Events | Where-Object { [string]$_.title -eq $repName })
             $repSaveOk = ($repHit.Count -eq 1) -and ([string]$repHit[0].repeat -eq 'weekly') -and
@@ -2071,12 +2379,17 @@ function Invoke-HandlerAudit {
         } catch { Write-AuditRow 'repeat rules' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 17. 设置窗口：Reset timer ----
+        #   第六轮分页后 Reset timer 落在"数据"页 —— 断言必须**先切到那一页**再找按钮，
+        #   否则拿到的是"当前页没有这个按钮"，会把一次正确的重构报成回归。
         try {
             if (-not [bool]$script:Pomo.Running) { Toggle-Pomodoro }
             $wasRunning = [bool]$script:Pomo.Running
             $sw = Show-SettingsWindow
             $sw.UpdateLayout()
-            $bReset = Find-ButtonByText $sw 'Reset timer'
+            # 切到数据页（SetTabsShow 是设置窗自己挂的切页函数）
+            if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow 'data' }
+            $sw.UpdateLayout()
+            $bReset = Find-ButtonByText $sw (Get-LangText 'fld.st.reset')
             if ($null -eq $bReset) {
                 Write-AuditRow 'settings reset timer' $false 'no Reset button'
             } else {
@@ -2191,11 +2504,12 @@ function Invoke-HandlerAudit {
             $script:TkText.Text = $taskName
             $script:TkDue.Text = (Fmt-Date ([datetime]::Today.AddDays(1)))
             $script:TkDueTime.Text = '14:30'
-            $script:TkPriority.Text = 'High'
+            # 第六轮：优先级/提醒走 New-ChoiceField，语义值在 .Tag，必须用 Set-ChoiceFieldValue。
+            Set-ChoiceFieldValue $script:TkPriority 'high'
             $script:TkProject.Text = 'Audit Project'
             $script:TkEstimated.Text = '45'
             $script:TkActual.Text = '5'
-            $script:TkReminder.Text = '15 min before'
+            Set-ChoiceFieldValue $script:TkReminder '15'
             New-TaskSubtaskRow -Stack $script:TkSubtaskStack -Text 'first subtask' -Done $false
             $script:TkTag.Text = 'focus'
             $taskSave = Find-DialogClose $tw
@@ -2616,11 +2930,13 @@ function Invoke-HandlerAudit {
             Write-AuditRow 'combo follows theme' $cmbOk ($cmbNotes -join '  ')
         } catch { Write-AuditRow 'combo follows theme' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 29. 六个弹窗的标题栏按钮组：× 贴右边缘，Save / Cancel 紧邻其左侧 ----
-        #   第三轮是"只有一个 × 贴右边"，第四轮改成三件套，所以断言同步升级：
-        #     · 三个按钮（DlgSave / DlgCancel / DlgClose）都必须存在且都在标题栏（y ≤ 38）
-        #     · 物理顺序必须是 Save < Cancel < ×（左到右），且 × 仍然贴右边缘
-        #     · 三个按钮都必须在标题栏右半边（bx ≥ 宽度的一半）—— 防止被塞到左边
+        # ---- 29. 六个弹窗的标题栏按钮组：× 贴右边缘，Save 紧邻其左侧 ----
+        #   第三轮是"只有一个 × 贴右边"，第四轮改成三件套，**第五轮改成两件套**
+        #   （用户第 3 条反馈：Cancel 与 × 功能完全重合，只留 ×）。所以断言同步升级：
+        #     · 两个按钮（DlgSave / DlgClose）都必须存在且都在标题栏（y ≤ 38）
+        #     · 物理顺序必须是 Save < ×（左到右），且 × 仍然贴右边缘
+        #     · 两个按钮都必须在标题栏右半边（bx ≥ 宽度的一半）—— 防止被塞到左边
+        #     · **DlgCancel 必须不存在**（防止哪天又被顺手加回来，把这次的决定推翻）
         #     · 底部仍然不许出现"关闭类"文字按钮（Cancel / Save / Close / OK…）
         #   为什么坚持量几何而不是只查存在：Grid 列宽写错时按钮依然"存在"，
         #   只是被裁掉一半或叠在一起 —— 那种情况肉眼截图才看得出，断言必须能自己发现。
@@ -2634,10 +2950,10 @@ function Invoke-HandlerAudit {
             $dlgDefs.Add(@{ name = 'day';      win = (Show-DayAgendaWindow -Date ([datetime]::Today)) })
             $notes = New-Object System.Collections.Generic.List[string]
             $allOk = $true
-            # 只禁"底部残留"那批文案。标题栏自己的三个按钮不在禁用范围里 ——
-            # 它们靠 Name（DlgSave/DlgCancel/DlgClose）识别，并用几何位置区分"在不在标题栏"。
+            # 只禁"底部残留"那批文案。标题栏自己的两个按钮不在禁用范围里 ——
+            # 它们靠 Name（DlgSave/DlgClose）识别，并用几何位置区分"在不在标题栏"。
             $banned = @('Cancel', 'Save', 'Close', 'Save & close', 'Save and close', 'OK')
-            $barNames = @('DlgSave', 'DlgCancel', 'DlgClose')
+            $barNames = @('DlgSave', 'DlgClose')
             $pt0 = New-Object System.Windows.Point(0.0, 0.0)
             foreach ($d in $dlgDefs) {
                 $w = $d['win']
@@ -2665,16 +2981,18 @@ function Invoke-HandlerAudit {
                     try { $w.Close() } catch { }
                     continue
                 }
-                $okX = $xs['DlgClose']; $okS = $xs['DlgSave']; $okC = $xs['DlgCancel']
+                # Cancel 必须彻底消失：Find-DialogButton 按 Name 找，找不到才算对
+                $cancelGone = ($null -eq (Find-DialogButton $w 'DlgCancel'))
+                $okX = $xs['DlgClose']; $okS = $xs['DlgSave']
                 # 宽度必须量到真实值，否则"贴右边"这条断言会变成空转
                 $wideOk = ($rw -ge 300.0)
                 $edgeOk = $wideOk -and ($okX.r -ge ($rw - 20.0))
-                $orderOk = ($okS.r -lt $okC.x) -and ($okC.r -lt $okX.x)
-                $inBarOk = ($okX.y -le 38.0) -and ($okS.y -le 38.0) -and ($okC.y -le 38.0)
-                # 三个按钮都得真的落在标题栏右半边，且宽度没被压扁（> 20px 才能显示文字）
-                $halfOk = $wideOk -and ($okS.x -ge ($rw * 0.5)) -and ($okC.x -ge ($rw * 0.5))
-                $fitOk = ($okS.w -ge 40.0) -and ($okC.w -ge 40.0) -and ($okX.w -ge 18.0)
-                # 底部残留扫描：允许标题栏这三个（它们本来就叫这些名字）
+                $orderOk = ($okS.r -lt $okX.x)
+                $inBarOk = ($okX.y -le 38.0) -and ($okS.y -le 38.0)
+                # 两个按钮都得真的落在标题栏右半边，且宽度没被压扁（> 20px 才能显示文字）
+                $halfOk = $wideOk -and ($okS.x -ge ($rw * 0.5))
+                $fitOk = ($okS.w -ge 40.0) -and ($okX.w -ge 18.0)
+                # 底部残留扫描：允许标题栏这两个（它们本来就叫这些名字）
                 $leftover = 0
                 foreach ($b in @(Find-AllOfType $w ([System.Windows.Controls.Primitives.ButtonBase]))) {
                     if ($barNames -contains [string]$b.Name) { continue }
@@ -2682,22 +3000,25 @@ function Invoke-HandlerAudit {
                     if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                     if ($banned -contains [string]$c) { $leftover++ }
                 }
-                $ok = $edgeOk -and $orderOk -and $inBarOk -and $halfOk -and $fitOk -and ($leftover -eq 0)
+                $ok = $edgeOk -and $orderOk -and $inBarOk -and $halfOk -and $fitOk -and
+                      ($leftover -eq 0) -and $cancelGone
                 if (-not $ok) { $allOk = $false }
-                $notes.Add(('{0}: save={1} cancel={2} x={3}/{4} y={5} leftover={6}' -f `
-                    $nm, [int]$okS.x, [int]$okC.x, [int]$okX.r, [int]$rw, [int]$okX.y, $leftover))
+                $notes.Add(('{0}: save={1} x={2}/{3} y={4} leftover={5} noCancel={6}' -f `
+                    $nm, [int]$okS.x, [int]$okX.r, [int]$rw, [int]$okX.y, $leftover, $cancelGone))
                 try { $w.Close() } catch { }
             }
-            Write-AuditRow 'dialog bar has save+cancel+x' $allOk ($notes -join '  ')
-        } catch { Write-AuditRow 'dialog bar has save+cancel+x' $false ('crash ' + $_.Exception.Message) }
+            Write-AuditRow 'dialog bar has save+x only' $allOk ($notes -join '  ')
+        } catch { Write-AuditRow 'dialog bar has save+x only' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 29b. × 要真的关窗并保存；Save 与 × 等价；Cancel 关窗但**不**落库 ----
+        # ---- 29b. × 要真的关窗并保存；Save 与 × 等价；两者都不该留残留按钮 ----
         #   三条链路分别验：
-        #     ① × 关窗 + 设置落库（第三轮就有的能力，不能因为加按钮而退化）
+        #     ① × 关窗 + 设置落库（第三轮就有的能力，不能因为删按钮而退化）
         #     ② Save 也关窗 + 落库（它走的是"打 Click 给 ×"，靠这条证明转发真的成立）
-        #     ③ Cancel 关窗但设置**不变**（这是本轮新增的能力，也是用户要的"不保存关闭"）
-        #   第 ③ 条最关键：Cancel 如果被误接成和 Save 同一个处理器，
-        #   前两条依然全绿，用户却会发现"点 Cancel 它还是给我存了"。
+        #     ③ 只读面板（当日议程）上 × 与 Save 也都能关窗
+        #   **第五轮删掉了 Cancel，所以原来那条"Cancel 关窗但不落库"的断言也一并删掉** ——
+        #   它测的是一个已经不存在的按钮，留着只会变成一条永远找不到控件的假绿。
+        #   注意：29e 那条"改动不落库"的断言也同步改成了走 × 之前先还原，
+        #   因为"不保存关闭"这个能力对设置窗已经不存在了（× 就是保存）。
         try {
             $keepPomo0 = [int]$script:Settings['PomodoroMin']
 
@@ -2723,18 +3044,7 @@ function Invoke-HandlerAudit {
             $script:Settings['PomodoroMin'] = $keepPomo0
             Save-Settings; Reset-Pomodoro
 
-            # ③ Cancel = 关窗但不落库
-            $script:DlgClosed = ''
-            $sw4 = Show-SettingsWindow
-            $sw4.Add_Closed({ $script:DlgClosed = 'settings-cancel' })
-            $sw4.UpdateLayout()
-            $script:SetTbPomo.Text = '77'
-            [void](Invoke-Click (Find-DialogButton $sw4 'DlgCancel'))
-            $okC3 = ($script:DlgClosed -eq 'settings-cancel') -and ([int]$script:Settings['PomodoroMin'] -eq $keepPomo0)
-            $script:Settings['PomodoroMin'] = $keepPomo0
-            Save-Settings; Reset-Pomodoro
-
-            # 当日议程窗口：Save / Cancel 都要能关掉它（只读面板，两者等价）
+            # 当日议程窗口（只读面板）：× 与 Save 都得能关掉它
             $script:DlgClosed = ''
             $dw2 = Show-DayAgendaWindow -Date ([datetime]::Today)
             $dw2.Add_Closed({ $script:DlgClosed = 'day' })
@@ -2743,14 +3053,14 @@ function Invoke-HandlerAudit {
             $okD = ($script:DlgClosed -eq 'day')
             $script:DlgClosed = ''
             $dw3 = Show-DayAgendaWindow -Date ([datetime]::Today)
-            $dw3.Add_Closed({ $script:DlgClosed = 'day-cancel' })
+            $dw3.Add_Closed({ $script:DlgClosed = 'day-save' })
             $dw3.UpdateLayout()
-            [void](Invoke-Click (Find-DialogButton $dw3 'DlgCancel'))
-            $okD2 = ($script:DlgClosed -eq 'day-cancel')
+            [void](Invoke-Click (Find-DialogButton $dw3 'DlgSave'))
+            $okD2 = ($script:DlgClosed -eq 'day-save')
 
-            Write-AuditRow 'dialog x / save / cancel wiring' ($okX1 -and $okS2 -and $okC3 -and $okD -and $okD2) `
-                ('x=' + $okX1 + ' save=' + $okS2 + ' cancel-keeps=' + $okC3 + ' day=' + $okD + ' dayCancel=' + $okD2)
-        } catch { Write-AuditRow 'dialog x / save / cancel wiring' $false ('crash ' + $_.Exception.Message) }
+            Write-AuditRow 'dialog x / save wiring' ($okX1 -and $okS2 -and $okD -and $okD2) `
+                ('x=' + $okX1 + ' save=' + $okS2 + ' dayX=' + $okD + ' daySave=' + $okD2)
+        } catch { Write-AuditRow 'dialog x / save wiring' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 29c. 设置里改字号：落库 + 真的生效（第四轮新增，用户第 3 项） ----
         #   为什么不能只验"Settings['UiScale'] 变了"：
@@ -2778,7 +3088,7 @@ function Invoke-HandlerAudit {
             $sw5 = Show-SettingsWindow
             $sw5.Add_Closed({ $script:DlgClosed = 'scale-applied' })
             $sw5.UpdateLayout()
-            $script:SetUiScale.Text = 'Huge'
+            Set-ChoiceFieldValue $script:SetUiScale 'huge'
             # 自适应会让结果掺进窗口宽度的影响，这里先关掉，保证验的是"用户档位"这一条线
             $script:SetUiAdaptive.IsChecked = $false
             [void](Invoke-Click (Find-DialogButton $sw5 'DlgSave'))
@@ -2819,7 +3129,7 @@ function Invoke-HandlerAudit {
             $sw6 = Show-SettingsWindow
             $sw6.Add_Closed({ $script:DlgClosed = 'theme-applied' })
             $sw6.UpdateLayout()
-            $script:SetThemeBox.Text = 'Night'
+            Set-ChoiceFieldValue $script:SetThemeBox 'night'
             $script:SetTopmost.IsChecked = $true
             $script:SetCloseToTray.IsChecked = $true
             $script:SetWeekRange.Text = '8-20'
@@ -2845,9 +3155,53 @@ function Invoke-HandlerAudit {
             Save-Settings
         } catch { Write-AuditRow 'settings theme and window opts' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 29e. Cancel 真的"不保存"：改一堆设置再 Cancel，一个都不许落库 ----
-        #   29b 的 ③ 只验了番茄钟这一次。设置项涨到 9 个之后（第五轮又加了语言与密度），
-        #   任何一项漏了"只在 Save 路径落库"都会变成静默数据污染 —— 这条把它们一次性钉住。
+        # ---- 29d2. 提示条角落（第六轮新增，用户第 1 条第 5 项） ----
+        #   四个角落逐个弹一条提示条，读它真实的 Left/Top，检查是不是贴在该贴的角上。
+        #   为什么不能只断"设置值存对了"：设置存对、但 Show-Toast 里读错了键/算错了边距，
+        #   表现就是"改了角落，提示条还在原地" —— 只有量坐标才能抓到。
+        #   判定用"相对工作区的位置"，不依赖具体分辨率：
+        #     br: 右边距 & 下边距都在屏内且靠近右下；bl/tl/tr 同理。
+        try {
+            $keepCorner2 = [string]$script:Settings['ToastCorner']
+            $posOk = $true
+            $dump = ''
+            foreach ($cn in @('br','bl','tl','tr')) {
+                $script:Settings['ToastCorner'] = $cn
+                Show-Toast -Title 'Corner probe' -Text $cn -Seconds 30
+                $tw = $script:ToastWindow
+                if ($null -eq $tw) { $posOk = $false; $dump += ($cn + '=none '); continue }
+                $tw.UpdateLayout()
+                $wa = Get-ToastWorkArea
+                $L = [double]$tw.Left; $T = [double]$tw.Top
+                $W = [double]$tw.ActualWidth; $H = [double]$tw.ActualHeight
+                # 允许 2px 量化误差；四个角各自的"贴边"条件
+                $nearRight  = [math]::Abs(($L + $W) - $wa.Right)  -lt 24
+                $nearLeft   = [math]::Abs($L - $wa.Left)          -lt 24
+                $nearTop    = [math]::Abs($T - $wa.Top)           -lt 24
+                $nearBottom = [math]::Abs(($T + $H) - $wa.Bottom) -lt 24
+                $hit = $false
+                switch ($cn) {
+                    'br' { $hit = $nearRight -and $nearBottom }
+                    'bl' { $hit = $nearLeft -and $nearBottom }
+                    'tl' { $hit = $nearLeft -and $nearTop }
+                    'tr' { $hit = $nearRight -and $nearTop }
+                }
+                if (-not $hit) { $posOk = $false }
+                $dump += ($cn + '=' + $(if ($hit) { 'ok' } else { 'X' }) + '(' +
+                          [int]$L + ',' + [int]$T + ') ')
+            }
+            try { if ($null -ne $script:ToastWindow) { $script:ToastWindow.Close() } } catch { }
+            $script:Settings['ToastCorner'] = $keepCorner2
+            Write-AuditRow 'toast corner positions toast' $posOk $dump.Trim()
+        } catch { Write-AuditRow 'toast corner positions toast' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29e. 设置项"改控件 ≠ 落库"：只改控件文字不点 Save/×，一个都不许变 ----
+        #   第五轮删掉 Cancel 之后，"改一堆设置再点 Cancel 看有没有落库"这条就失效了
+        #   （没有 Cancel 可点）。但被它保护的那个不变量依然重要，而且这里能断得更准：
+        #   **落库只发生在 Save-SettingsDialogValues 里**，而它只被 × 调用（Save 转发给 ×）。
+        #   所以本条的断法是：改完控件文字后**什么都不点**（只是 UpdateLayout），
+        #   直接检查 $script:Settings —— 全都不该变。这样既覆盖了原来 9 个设置项，
+        #   又顺手钉住了"控件状态与已存设置解耦"这条设计边界（比按 Cancel 更本质）。
         try {
             $keepTheme1 = [string]$script:Theme
             $keepScale1 = [double]$script:Settings['UiScale']
@@ -2857,37 +3211,221 @@ function Invoke-HandlerAudit {
             $keepPomo1 = [int]$script:Settings['PomodoroMin']
             $keepLang1 = [string]$script:Lang
             $keepDensity1 = [int]$script:Settings['WeekDensity']
+            $keepMonthDensity1 = [int]$script:Settings['MonthDensity']
+            $keepCorner1 = [string]$script:Settings['ToastCorner']
 
-            $script:DlgClosed = ''
             $sw7 = Show-SettingsWindow
-            $sw7.Add_Closed({ $script:DlgClosed = 'cancel-all' })
             $sw7.UpdateLayout()
+            # 把每个控件都改成与当前值不同的值 —— 但不点任何按钮
             $script:SetTbPomo.Text = '88'
-            $script:SetUiScale.Text = 'Huge'
-            $script:SetThemeBox.Text = 'Night'
+            Set-ChoiceFieldValue $script:SetUiScale 'huge'
+            Set-ChoiceFieldValue $script:SetThemeBox 'night'
             $script:SetTopmost.IsChecked = $true
             $script:SetCloseToTray.IsChecked = $true
             $script:SetWeekRange.Text = '9-18'
-            if ($keepLang1 -eq 'zh') { $script:SetLangBox.Text = 'English' } else { $script:SetLangBox.Text = '中文' }
-            $script:SetDensityBox.Text = 'Roomy'
-            [void](Invoke-Click (Find-DialogButton $sw7 'DlgCancel'))
+            if ($keepLang1 -eq 'zh') { Set-ChoiceFieldValue $script:SetLangBox 'en' } else { Set-ChoiceFieldValue $script:SetLangBox 'zh' }
+            Set-ChoiceFieldValue $script:SetDensityBox 'roomy'
+            Set-ChoiceFieldValue $script:SetMonthDensityBox 'roomy'
+            if ($keepCorner1 -eq 'br') { Set-ChoiceFieldValue $script:SetToastCorner 'tl' } else { Set-ChoiceFieldValue $script:SetToastCorner 'br' }
+            $sw7.UpdateLayout()
 
-            $okC = ($script:DlgClosed -eq 'cancel-all') -and
-                   ([string]$script:Theme -eq $keepTheme1) -and
+            $okC = ([string]$script:Theme -eq $keepTheme1) -and
                    ([math]::Abs([double]$script:Settings['UiScale'] - $keepScale1) -lt 0.001) -and
                    ([bool]$script:Settings['Topmost'] -eq $keepTop1) -and
                    ([bool]$script:Settings['CloseToTray'] -eq $keepTray1) -and
                    ([string]$script:Settings['WeekViewRange'] -eq $keepRange1) -and
                    ([int]$script:Settings['PomodoroMin'] -eq $keepPomo1) -and
                    ([string]$script:Lang -eq $keepLang1) -and
-                   ([int]$script:Settings['WeekDensity'] -eq $keepDensity1)
+                   ([int]$script:Settings['WeekDensity'] -eq $keepDensity1) -and
+                   ([int]$script:Settings['MonthDensity'] -eq $keepMonthDensity1) -and
+                   ([string]$script:Settings['ToastCorner'] -eq $keepCorner1)
+            try { $sw7.Close() } catch { }
 
-            Write-AuditRow 'settings cancel saves nothing' $okC `
-                ('closed=' + $script:DlgClosed + ' theme=' + $script:Theme + ' scale=' + $script:Settings['UiScale'] +
+            Write-AuditRow 'settings fields do not save until close' $okC `
+                ('theme=' + $script:Theme + ' scale=' + $script:Settings['UiScale'] +
                  ' top=' + $script:Settings['Topmost'] + ' tray=' + $script:Settings['CloseToTray'] +
                  ' range=' + $script:Settings['WeekViewRange'] + ' pomo=' + $script:Settings['PomodoroMin'] +
-                 ' lang=' + $script:Lang + ' density=' + $script:Settings['WeekDensity'])
-        } catch { Write-AuditRow 'settings cancel saves nothing' $false ('crash ' + $_.Exception.Message) }
+                 ' lang=' + $script:Lang + ' density=' + $script:Settings['WeekDensity'] +
+                 ' corner=' + $script:Settings['ToastCorner'])
+        } catch { Write-AuditRow 'settings fields do not save until close' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29e2. 设置窗口分页（第六轮新增，用户第 1 条） ----
+        #   为什么值得单独一条：分页最容易的错法是"页签能点、但切了还是原来那页"
+        #   （例如切页函数读的是已销毁的局部变量，静默失效）。所以这里断三件事：
+        #     ① 四个页签都在，且 Text 取到了本地化文案（不是回落的键名）
+        #     ② 初始停在"外观"页 —— $script:SetPageHost.Child 就是 $script:SetPageAppear
+        #     ③ **点第二个页签之后，Host.Child 真的换成了 $script:SetPageWindow**
+        #   第 ③ 条是关键：只看 Tag/文案是断不出"切页真的生效"的。
+        try {
+            $step = 'start'
+            $sw8 = Show-SettingsWindow
+            $sw8.UpdateLayout()
+            $step = 'listprobe'
+            $lst = $script:SetTabButtons
+            $tabN = 0
+            $tabs = New-Object System.Collections.Generic.List[object]
+            foreach ($one in $lst) { [void]$tabs.Add($one); $tabN++ }
+            $step = 'tabs'
+            # 文案不许等于键名（Get-LangText 找不到时返回 $Key 本身）
+            $txtOk = $true
+            foreach ($b in $tabs) {
+                $c = $b.Content
+                if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
+                $t = [string]$c
+                if ($t -like 'set.tab.*') { $txtOk = $false }
+                if ([string]::IsNullOrWhiteSpace($t)) { $txtOk = $false }
+            }
+            # 初始页 = 外观
+            $step = 'startPage'
+            $startOk = ($null -ne $script:SetPageHost) -and
+                       ([object]::Equals([object]$script:SetPageHost.Child, [object]$script:SetPageAppear))
+            # 真点第二个页签（窗口页）
+            $step = 'findWindowTab'
+            $winBtn = $null
+            foreach ($b in $tabs) {
+                $tg = $b.Tag
+                if ($tg -is [hashtable] -and $tg.ContainsKey('key') -and ([string]$tg['key'] -eq 'window')) { $winBtn = $b; break }
+            }
+            $step = 'clickWindowTab'
+            [void](Invoke-Click $winBtn)
+            $sw8.UpdateLayout()
+            $step = 'checkWindowPage'
+            $switched = ([object]::Equals([object]$script:SetPageHost.Child, [object]$script:SetPageWindow))
+            $activeOk = ([string]$script:SetTabActive -eq 'window')
+            # 再点回"关于"，确认不是"只能切一次"
+            $step = 'findAboutTab'
+            $aboutBtn = $null
+            foreach ($b in $tabs) {
+                $tg = $b.Tag
+                if ($tg -is [hashtable] -and $tg.ContainsKey('key') -and ([string]$tg['key'] -eq 'about')) { $aboutBtn = $b; break }
+            }
+            $step = 'clickAboutTab'
+            [void](Invoke-Click $aboutBtn)
+            $sw8.UpdateLayout()
+            $step = 'checkAboutPage'
+            $switched2 = ([object]::Equals([object]$script:SetPageHost.Child, [object]$script:SetPageAbout))
+            # 高亮：切到"关于"之后，关于那个页签的模板底色应当变成强调色。
+            #   为什么要读**模板**而不是读 $b.Background：New-PixBtn 把底色烘进
+            #   ControlTemplate，控件的 .Background 属性在视觉上被模板覆盖 ——
+            #   第六轮第一版只改了 .Background，截图里四个页签**全都没高亮**。
+            #   又为什么不能用 Find-AllOfType 从可视树挖那个 Border：ControlTemplate
+            #   的内部元素在"模板已应用 + 完成布局"之后才挂进可视树，审计里没有
+            #   消息循环，这里拿不到。所以直接去模板里取名字为 bd 的 Border。
+            $hlOk = $false
+            $hlSeen = ''
+            try {
+                # Template.FindName 只在"模板已经应用到这个元素上"之后才找得到命名元素。
+                #   审计里没有消息循环，控件可能还没走过 ApplyTemplate，所以要显式调一次，
+                #   否则永远返回 $null —— 这会把"高亮其实是对的"误判成失败。
+                [void]$aboutBtn.ApplyTemplate()
+                $tpl = $aboutBtn.Template
+                $named = $null
+                if ($null -ne $tpl) { $named = $tpl.FindName('bd', $aboutBtn) }
+                if ($null -ne $named) {
+                    $hlSeen = [string]$named.Background
+                    $want = [string](Brush (Get-Pal 'AccentFocus'))
+                    $hlOk = ($hlSeen -eq $want)
+                    $hlSeen = $hlSeen + ' want=' + $want
+                } else { $hlSeen = 'bd-not-found' }
+            } catch { $hlSeen = 'err:' + $_.Exception.Message }
+            try { $sw8.Close() } catch { }
+
+            $okP = ($tabN -eq 4) -and $txtOk -and $startOk -and $switched -and $activeOk -and $switched2 -and $hlOk
+            Write-AuditRow 'settings window is paged' $okP `
+                ('tabs=' + $tabN + ' text=' + $txtOk + ' startAppear=' + $startOk +
+                 ' toWindow=' + $switched + ' active=' + [string]$script:SetTabActive +
+                 ' toAbout=' + $switched2 + ' highlight=' + $hlOk + ' [' + $hlSeen + ']')
+        } catch { Write-AuditRow 'settings window is paged' $false ('crash@' + $step + ' ' + $_.Exception.Message) }
+
+        # ---- 29e3. 弹窗字段名跟着语言走（第六轮第二项建议） ----
+        #   为什么必须单独断这一条：字段名"接进语言表"这件事最容易做到"看起来接上了、
+        #   其实没接"—— 比如把键名写错（Get-LangText 找不到就原样返回键名，
+        #   界面上会显示 "fld.ed.title" 这种字符串，刚好不会报错）。
+        #   所以断言分三层：
+        #     ① 中英两套语言表键集合**完全一致**（漏配一条就是这里红）；
+        #     ② 抽查若干字段：中文下不是键名、且与英文文案不同；
+        #     ③ 反向抽查：英文下确实是英文原文（证明不是"两边都返回键名"）。
+        try {
+            $keysZh = New-Object System.Collections.Generic.List[string]
+            foreach ($k in $script:LangZh.Keys) { [void]$keysZh.Add([string]$k) }
+            $keysEn = New-Object System.Collections.Generic.List[string]
+            foreach ($k in $script:LangEn.Keys) { [void]$keysEn.Add([string]$k) }
+            $missingInEn = @($keysZh | Where-Object { -not $script:LangEn.Contains($_) })
+            $missingInZh = @($keysEn | Where-Object { -not $script:LangZh.Contains($_) })
+            $keysOk = ($missingInEn.Count -eq 0) -and ($missingInZh.Count -eq 0)
+
+            # 抽查的字段：日程弹窗 + 任务弹窗 + 设置各挑一个，覆盖三类控件（EditorField/ChoiceField/标题）
+            $probe = @('fld.ed.titleF', 'fld.ed.repeat', 'fld.tk.priority', 'opt.pri.high',
+                       'fld.st.theme', 'opt.theme.night', 'fld.fo.enable', 'fld.st.shortcuts')
+            $keepLang2 = [string]$script:Lang
+            $script:Lang = 'zh'; Initialize-Lang
+            $zhTxt = @{}
+            foreach ($k in $probe) { $zhTxt[$k] = [string](Get-LangText $k) }
+            $script:Lang = 'en'; Initialize-Lang
+            $enTxt = @{}
+            foreach ($k in $probe) { $enTxt[$k] = [string](Get-LangText $k) }
+
+            $noKeyLeak = $true      # 不许出现"返回了键名本身"
+            $differs = $true        # 中英必须真的不同（否则等于没接）
+            foreach ($k in $probe) {
+                if ($zhTxt[$k] -eq $k -or $enTxt[$k] -eq $k) { $noKeyLeak = $false }
+                # 'opt.lang.*' 是有意不翻译的；probe 里没放它，所以这里可以要求全部不同
+                if ($zhTxt[$k] -eq $enTxt[$k]) { $differs = $false }
+            }
+            # 英文侧抽查一条原文（证明真的取到了英文，而不是"两边都是中文"）
+            $enSpotOk = ($enTxt['fld.ed.titleF'] -eq 'Title') -and ($enTxt['opt.pri.high'] -eq 'High')
+
+            $script:Lang = $keepLang2; Initialize-Lang
+
+            $okL = $keysOk -and $noKeyLeak -and $differs -and $enSpotOk
+            Write-AuditRow 'dialog labels follow language' $okL `
+                ('zhKeys=' + $keysZh.Count + ' enKeys=' + $keysEn.Count +
+                 ' missEn=' + $missingInEn.Count + ' missZh=' + $missingInZh.Count +
+                 ' noLeak=' + $noKeyLeak + ' differs=' + $differs + ' enSpot=' + $enSpotOk +
+                 ' sample:zh=' + $zhTxt['fld.ed.titleF'] + '/en=' + $enTxt['fld.ed.titleF'])
+        } catch { Write-AuditRow 'dialog labels follow language' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29e4. 周/月密度互相独立（第六轮第三项建议） ----
+        #   为什么必须单断"互不影响"：两个键拆开之后，最容易出的错是
+        #   Save-SettingsDialogValues 里只写了新键、忘了另一个，
+        #   或者两个控件绑到了同一个 Tag —— 表现是"改一个另一个也跟着变"，
+        #   而只看"值存对了"的断言是查不出来的。
+        #   做法：开设置窗 -> 只把周密度改成 roomy、月密度改成 compact -> Save
+        #         -> 断两个键分别是 56 / 28（而不是都变成最后一次设的那个）。
+        try {
+            $keepW2 = [int]$script:Settings['WeekDensity']
+            $keepM2 = [int]$script:Settings['MonthDensity']
+            # 故意从"两个不同的起点"出发，避免"起点本来相同"掩盖绑定错误
+            $script:Settings['WeekDensity'] = 40
+            $script:Settings['MonthDensity'] = 40
+            $sw9 = Show-SettingsWindow
+            $sw9.UpdateLayout()
+            Set-ChoiceFieldValue $script:SetDensityBox 'roomy'        # 56
+            Set-ChoiceFieldValue $script:SetMonthDensityBox 'compact' # 28
+            $sw9.UpdateLayout()
+            [void](Invoke-Click (Find-DialogButton $sw9 'DlgSave'))
+            $wNow = [int]$script:Settings['WeekDensity']
+            $mNow = [int]$script:Settings['MonthDensity']
+            # 第二个方向：反着设一次，确认不是"单向偶然"
+            $sw10 = Show-SettingsWindow
+            $sw10.UpdateLayout()
+            Set-ChoiceFieldValue $script:SetDensityBox 'compact'      # 28
+            Set-ChoiceFieldValue $script:SetMonthDensityBox 'roomy'   # 56
+            $sw10.UpdateLayout()
+            [void](Invoke-Click (Find-DialogButton $sw10 'DlgSave'))
+            $wNow2 = [int]$script:Settings['WeekDensity']
+            $mNow2 = [int]$script:Settings['MonthDensity']
+
+            $okD1 = ($wNow -eq 56) -and ($mNow -eq 28)
+            $okD2 = ($wNow2 -eq 28) -and ($mNow2 -eq 56)
+            Write-AuditRow 'week / month density are independent' ($okD1 -and $okD2) `
+                ('w=' + $wNow + ' m=' + $mNow + ' | w=' + $wNow2 + ' m=' + $mNow2)
+
+            $script:Settings['WeekDensity'] = $keepW2
+            $script:Settings['MonthDensity'] = $keepM2
+            [void](Set-WeekDensity $keepW2)
+            Save-Settings
+        } catch { Write-AuditRow 'week / month density are independent' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 29f. 窗口变大变小时字号跟着自适应（第四轮新增，用户第 4 项） ----
         #   为什么要直接改 Width 再调 Apply-ResponsiveLayout 而不是真的 Resize：
@@ -3493,7 +4031,7 @@ function Invoke-HandlerAudit {
                 [void]$script:Tasks.Remove($snapT)
                 Save-Data
                 Fill-Tasks
-                $script:UndoState = @{ Kind = 'task'; Index = $hitIdx; Snapshot = $snapT }
+                Push-Undo -Kind 'task' -Index $hitIdx -Snapshot $snapT -Label ([string]$snapT.text)
                 $afterDel = @($script:Tasks).Count
                 $goneNow = (@($script:Tasks | Where-Object { [string]$_.id -eq $vId }).Count -eq 0)
                 $hadToast = ($null -ne $script:UndoState)
@@ -3509,6 +4047,118 @@ function Invoke-HandlerAudit {
                      ' back=' + $backNow + ' pos=' + $posOk + ' txt=' + $txtOk)
             } else {
                 Write-AuditRow 'delete undo restores task' $false ('not enough tasks: ' + $before)
+            }
+
+            # ---- 38d2. 多级撤销：连删 3 条 -> 连按 3 次撤销 -> 三条按序全部回来 ----
+            #   这是第六轮把单级撤销升级为栈之后的核心回归：
+            #   * 栈深必须真的到 3；
+            #   * 每次撤销回退的应当是**栈顶（最后删的那条）**，不是最早那条；
+            #   * 撤到只剩 1 条（第 5 轮留下那条单级用例可能还压着）时不能再乱动它。
+            #   为了不依赖别的用例留下的栈状态，这里先把栈清空、再造 3 条一次性任务。
+            try {
+                if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
+                $script:UndoStack.Clear()
+                $script:UndoState = $null
+                $keepTasks = @($script:Tasks)          # 审计结束后恢复现场，别污染后续用例
+                $mkIds = New-Object System.Collections.ArrayList
+                foreach ($nm in @('UNDO-A', 'UNDO-B', 'UNDO-C')) {
+                    $script:Tasks.Add(@{
+                        id = ('undo-' + $nm + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+                        text = $nm; tag = 'task'; done = $false; priority = 'medium'
+                        due = ''; dueTime = ''; reminderMin = 0; project = ''; category = ''
+                        estimated = 0; actual = 0; subtasks = @(); created = (Get-Date).ToString('s')
+                    })
+                }
+                Fill-Tasks
+                $base = @($script:Tasks).Count
+                # 依次删 C、B、A（每次删当前最后一条 -> 栈里从底到顶是 C、B、A）
+                $delOrder = @()
+                for ($k = 0; $k -lt 3; $k++) {
+                    $i = @($script:Tasks).Count - 1
+                    $snap = $script:Tasks[$i]
+                    $delOrder += [string]$snap.text
+                    [void]$script:Tasks.Remove($snap)
+                    Push-Undo -Kind 'task' -Index $i -Snapshot $snap -Label ([string]$snap.text)
+                }
+                $depth3 = (Get-UndoDepth)
+                $afterDel3 = @($script:Tasks).Count
+                # 连按 3 次撤销，记下每次回来的是谁（应严格 LIFO：A、B、C）
+                $undoSeq = @()
+                for ($k = 0; $k -lt 3; $k++) {
+                    Undo-Delete
+                    if (@($script:Tasks).Count -gt 0) {
+                        $undoSeq += [string]$script:Tasks[@($script:Tasks).Count - 1].text
+                    }
+                }
+                $depthAfter = (Get-UndoDepth)
+                $restored = @($script:Tasks).Count
+                $lifoOk = (($delOrder -join ',') -eq 'UNDO-C,UNDO-B,UNDO-A') -and
+                          (($undoSeq -join ',') -eq 'UNDO-A,UNDO-B,UNDO-C')
+                $depthOk = ($depth3 -eq 3) -and ($depthAfter -eq 0)
+                $countOk = ($afterDel3 -eq ($base - 3)) -and ($restored -eq $base)
+                # 撤空那一下就要把状态条改成"没有可撤销"（不能留上一条 "还可撤销 1"）
+                $hintAfterLast = ''
+                if ($null -ne $script:UndoHint) { $hintAfterLast = [string]$script:UndoHint.Text }
+                $hintDrainOk = ($hintAfterLast -eq (Get-LangText 'undo.none'))
+                # 栈空后再撤一次：不能报错、不能凭空多出任务，且仍给"没有可撤销"提示
+                Undo-Delete
+                $emptySafe = (@($script:Tasks).Count -eq $base)
+                $hintTxt = ''
+                if ($null -ne $script:UndoHint) { $hintTxt = [string]$script:UndoHint.Text }
+                $hintOk = ($hintTxt -eq (Get-LangText 'undo.none'))
+                Write-AuditRow 'multi-level undo (stack of 3)' `
+                    ($lifoOk -and $depthOk -and $countOk -and $hintDrainOk -and $emptySafe -and $hintOk) `
+                    ('del=' + ($delOrder -join '/') + ' undo=' + ($undoSeq -join '/') +
+                     ' depth=' + $depth3 + '->' + $depthAfter + ' n=' + $base + '->' +
+                     $afterDel3 + '->' + $restored + ' hintDrain=' + $hintDrainOk +
+                     ' emptySafe=' + $emptySafe + ' hint=' + $hintOk)
+                # 恢复现场
+                $script:Tasks.Clear()
+                foreach ($t in $keepTasks) { [void]$script:Tasks.Add($t) }
+                $script:UndoStack.Clear(); $script:UndoState = $null
+                if ($null -ne $script:UndoHint) { $script:UndoHint.Text = '' }
+                Fill-Tasks
+            } catch {
+                Write-AuditRow 'multi-level undo (stack of 3)' $false ('err: ' + $_.Exception.Message)
+            }
+
+            # ---- 38d3. 栈深上限：连删 7 条，栈最多留 5（最早两条被顶掉） ----
+            try {
+                if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
+                $script:UndoStack.Clear(); $script:UndoState = $null
+                $keepTasks2 = @($script:Tasks)
+                for ($k = 1; $k -le 7; $k++) {
+                    $script:Tasks.Add(@{
+                        id = ('cap-' + $k + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+                        text = ('CAP-' + $k); tag = 'task'; done = $false; priority = 'medium'
+                        due = ''; dueTime = ''; reminderMin = 0; project = ''; category = ''
+                        estimated = 0; actual = 0; subtasks = @(); created = (Get-Date).ToString('s')
+                    })
+                }
+                Fill-Tasks
+                for ($k = 0; $k -lt 7; $k++) {
+                    $i = @($script:Tasks).Count - 1
+                    $snap = $script:Tasks[$i]
+                    [void]$script:Tasks.Remove($snap)
+                    Push-Undo -Kind 'task' -Index $i -Snapshot $snap -Label ([string]$snap.text)
+                }
+                $capDepth = (Get-UndoDepth)
+                # 只能撤回 5 条：第 6 次撤销时栈已空，任务数不应再变
+                $nBefore = @($script:Tasks).Count
+                for ($k = 0; $k -lt 5; $k++) { Undo-Delete }
+                $nAfterFive = @($script:Tasks).Count
+                Undo-Delete
+                $nAfterSix = @($script:Tasks).Count
+                Write-AuditRow 'undo stack depth capped at 5' `
+                    (($capDepth -eq 5) -and ($nAfterFive -eq ($nBefore + 5)) -and ($nAfterSix -eq $nAfterFive)) `
+                    ('depth=' + $capDepth + ' n=' + $nBefore + '->' + $nAfterFive + '->' + $nAfterSix)
+                $script:Tasks.Clear()
+                foreach ($t in $keepTasks2) { [void]$script:Tasks.Add($t) }
+                $script:UndoStack.Clear(); $script:UndoState = $null
+                if ($null -ne $script:UndoHint) { $script:UndoHint.Text = '' }
+                Fill-Tasks
+            } catch {
+                Write-AuditRow 'undo stack depth capped at 5' $false ('err: ' + $_.Exception.Message)
             }
 
             # ---- 38e. 空状态：列表搜不到东西时给出"块 + 可点按钮"，而不是纯空白 ----
@@ -3892,6 +4542,27 @@ function Invoke-TestActions {
                         } catch { [void]$out.Add('toastshot-err: ' + $_.Exception.Message) }
                     }
                 }
+                'toastpos' {
+                    # "toastpos[:<corner>]"：弹一条提示条并按给定角落定位，回报它的实际
+                    #   Left/Top 与所在屏的工作区。用来在审计里验证 ToastCorner 真的生效。
+                    #   不给 corner 就用当前 $script:Settings['ToastCorner']。
+                    try {
+                        if ($arg -match '^(bl|br|tl|tr)$') { $script:Settings['ToastCorner'] = $arg }
+                        Show-Toast -Title 'Position probe' -Text 'toastpos' -Seconds 30
+                        $tw = $script:ToastWindow
+                        if ($null -ne $tw) {
+                            $tw.UpdateLayout()
+                            $wa = Get-ToastWorkArea
+                            [void]$out.Add('toastpos: corner=' + $script:Settings['ToastCorner'] +
+                                ' left=' + [int][math]::Round($tw.Left) + ' top=' + [int][math]::Round($tw.Top) +
+                                ' w=' + [int][math]::Round($tw.ActualWidth) + ' h=' + [int][math]::Round($tw.ActualHeight) +
+                                ' wa=' + [int][math]::Round($wa.Left) + ',' + [int][math]::Round($wa.Top) +
+                                ',' + [int][math]::Round($wa.Right) + ',' + [int][math]::Round($wa.Bottom))
+                        } else {
+                            [void]$out.Add('toastpos: no window')
+                        }
+                    } catch { [void]$out.Add('toastpos-err: ' + $_.Exception.Message) }
+                }
                 'stats'  { Open-StatsPanel }
                 'edit'   { Open-EventEditor -Id $arg }
                 'add'    { Open-EventEditor }
@@ -3916,31 +4587,66 @@ function Invoke-TestActions {
                     Undo-Delete
                 }
                 'undodemo' {
-                    # "undodemo"：模拟"用户确认删除"之后的状态 —— 真的从 Tasks 里摘掉一项、
-                    # 记好快照、并把可撤销提示条弹出来。截图要拍的就是这条提示条。
+                    # "undodemo[:<n>]"：模拟"用户确认删除"之后的状态 —— 真的从 Tasks 里摘掉 n 项
+                    # （默认 1）、逐条压栈、并把可撤销提示条弹出来。截图要拍的就是这条提示条。
                     # 与 Remove-Task 的唯一差别是不弹 Yes/No（截图流程点不了 MessageBox）。
+                    #
+                    # 给了 n>1 时连续删 n 条，用来验证**多级撤销**：提示条上应出现 "(n)"，
+                    # 再连按 undo n 次应把 n 条全部按原索引插回去。
                     #
                     # 这里**故意绕开 Show-UndoToast 的 $TestMode 守卫**：那个守卫是为了
                     # 不让自动化流程被弹窗挡住，但截图流程恰恰要拍这个提示条本身。
                     # 提示条是独立的 Topmost 窗口，MainWindow 的截图抓不到它 ——
                     # 所以下面单独给它拍一张（shot 目录里叫 r7-undo-toast-window.png）。
                     try {
-                        if (@($script:Tasks).Count -ge 2) {
-                            $i = @($script:Tasks).Count - 1
-                            $snap = $script:Tasks[$i]
-                            [void]$script:Tasks.Remove($snap)
-                            Save-Data
-                            Fill-Tasks
-                            $script:UndoState = @{ Kind = 'task'; Index = $i; Snapshot = $snap }
+                        $n = 1
+                        if ($arg -match '^\d+$') { $n = [int]$arg }
+                        if ($n -lt 1) { $n = 1 }
+                        $avail = @($script:Tasks).Count
+                        $can = [math]::Min($n, [math]::Max(0, $avail - 1))   # 至少留一条，免得删空
+                        if ($can -ge 1) {
+                            $lastText = ''
+                            for ($k = 0; $k -lt $can; $k++) {
+                                $i = @($script:Tasks).Count - 1
+                                $snap = $script:Tasks[$i]
+                                [void]$script:Tasks.Remove($snap)
+                                Save-Data
+                                Fill-Tasks
+                                Push-Undo -Kind 'task' -Index $i -Snapshot $snap -Label ([string]$snap.text)
+                                $lastText = [string]$snap.text
+                            }
+                            $txt = (Get-LangText 'undo.deleted') + (Shorten-Text $lastText 22)
+                            $depth = Get-UndoDepth
+                            if ($depth -gt 1) { $txt = $txt + '  (' + $depth + ')' }
+                            Sync-UndoHint      # 侧栏也写上层次（截图拍的是主窗口，不是 Toast）
                             Show-Toast -Title (Get-LangText 'undo.task') `
-                                -Text ((Get-LangText 'undo.deleted') + (Shorten-Text ([string]$snap.text) 22)) `
-                                -ActionText (Get-LangText 'undo.btn') -Seconds 30 `
+                                -Text $txt -ActionText (Get-LangText 'undo.btn') -Seconds 30 `
                                 -ActionScript { Undo-Delete }
-                            [void]$out.Add('undodemo: toast shown, tasks=' + @($script:Tasks).Count)
+                            [void]$out.Add('undodemo: removed=' + $can + ' depth=' + $depth +
+                                           ' tasks=' + @($script:Tasks).Count)
                         } else {
-                            [void]$out.Add('undodemo: skipped (need >=2 tasks)')
+                            [void]$out.Add('undodemo: skipped (need >=2 tasks), tasks=' + $avail)
                         }
                     } catch { [void]$out.Add('undodemo-err: ' + $_.Exception.Message) }
+                }
+                'undodepth' {
+                    # "undodepth[:<n>]"：连按 Ctrl+Z n 次（默认 1），返回每次之后的栈深与任务数。
+                    # 与 undodemo 配对，用来在自动化里验证"逐级回退 + 栈空提示"。
+                    try {
+                        $n = 1
+                        if ($arg -match '^\d+$') { $n = [int]$arg }
+                        if ($n -lt 1) { $n = 1 }
+                        $trace = ''
+                        for ($k = 0; $k -lt $n; $k++) {
+                            Undo-Delete
+                            $trace += ('[' + (Get-UndoDepth) + '/' + @($script:Tasks).Count + ']')
+                        }
+                        $hint = ''
+                        if ($null -ne $script:UndoHint) { $hint = [string]$script:UndoHint.Text }
+                        [void]$out.Add('undodepth: depth=' + (Get-UndoDepth) +
+                                       ' tasks=' + @($script:Tasks).Count +
+                                       ' trace=' + $trace + ' hint=' + $hint)
+                    } catch { [void]$out.Add('undodepth-err: ' + $_.Exception.Message) }
                 }
                 'emptydemo' {
                     # "emptydemo"：把列表搜索框填成一串必然搜不到的词，制造空状态。
@@ -3957,6 +4663,49 @@ function Invoke-TestActions {
                         if ($null -ne $script:ListTagBox) { $script:ListTagBox.SelectedIndex = 0 }
                         Fill-ListRows
                     } catch { [void]$out.Add('clearfilter-err: ' + $_.Exception.Message) }
+                }
+                'taskcheck' {
+                    # "taskcheck[:<id>]"：点任务卡左侧那个 15x15 勾选方块。
+                    #
+                    # 这条把第六轮修的 bug 变成可回归的动作：方块的 Tag 与卡片正文的 Tag
+                    # 长得一样（都是 @{kind='task'; id=...}），早些时候点它会被外层
+                    # "点卡片空白 = 延迟 260ms 再切"的逻辑吃掉，看上去就是"点了没反应"。
+                    # 现在方块自己挂了 Add_Click 并 Handled=true，这里用真实点击链路
+                    # 打它一下，回读 done 有没有真的翻过来、以及界面有没有立刻重画。
+                    #
+                    # 取哪张卡：给了 id 用 id，否则拿第一张（与 dbltask 同一套约定）。
+                    Set-View 'tasks'
+                    if ($null -ne $script:TaskStatusBox) { $script:TaskStatusBox.SelectedIndex = 0 }
+                    Fill-Tasks
+                    for ($i = 0; $i -lt 3; $i++) { $script:MainWindow.UpdateLayout() }
+                    $tgt = $null
+                    foreach ($r in @($script:TaskStack.Children)) {
+                        if ([string]::IsNullOrWhiteSpace($arg) -or $arg -eq '*') {
+                            if ($null -ne $r.Tag -and $null -ne $r.Tag['id']) { $tgt = $r; break }
+                            continue
+                        }
+                        if ($null -ne $r.Tag -and [string]$r.Tag['id'] -eq $arg) { $tgt = $r; break }
+                    }
+                    if ($null -eq $tgt) {
+                        [void]$out.Add('taskcheck: target not found -> ' + $arg)
+                    } else {
+                        # 先找到那张卡里的勾选方块：它是 kind='task' 的 Button，
+                        # 且不是任务正文那层（正文层不是 Button）。
+                        $box = $null
+                        foreach ($b in @(Find-AllOfType $tgt ([System.Windows.Controls.Button]))) {
+                            if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                                $b.Tag.ContainsKey('kind') -and ([string]$b.Tag['kind'] -eq 'task')) { $box = $b; break }
+                        }
+                        $id = [string]$tgt.Tag['id']
+                        $before = $null
+                        foreach ($t in @($script:Tasks)) { if ([string]$t.id -eq $id) { $before = [bool]$t.done; break } }
+                        [void](Invoke-Click $box)
+                        # 立即勾选：不需要等那 260ms 的挂起计时器
+                        $after = $null
+                        foreach ($t in @($script:Tasks)) { if ([string]$t.id -eq $id) { $after = [bool]$t.done; break } }
+                        [void]$out.Add('taskcheck id=' + $id + ' box=' + [string]($null -ne $box) +
+                                       ' done=' + [string]$before + '->' + [string]$after)
+                    }
                 }
                 'anchor' {
                     # "anchor:2027-02-01" 把日历锚点挪到指定日期（截图用例用）。
@@ -4055,13 +4804,36 @@ function Invoke-TestActions {
                 'settingshot' {
                     # "settingshot:<name>"：拍设置窗口。第四轮设置里多了
                     # 字号 / 主题 / 置顶 / 托盘 / 周时段，需要截图留证。
-                    # 这里刻意不点任何东西 —— 拍的就是"刚打开、还是默认值"的样子，
-                    # 那张图要能一眼看出 Appearance 和 Window 两组是新加的。
+                    # 第六轮分页后，"刚打开"拍到的是**外观页** —— 这是默认页，也是
+                    # 最该看的一张。要拍别的页用下面的 settingstabshot。
                     $w = Show-SettingsWindow
                     $w.Show(); $w.UpdateLayout()
                     if ($AllowShot -and $ScreenshotPath) {
                         $fn = 'settings-window.png'
                         if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
+                        $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
+                        Save-Shot -Path $p -Window $w
+                    }
+                    $w.Close()
+                }
+                'settingstabshot' {
+                    # "settingstabshot:<page>[|<name>]"：先切到指定页再拍设置窗。
+                    #   page ∈ appear/window/data/about。理由同设置分页本身：
+                    #   "页签点了没换页"是分页最容易出的错，截图要能分别看到四页长什么样。
+                    $page = $arg
+                    $nm = ''
+                    if ($arg -match '\|') {
+                        $parts = $arg -split '\|', 2
+                        $page = $parts[0]; $nm = $parts[1]
+                    }
+                    $w = Show-SettingsWindow
+                    if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow ([string]$page) }
+                    $w.Show(); $w.UpdateLayout()
+                    if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow ([string]$page) }
+                    $w.UpdateLayout()
+                    if ($AllowShot -and $ScreenshotPath) {
+                        $fn = ('settings-' + [string]$page + '.png')
+                        if (-not [string]::IsNullOrWhiteSpace($nm)) { $fn = $nm + '.png' }
                         $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
                         Save-Shot -Path $p -Window $w
                     }
