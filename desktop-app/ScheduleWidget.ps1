@@ -344,6 +344,13 @@ $script:Settings = [ordered]@{
     #   也是系统托盘/输入法候选框的地盘，有人反馈"删完想点撤销，提示条被挡住"。
     #   默认保持 br 不变（不动老用户的肌肉记忆），要换的人自己去设置里选。
     ToastCorner    = 'br'
+    # ---- 第七轮新增：提示条停留秒数 ----
+    # ToastSeconds：提示条（撤销条、专注结算条等）出现后多久自动消失。
+    #   三个秒数档 3 / 5 / 8，外加 0 —— 0 表示"不自动关，点它才走"。
+    #   为什么需要：提示条是浏览器式的"稍纵即逝"设计，而撤销是有时效诉求的操作 ——
+    #   手慢的人 5 秒内点不到"撤销"，删错的东西就永远找不回来了（只能靠 Ctrl+Z 碰运气）。
+    #   默认 5 秒，与第六轮写死的值一致，不动老用户的手感。
+    ToastSeconds   = 5
 }
 
 function Load-Settings {
@@ -571,6 +578,10 @@ $script:LangEn = [ordered]@{
     'undo.deleted' = 'Deleted: '; 'undo.btn' = 'Undo'
     'undo.none' = 'Nothing left to undo'
     'undo.more' = 'Still undoable: '
+    # 第七轮（第六轮第二十七节第 1 条）：撤销栈纳入"勾选完成 / 拖动改时间"，
+    # 提示条文案要跟着操作类型走 —— 用户才知道这次 Ctrl+Z 撤的是什么。
+    'undo.toggleOn'  = 'Marked done: '; 'undo.toggleOff' = 'Marked not done: '
+    'undo.dragTask'  = 'Task time moved: '; 'undo.dragEvent' = 'Event time moved: '
     'empty.list' = 'Nothing scheduled for this week yet'
     'empty.cta' = 'Add an event'
     'empty.filtered' = 'No matching events'
@@ -627,7 +638,8 @@ $script:LangEn = [ordered]@{
     'fld.fo.sub'      = 'Set whether focus is available, the session length and what you will work on.'
     'fld.fo.enable'   = 'Enable focus timer'
     'fld.fo.breakOn'  = 'Start a break after focus'
-    'fld.fo.duration' = 'Session length (choose or type 0-99 minutes; 0 = no countdown)'
+    'fld.fo.duration' = 'Session length (mm:ss — scroll each digit)'
+    'fld.fo.wheelHint' = 'Scroll a digit (or click its top / bottom) to set the length. Max 99:59.'
     'fld.fo.break'    = 'Break length (choose or type 0-99 minutes; 0 = skip)'
     'fld.fo.task'     = 'Task content (choose an existing task or type a new one)'
     # ---- 设置弹窗 ----
@@ -647,6 +659,9 @@ $script:LangEn = [ordered]@{
     'fld.st.toastCorner' = 'Where the undo / reminder pop-up appears'
     'opt.corner.br'   = 'Bottom right'; 'opt.corner.bl' = 'Bottom left'
     'opt.corner.tl'   = 'Top left'; 'opt.corner.tr' = 'Top right'
+    'fld.st.toastSeconds' = 'How long the pop-up stays'
+    'opt.toast.s3'    = '3 seconds'; 'opt.toast.s5' = '5 seconds'
+    'opt.toast.s8'    = '8 seconds'; 'opt.toast.hold' = 'Stay until clicked'
     'fld.st.pomo'     = 'Session length (0-99 minutes; 0 = no countdown)'
     'fld.st.dir'      = 'Data folder'
     'fld.st.dirHint'  = 'One copy per computer per account; they stay separate.'
@@ -660,6 +675,7 @@ $script:LangEn = [ordered]@{
     'sc.search'       = 'Ctrl+F  Search'
     'sc.esc'          = 'Esc     Close current dialog'
     'sc.undo'         = 'Ctrl+Z  Undo delete'
+    'sc.tabs'         = 'Ctrl+1..4  Switch settings tab'
     'opt.scale.small' = 'Small'; 'opt.scale.normal' = 'Normal'
     'opt.scale.large' = 'Large'; 'opt.scale.huge' = 'Huge'
     'opt.theme.light' = 'Light'; 'opt.theme.night' = 'Night'
@@ -686,6 +702,8 @@ $script:LangZh = [ordered]@{
     'undo.deleted' = '已删除：'; 'undo.btn' = '撤销'
     'undo.none' = '没有可撤销的操作了'
     'undo.more' = '还可撤销 '
+    'undo.toggleOn'  = '已完成：'; 'undo.toggleOff' = '取消完成：'
+    'undo.dragTask'  = '任务时间已改：'; 'undo.dragEvent' = '日程时间已改：'
     'empty.list' = '这一周还没有安排'
     'empty.cta' = '新建日程'
     'empty.filtered' = '没有符合条件的日程'
@@ -740,7 +758,8 @@ $script:LangZh = [ordered]@{
     'fld.fo.sub'      = '设置是否启用专注、一次专注多久，以及这次要做什么。'
     'fld.fo.enable'   = '启用专注计时'
     'fld.fo.breakOn'  = '专注结束后自动开始休息'
-    'fld.fo.duration' = '专注时长（可选或输入 0-99 分钟；0 = 不计时）'
+    'fld.fo.duration' = '专注时长（mm:ss —— 滚轮拨动每一位）'
+    'fld.fo.wheelHint' = '滚轮拨动数字（或点它的上半/下半）即可调节；上限 99:59。'
     'fld.fo.break'    = '休息时长（可选或输入 0-99 分钟；0 = 不休息）'
     'fld.fo.task'     = '任务内容（选一个已有任务，或直接输入新任务）'
     # ---- 设置弹窗 ----
@@ -760,6 +779,9 @@ $script:LangZh = [ordered]@{
     'fld.st.toastCorner' = '撤销 / 提醒提示条出现的位置'
     'opt.corner.br'   = '右下角'; 'opt.corner.bl' = '左下角'
     'opt.corner.tl'   = '左上角'; 'opt.corner.tr' = '右上角'
+    'fld.st.toastSeconds' = '提示条停留多久'
+    'opt.toast.s3'    = '3 秒'; 'opt.toast.s5' = '5 秒'
+    'opt.toast.s8'    = '8 秒'; 'opt.toast.hold' = '不自动关（点一下才走）'
     'fld.st.pomo'     = '专注时长（0-99 分钟；0 = 不计时）'
     'fld.st.dir'      = '数据目录'
     'fld.st.dirHint'  = '每台电脑每个账户一份，互相隔离'
@@ -773,6 +795,7 @@ $script:LangZh = [ordered]@{
     'sc.search'       = 'Ctrl+F  搜索'
     'sc.esc'          = 'Esc     关闭当前弹窗'
     'sc.undo'         = 'Ctrl+Z  撤销'
+    'sc.tabs'         = 'Ctrl+1..4  切换设置页签'
     'opt.scale.small' = '小'; 'opt.scale.normal' = '标准'
     'opt.scale.large' = '大'; 'opt.scale.huge' = '特大'
     'opt.theme.light' = '浅色'; 'opt.theme.night' = '夜间'
@@ -965,12 +988,22 @@ $script:LastNotification = ''
 $script:ReminderTimer = $null
 $script:NavUserCollapsed = $false
 $script:ResponsiveHooked = $false
+# 第七轮：全局快捷键（Ctrl+Z / Ctrl+N / Ctrl+F）只挂一次 PreviewKeyDown。
+$script:HotkeyHooked = $false
+# 第七轮（item 8.2）：设置窗四个页签的顺序（Ctrl+1..4 键盘导航 + 审计共用）。
+$script:SetTabKeys = @('appear', 'window', 'data', 'about')
 $script:FocusWindowOpen = $false
 $script:AvatarWindowOpen = $false
 # 字号倍率相关（第四轮）：XAML 硬编码字号的基线表 + 侧栏缩放后的宽度。
 # 必须在根作用域显式起个值 —— StrictMode 2.0 下读未赋值变量会直接抛。
 $script:XamlFontNodes = New-Object System.Collections.ArrayList
 $script:NavColWidthScaled = 142.0
+# 第七轮（item 7）：侧栏宽度再叠一层"窗口宽/窄"因子后的值，由 Apply-ResponsiveLayout 维护。
+$script:NavColWidthResponsive = 142.0
+# 第七轮（item 6）：最近一次"结束并统计"落库的分钟数（审计/测试用；0 = 没可记的时长）。
+$script:LastFocusEndMin = 0
+# 第七轮（item 5）：Focus 时长滚轮的当前值（秒）。控件与取值都以它为唯一真源。
+$script:FoDurationMin = 25 * 60
 
 $script:MainWindow = $null
 $script:NodeHost   = $null      # 视图宿主（三视图挂在这里）
@@ -1062,9 +1095,17 @@ $script:MonthPadDates  = @()
 $script:MonthPageInfo  = $null
 $script:DlgClosed      = ''     # 审计用：弹窗 Closed 事件的落点（处理器里只能写 $script:）
 $script:EdTag        = 'work'   # 编辑器：当前选中的标签
+$script:DpWin        = $null
+$script:DpCells      = $null
+$script:DpFirst      = $null
+$script:DpLabelText  = $null    # 第七轮：期间选择窗的月份标签（挂 $script: 才能被 DpPaint 安全引用）
+$script:DpPaint      = $null
 $script:FoWin        = $null
 $script:FoEnabled    = $null
 $script:FoTbDuration = $null
+$script:FoDurationField = $null   # 第七轮：四位数字滚轮控件（替代 FoTbDuration 的下拉）
+$script:FoDigitCells = $null      # 第七轮：四位滚轮的 4 个格子（重画与步进都读它）
+$script:FoDigitMaxMin = 99
 $script:FoTbTask     = $null
 $script:FoErr        = $null
 $script:FoTimeText   = $null
@@ -1142,6 +1183,9 @@ $script:UndoStack      = New-Object System.Collections.ArrayList
 $script:UndoDepth      = 5
 $script:UndoState      = $null
 $script:LastUndoAt     = $null
+# 第七轮：最近一次撤销的 Kind 与"是否真的落地"（审计用；见 Undo-Delete）。
+$script:LastUndoKind    = ''
+$script:LastUndoApplied = $false
 # 撤销反馈条控件（侧栏底部那行小字）。在 Care.ps1 绑定 XAML 时赋值；
 # 换主题会重建整棵树，所以每次 Build-Window 都要重新绑定。
 $script:UndoHint       = $null
@@ -1316,6 +1360,23 @@ function Sync-UndoHint {
     } catch { }
 }
 
+function Copy-Record {
+    # 记录（任务 / 日程）的**浅拷贝**：逐字段复制到一个新 [pscustomobject]。
+    #   为什么不用 .Clone()：数据是从 JSON 反序列化出来的（ConvertFrom-Json 给的是
+    #   PSCustomObject），**没有** Clone 方法 —— 调它必然抛"不包含名为 Clone 的方法"
+    #   （第七轮实测踩到：撤销栈的 Snapshot 因此压根没压进去，撤销静默失效）。
+    #   ConvertTo-Json / ConvertFrom-Json 走一圈也能拷贝，但要处理 -Depth 与
+    #   日期被转成字符串的副作用；本项目的记录都是"扁平 + 标量字段"，逐字段复制
+    #   既准又不会踩到那些坑。
+    param($Record)
+    if ($null -eq $Record) { return $null }
+    $copy = New-Object psobject
+    foreach ($p in @($Record.PSObject.Properties)) {
+        try { Add-Member -InputObject $copy -MemberType NoteProperty -Name $p.Name -Value $p.Value -Force } catch { }
+    }
+    return $copy
+}
+
 function Show-UndoToast {
     param([string]$Kind, [int]$Index = 0, [string]$Title = '')
     if ($script:SuppressModal -or $TestMode) { return }
@@ -1340,9 +1401,18 @@ function Show-UndoToast {
 }
 
 function Undo-Delete {
-    # 第六轮：从**栈顶**弹一条恢复。连续调用就是逐级回退（Ctrl+Z 连按）。
+    # 从**栈顶**弹一条并恢复。连续调用就是逐级回退（Ctrl+Z 连按）。
+    #   函数名保留 Undo-Delete 不改：调用点有快捷键、提示条按钮、审计三处，
+    #   而它的职责（"从撤销栈弹一条并应用"）自第五轮起就没变过。
     #   栈空时静默返回，并给一条"没有可撤销的操作"的提示 ——
     #   没提示的话用户会以为快捷键失灵，一直按个不停。
+    #
+    #  第七轮起按 Kind 分派恢复动作（第六轮第二十七节第 1 条）：
+    #    task/event  -> 插回数组原位（删除的撤销）
+    #    toggle      -> 用 Snapshot 覆盖该 id 的那一条（勾选状态的撤销）
+    #    drag-task   -> 用 Snapshot 的时间字段覆盖（任务拖动改时间的撤销）
+    #    drag-event  -> 同上（日程拖动）
+    #  未知 Kind 一律当作"无法恢复"并跳过（不能因为一条坏数据把栈卡死）。
     try {
         if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
         if ($script:UndoStack.Count -le 0) {
@@ -1357,26 +1427,73 @@ function Undo-Delete {
         if ($script:UndoStack.Count -gt 0) {
             $script:UndoState = $script:UndoStack[$script:UndoStack.Count - 1]
         }
-        if ($null -eq $st) { return }
+        if ($null -eq $st) { Sync-UndoHint; return }
         $snap = $st.Snapshot
-        if ($null -eq $snap) { return }
-        if ([string]$st.Kind -eq 'task') {
+        if ($null -eq $snap) { Sync-UndoHint; return }
+        $kind = [string]$st.Kind
+        $applied = $false
+
+        if ($kind -eq 'task' -or $kind -eq 'event') {
+            # ---- 删除的撤销：插回原索引 ----
             $idx = [int]$st.Index
-            if ($idx -lt 0) { $idx = 0 }
-            if ($idx -gt $script:Tasks.Count) { $idx = $script:Tasks.Count }
-            $script:Tasks.Insert($idx, $snap)
-            Save-Data
-            Fill-Tasks
-        } else {
-            $idx = [int]$st.Index
-            if ($idx -lt 0) { $idx = 0 }
-            if ($idx -gt $script:Events.Count) { $idx = $script:Events.Count }
-            $script:Events.Insert($idx, $snap)
-            Save-Data
-            Refresh-All
+            if ($kind -eq 'task') {
+                if ($idx -lt 0) { $idx = 0 }
+                if ($idx -gt $script:Tasks.Count) { $idx = $script:Tasks.Count }
+                $script:Tasks.Insert($idx, $snap)
+                Save-Data
+                Fill-Tasks
+            } else {
+                if ($idx -lt 0) { $idx = 0 }
+                if ($idx -gt $script:Events.Count) { $idx = $script:Events.Count }
+                $script:Events.Insert($idx, $snap)
+                Save-Data
+                Refresh-All
+            }
+            $applied = $true
+        } elseif ($kind -eq 'toggle') {
+            # ---- 勾选状态的撤销：用改前的整份对象按字段覆盖回去 ----
+            #   不整条替换数组里的对象：那条对象可能已被别处引用（列表项 Tag 等），
+            #   换掉引用会让那些地方指向旧对象。
+            $id = [string]$st.Id
+            $hit = @($script:Tasks | Where-Object { [string]$_.id -eq $id })
+            if ($hit.Count -gt 0) {
+                foreach ($p in @($snap.PSObject.Properties)) {
+                    try { $hit[0].$($p.Name) = $p.Value } catch { }
+                }
+                Save-Data
+                Fill-Tasks
+                $applied = $true
+            }
+        } elseif ($kind -eq 'drag-task' -or $kind -eq 'drag-event') {
+            # ---- 拖动改时间的撤销：只覆盖时间相关字段 ----
+            $id = [string]$st.Id
+            if ($kind -eq 'drag-task') {
+                $hit = @($script:Tasks | Where-Object { [string]$_.id -eq $id })
+                if ($hit.Count -gt 0) {
+                    foreach ($f in @('due', 'dueTime')) {
+                        if (@($snap.PSObject.Properties.Name) -contains $f) { $hit[0].$f = $snap.$f }
+                    }
+                    Save-Data
+                    Fill-Tasks
+                    $applied = $true
+                }
+            } else {
+                $hit = @($script:Events | Where-Object { [string]$_.id -eq $id })
+                if ($hit.Count -gt 0) {
+                    foreach ($f in @('date', 'start', 'end')) {
+                        if (@($snap.PSObject.Properties.Name) -contains $f) { $hit[0].$f = $snap.$f }
+                    }
+                    Save-Data
+                    Refresh-All
+                    $applied = $true
+                }
+            }
         }
+
         $script:LastUndoAt = (Get-Date)
-        Write-Trace ('undo applied, remaining=' + $script:UndoStack.Count)
+        $script:LastUndoKind = $kind
+        $script:LastUndoApplied = $applied
+        Write-Trace ('undo applied kind=' + $kind + ' ok=' + $applied + ' remaining=' + $script:UndoStack.Count)
         # 撤销后刷新状态条上的"还剩几次"。
         #   走 Sync-UndoHint：栈刚好撤空时它给"没有可撤销"，不会有旧数字残留
         #   （"撤空时什么都不写、上一条提示留在条上"是第六轮实测到的坑）。
@@ -1397,17 +1514,24 @@ function Apply-UndoHintText {
 }
 
 function Push-Undo {
-    # 把一次删除压进撤销栈（第六轮：多级撤销）。
+    # 把一次操作压进撤销栈（第六轮多级；第七轮扩到"非删除"类操作）。
     #
-    # 入参 Snapshot / Index / Kind 与第五轮一致；额外收一个 Label（提示条里显示的对象名）。
-    # 满了就**从头部丢最老的一条** —— ArrayList.RemoveAt(0) 对 5 个元素来说可以忽略不计，
-    # 不必为了这点开销去套环形缓冲。
-    param([string]$Kind, [int]$Index, $Snapshot, [string]$Label = '')
+    # Kind 语义（第七轮起共 6 种）：
+    #   · 'task' / 'event'      —— 删除。Index + Snapshot（整份对象副本），撤销 = 插回原位。
+    #   · 'toggle'              —— 勾选/取消勾选完成。需 Id + Snapshot（改前的整份对象）。
+    #   · 'drag-task' / 'drag-event' —— 拖动改时间。需 Id + Snapshot（改前的时间字段）。
+    #
+    # 为什么"勾选/拖动"也存整份 Snapshot 而不是只存 delta：
+    #   ① 对象都是几十字节的 pscustomobject，整份存最省心，也不会因为"字段增删"而失效；
+    #   ② 只存 delta 就必须为每种操作写一份"反向补丁"，将来加字段又要改两处 ——
+    #      这正是本轮做这个功能的初衷（用户按 Ctrl+Z 期望"回到上一个状态"）。
+    # 满了就从头部丢最老的一条 —— ArrayList.RemoveAt(0) 对 5 个元素可以忽略不计。
+    param([string]$Kind, [int]$Index = -1, $Snapshot = $null, [string]$Label = '', [string]$Id = '')
     try {
         if ($null -eq $script:UndoStack) { $script:UndoStack = New-Object System.Collections.ArrayList }
         [void]$script:UndoStack.Add(@{
             Kind = $Kind; Index = $Index; Snapshot = $Snapshot
-            Label = $Label; Time = (Get-Date)
+            Label = $Label; Id = $Id; Time = (Get-Date)
         })
         while ($script:UndoStack.Count -gt [int]$script:UndoDepth) { $script:UndoStack.RemoveAt(0) }
         # 栈顶别名：保持第五轮的 $script:UndoState 语义（"最近一次删除"）
@@ -1651,6 +1775,17 @@ function Find-ButtonByText {
         $c = $b.Content
         if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
         if ([string]$c -eq $Text) { return $b }
+    }
+    return $null
+}
+
+function Find-TextBlockByText {
+    # 按文字找 TextBlock。用来验"某个标题确实不存在了"——
+    # 找按钮的 Find-ButtonByText 看不见裸露的 TextBlock（导航条目、小标题等）。
+    param($El, [string]$Text)
+    if ($null -eq $El) { return $null }
+    foreach ($t in @(Find-AllOfType $El ([System.Windows.Controls.TextBlock]))) {
+        if ([string]$t.Text -eq $Text) { return $t }
     }
     return $null
 }
@@ -1906,8 +2041,27 @@ function Invoke-HandlerAudit {
         #   Tasks 现在是一个真正的视图（以前点了只是跳回 list，自己永远不高亮）
         [void](Invoke-Click $script:NavTask)
         Write-AuditRow 'sidebar Tasks' ($script:View -eq 'tasks') ('View=' + $script:View)
-        $addTaskBtn = Find-ButtonByText $script:NodeHost '+ Add task'
-        Write-AuditRow 'task add button' ($null -ne $addTaskBtn) $(if ($null -ne $addTaskBtn) { 'found' } else { 'missing' })
+        # 第七轮（item 4）：按钮改名 '+New task' 且移到第二行；同时"Tasks"大标题已删。
+        #   断言同时验三件事，缺一层都可能假绿：
+        #     ① 按钮文字确实变了（按旧文案找不到、按新文案找得到）；
+        #     ② 按钮与计数文字不在同一行（比较两者的相对 Y 坐标）；
+        #     ③ 视图里不再存在 'Tasks' 大标题（按文字找得到就算失败）。
+        $addTaskBtn = Find-ButtonByText $script:NodeHost '+New task'
+        $oldAddBtn  = Find-ButtonByText $script:NodeHost '+ Add task'
+        $rowOk = $false
+        if ($null -ne $addTaskBtn -and $null -ne $script:TaskOpenText) {
+            try {
+                $script:MainWindow.UpdateLayout()
+                $pBtn = $addTaskBtn.TransformToAncestor($script:MainWindow).Transform([System.Windows.Point]::new(0, 0))
+                $pCnt = $script:TaskOpenText.TransformToAncestor($script:MainWindow).Transform([System.Windows.Point]::new(0, 0))
+                $rowOk = ([double]$pBtn.Y -gt [double]($pCnt.Y + 8.0))
+            } catch { }
+        }
+        $titleGone = ($null -eq (Find-TextBlockByText $script:NodeHost 'Tasks'))
+        Write-AuditRow 'task add button renamed + on own line' `
+            (($null -ne $addTaskBtn) -and ($null -eq $oldAddBtn) -and $rowOk -and $titleGone) `
+            ('found=' + [string]($null -ne $addTaskBtn) + ' oldGone=' + [string]($null -eq $oldAddBtn) +
+             ' nextRow=' + [string]$rowOk + ' titleGone=' + [string]$titleGone)
         $script:LastModalCall = ''
         [void](Invoke-Click $script:NavFocus)
         Write-AuditRow 'sidebar Focus' ($script:LastModalCall -eq 'focus') $script:LastModalCall
@@ -2284,11 +2438,18 @@ function Invoke-HandlerAudit {
         } catch { Write-AuditRow 'tag chip click' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 15. 空标题保存：要被拦下，且不能新增 ----
+        #   第七轮（item 3）后，"原封不动"的表单点 × 是直接放弃关闭（不校验）。
+        #   所以这条断言必须**先让表单变成"动过"**（改一下日期），再清空标题点 ×，
+        #   才测得到"标题必填"这条校验 —— 否则测的是"能不能直接退出"，
+        #   两条断言的语义就串了（回归里另有一条 event editor exits when untouched 管那个）。
         try {
             $ew = Show-EventEditorWindow -Id ''
             $ew.UpdateLayout()
             $n0 = @($script:Events).Count
+            # 先动一下日期（让它变 dirty），再把标题清空
+            $script:EdTbDate.Text = Fmt-Date ([datetime]::Today.AddDays(1))
             $script:EdTbTitle.Text = '   '
+            $dirty = [bool](Test-EventEditorDirty)
             $save = Find-DialogClose $ew
             if ($null -eq $save) {
                 Write-AuditRow 'save rejects empty title' $false 'no close(x) button'
@@ -2296,8 +2457,8 @@ function Invoke-HandlerAudit {
                 [void](Invoke-Click $save)
                 $n1 = @($script:Events).Count
                 $shown = ([string]$script:EdErr.Text) -and ([string]$script:EdErr.Visibility -eq 'Visible')
-                Write-AuditRow 'save rejects empty title' (($n1 -eq $n0) -and $shown) `
-                    ("events $n0 -> $n1  err='$([string]$script:EdErr.Text)' vis=$([string]$script:EdErr.Visibility)")
+                Write-AuditRow 'save rejects empty title' ($dirty -and ($n1 -eq $n0) -and $shown) `
+                    ("dirty=$dirty events $n0 -> $n1  err='$([string]$script:EdErr.Text)' vis=$([string]$script:EdErr.Visibility)")
             }
             try { $ew.Close() } catch { }
         } catch { Write-AuditRow 'save rejects empty title' $false ('crash ' + $_.Exception.Message) }
@@ -2404,15 +2565,27 @@ function Invoke-HandlerAudit {
         try {
             $fw = Show-FocusWindow
             $fw.UpdateLayout()
-            $focusOk = ($null -ne $script:FoEnabled) -and ($null -ne $script:FoTbDuration) -and
+            # 第七轮（item 5）：时长控件从"下拉框"换成"四位数字滚轮"。
+            #   断言除了"控件建出来了"，还要验滚轮**真的能改值**：
+            #   直接调 Step-FocusDigit 把个位分钟 +1，看 $script:FoDurationMin 有没有涨。
+            $focusOk = ($null -ne $script:FoEnabled) -and ($null -ne $script:FoDurationField) -and
                        ($null -ne $script:FoTbTask) -and ($null -ne $script:FoTimeText) -and
                        ($null -ne $script:FoBreakEnabled) -and ($null -ne $script:FoBreakMin)
-            Write-AuditRow 'build focus window' $focusOk 'controls=true'
+            $wheelOk = $false
+            try {
+                $script:FoDurationMin = 25 * 60
+                & $script:DwPaint
+                Step-FocusDigit 1 1     # 个位分钟 +1 -> 26 分
+                $wheelOk = ([int]$script:FoDurationMin -eq 26 * 60)
+            } catch { }
+            Write-AuditRow 'build focus window' ($focusOk -and $wheelOk) `
+                ('controls=' + [string]$focusOk + ' wheelStep=' + [string]$wheelOk)
             $oldMin = [int]$script:Settings['PomodoroMin']
             $oldEnabled = [bool]$script:Settings['PomodoroEnabled']
             $oldTask = [string]$script:Settings['PomodoroTask']
             $script:FoEnabled.IsChecked = $true
-            $script:FoTbDuration.Text = '1'
+            $script:FoDurationMin = 1 * 60
+            & $script:DwPaint
             $script:FoTbTask.Text = 'Audit focus task'
             $saved = Save-FocusWindowSettings
             $focusSaveOk = $saved -and ([int]$script:Settings['PomodoroMin'] -eq 1) -and
@@ -3910,49 +4083,367 @@ function Invoke-HandlerAudit {
                  ' anchor=' + $script:Anchor.ToString('yyyy-MM-dd'))
         } catch { Write-AuditRow 'period picker opens + jumps' $false ('crash ' + $_.Exception.Message) }
 
-        # ---- 37. 番茄钟时长 0-99 自由填 ----
-        #   用户要的是"0:00-99:00 可以自由选择"。断言必须覆盖两个方向：
-        #     ① 边界值 0 与 99 都要被接受（旧代码 1-180 会把 0 判非法）
-        #     ② 越界值 -1 与 100 都要被拒（否则"自由"会变成"随便填什么都能存"）
-        #   还要验 0 真的被当成"不计时"存下来而不是回落到 25 ——
-        #   老代码里的 `if ($mins -lt 1) { $mins = 25 }` 正是那个会让 0 永远存不住的坑。
+        # ---- 36b. 期间选择窗：翻月按钮真的能翻（第七轮 item 1） ----
+        #   用户报"jump to date 只有 9 月一个月份，点 < > 完全没反应"。
+        #   根因：$script:DpPaint 里引用了 Show-PeriodPickerWindow 的**局部变量** $lbl，
+        #   初始 paint 在函数内跑所以看着正常；点按钮时处理器在函数作用域之外执行，
+        #   PowerShell 解析不到那个局部变量 -> 抛异常 -> 被 catch 吞掉 -> 按钮像死的。
+        #   修法：$lbl 挂到 $script:DpLabelText，paint 只引用 $script: 上的东西。
+        #   断言三层：① 月份标签文字随翻月变化；② $script:DpFirst 跟着进位；
+        #             ③ 日期格子内容也跟着重画（而不是只改标签）。
+        try {
+            $script:Anchor = [datetime]::new(2026, 9, 24)
+            $fp = Show-PeriodPickerWindow
+            try { $fp.UpdateLayout() } catch { }
+            $m0 = [string]$script:DpLabelText.Text
+            $f0 = ([datetime]$script:DpFirst).ToString('yyyy-MM')
+            $cell0 = [string]@($script:DpCells)[0].Content
+
+            $nextBtn = $null
+            foreach ($b in @(Find-AllOfType $fp ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                    [string]$b.Tag['kind'] -eq 'pick-flip' -and [string]$b.Tag['dir'] -eq 'next') { $nextBtn = $b; break }
+            }
+            [void](Invoke-Click $nextBtn)
+            try { $fp.UpdateLayout() } catch { }
+            $f1 = ([datetime]$script:DpFirst).ToString('yyyy-MM')
+            $m1 = [string]$script:DpLabelText.Text
+            $days1 = 0
+            foreach ($c in @($script:DpCells)) {
+                if ($c.IsEnabled -and -not [string]::IsNullOrWhiteSpace([string]$c.Content)) { $days1++ }
+            }
+            # 回到上一个月：应该正好回到 9 月
+            $prevBtn = $null
+            foreach ($b in @(Find-AllOfType $fp ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                    [string]$b.Tag['kind'] -eq 'pick-flip' -and [string]$b.Tag['dir'] -eq 'prev') { $prevBtn = $b; break }
+            }
+            [void](Invoke-Click $prevBtn)
+            try { $fp.UpdateLayout() } catch { }
+            $f2 = ([datetime]$script:DpFirst).ToString('yyyy-MM')
+            try { $fp.Close() } catch { }
+
+            # 2026-10 有 31 天；翻月后标签与首月都要变，再翻回来要回到 2026-09
+            $flipLabelOk = ($m1 -ne '' -and $m1 -ne $m0)
+            $flipStateOk = ($f0 -eq '2026-09') -and ($f1 -eq '2026-10') -and ($f2 -eq '2026-09')
+            $flipGridOk  = ($days1 -eq 31)
+            Write-AuditRow 'period picker flips month' ($flipLabelOk -and $flipStateOk -and $flipGridOk) `
+                ('label=' + $m0 + '->' + $m1 + ' first=' + $f0 + '->' + $f1 + '->' + $f2 +
+                 ' days=' + $days1 + ' cell0=' + $cell0)
+        } catch { Write-AuditRow 'period picker flips month' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 36c. 期间选择窗：没有 Save 按钮、也没有 Cancel（第七轮 item 2） ----
+        #   这个窗只有"点某天 / Today"才落实跳转，Save 与 × 是同一个作用，删掉 Save。
+        #   紧接着：既然 × 是唯一退出键，底部那个 Cancel 也一并删掉 ——
+        #   否则又是"两个按钮干同一件事"（第六轮用户已经提过一次同类问题）。
+        try {
+            $script:Anchor = [datetime]::new(2026, 9, 24)
+            $sp2 = Show-PeriodPickerWindow
+            try { $sp2.UpdateLayout() } catch { }
+            $saveBtn = $null
+            $closeBtn = $null
+            $cancelBtn = $null
+            foreach ($b in @(Find-AllOfType $sp2 ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                if ([string]$b.Name -eq 'DlgSave') { $saveBtn = $b }
+                if ([string]$b.Name -eq 'DlgClose') { $closeBtn = $b }
+                $bc = $b.Content
+                if ($bc -is [string] -and ([string]$bc).Trim() -ieq 'Cancel') { $cancelBtn = $b }
+            }
+            $noSaveOk = ($null -eq $saveBtn) -and ($null -ne $closeBtn) -and ($null -eq $cancelBtn)
+            try { $sp2.Close() } catch { }
+            Write-AuditRow 'period picker has no Save button' $noSaveOk `
+                ('save=' + [string]($null -ne $saveBtn) + ' close=' + [string]($null -ne $closeBtn) +
+                 ' cancel=' + [string]($null -ne $cancelBtn))
+        } catch { Write-AuditRow 'period picker has no Save button' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 36d. 新建日程：没动过任何字段就能直接退出（第七轮 item 3） ----
+        #   用户报"没有新建的想法，不小心点进去就出不来了"。
+        #   断言两个方向：① 原封未动 -> Test-EventEditorDirty 为 $false（可以退）；
+        #                ② 改一个字段 -> 变 $true（要走必填校验）。
+        try {
+            $ev = Show-EventEditorWindow
+            try { $ev.UpdateLayout() } catch { }
+            $pristine = -not (Test-EventEditorDirty)
+            $script:EdTbTitle.Text = 'Audit event title'
+            $dirtyNow = [bool](Test-EventEditorDirty)
+            # 复原成未动过（把标题清空），再验一次 -> 应该又变回"未动过"
+            $script:EdTbTitle.Text = ''
+            $pristine2 = -not (Test-EventEditorDirty)
+            try { $ev.Close() } catch { }
+            $evExitOk = $pristine -and $dirtyNow -and $pristine2
+            Write-AuditRow 'event editor exits when untouched' $evExitOk `
+                ('pristine=' + [string]$pristine + ' dirtyAfterType=' + [string]$dirtyNow +
+                 ' pristineAgain=' + [string]$pristine2)
+        } catch { Write-AuditRow 'event editor exits when untouched' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 37. 番茄钟时长：四位滚轮 + 0-99 边界（第七轮改版） ----
+        #   原来是"下拉框手输 0-99"。第七轮（item 5）换成四位数字滚轮后，
+        #   "非法输入"这个分支在界面上已经不可能出现（每一位只会是 0-9），
+        #   所以断言重点从"拒绝非法输入"转移到：
+        #     ① 滚轮能把时长改到任意值（逐位步进都对）；
+        #     ② 边界：能拨到 0，也能拨到上限 99（再往上拨被夹住）；
+        #     ③ 0 落库后仍然是 0（不回落到 25），且 Reset 后 Total = 0；
+        #     ④ 99 落库后 Reset 得到 5940 秒。
+        #   —— 其中 ③ 是历史上真出过的坑（老代码 `if ($mins -lt 1) { $mins = 25 }`）。
         try {
             $keepPomoMin = $script:Settings['PomodoroMin']
             $dpFocus = Show-FocusWindow
             $caseLog = New-Object System.Collections.Generic.List[string]
             $allOk = $true
-            foreach ($case in @(
-                    @{ v = '0'; ok = $true }, @{ v = '99'; ok = $true },
-                    @{ v = '1'; ok = $true }, @{ v = '45'; ok = $true },
-                    @{ v = '-1'; ok = $false }, @{ v = '100'; ok = $false },
-                    @{ v = 'abc'; ok = $false })) {
-                $script:FoTbDuration.Text = [string]$case.v
-                $script:FoBreakMin.Text = '5'
-                $accepted = Save-FocusWindowSettings
-                $hit = ($accepted -eq [bool]$case.ok)
-                if (-not $hit) { $allOk = $false }
-                $caseLog.Add([string]$case.v + '=' + $(if ($accepted) { 'ok' } else { 'rej' }) +
-                             $(if ($hit) { '' } else { '!!' }))
-            }
-            # 0 必须原样存进去（不回落到 25），并且总秒数 = 0
-            $script:FoTbDuration.Text = '0'
+
+            # ① 逐位步进：从 25:00 开始，个位分 +1 -> 26:00；十位秒 +1 -> 26:10
+            $script:FoDurationMin = 25 * 60
+            & $script:DwPaint
+            Step-FocusDigit 1 1
+            $step1 = ([int]$script:FoDurationMin -eq 26 * 60)
+            Step-FocusDigit 2 1
+            $step2 = ([int]$script:FoDurationMin -eq 26 * 60 + 10)
+            Step-FocusDigit 2 -1
+            $step3 = ([int]$script:FoDurationMin -eq 26 * 60)
+            if (-not ($step1 -and $step2 -and $step3)) { $allOk = $false }
+            $caseLog.Add('step=' + [string]$step1 + [string]$step2 + [string]$step3)
+
+            # ② 边界：0 与 99
+            $script:FoDurationMin = 0
+            & $script:DwPaint
+            $toZero = ([int]$script:FoDurationMin -eq 0)
+            # 从 0 往下拨，应该被夹在 0（不能变负）
+            Step-FocusDigit 3 -1
+            $clampLow = ([int]$script:FoDurationMin -eq 0)
+            $script:FoDurationMin = 99 * 60
+            & $script:DwPaint
+            $toMax = ([int]$script:FoDurationMin -eq 99 * 60)
+            # 从 99:00 往上拨（十位分 +1 = +10 分钟），应该被夹在 99:59 上限内
+            Step-FocusDigit 0 1
+            $clampHigh = ([int]$script:FoDurationMin -le (99 * 60 + 59))
+            if (-not ($toZero -and $clampLow -and $toMax -and $clampHigh)) { $allOk = $false }
+            $caseLog.Add('bounds=' + [string]$toZero + [string]$clampLow + [string]$toMax + [string]$clampHigh)
+
+            # ③ 0 落库后仍是 0，Reset 后 Total = 0
+            $script:FoDurationMin = 0
             $script:FoBreakMin.Text = '5'
             [void](Save-FocusWindowSettings)
             $zeroKept = ([int]$script:Settings['PomodoroMin'] -eq 0)
             Reset-Pomodoro
             $zeroTotal = ([int]$script:Pomo.Total -eq 0)
-            # 99 也要能跑通并变成 5940 秒
-            $script:FoTbDuration.Text = '99'
+
+            # ④ 99 落库后 Reset 得 5940 秒
+            $script:FoDurationMin = 99 * 60
             [void](Save-FocusWindowSettings)
             Reset-Pomodoro
             $maxTotal = ([int]$script:Pomo.Total -eq (99 * 60))
             try { $dpFocus.Close() } catch { }
             $script:Settings['PomodoroMin'] = $keepPomoMin
             Reset-Pomodoro
-            Write-AuditRow 'pomodoro duration 0-99 free' ($allOk -and $zeroKept -and $zeroTotal -and $maxTotal) `
+            Write-AuditRow 'pomodoro duration wheel 0-99' ($allOk -and $zeroKept -and $zeroTotal -and $maxTotal) `
                 (($caseLog -join ' ') + ' zeroKept=' + [string]$zeroKept + ' zeroTotal=' + [string]$zeroTotal +
                  ' maxTotal=' + [string]$maxTotal)
         } catch { Write-AuditRow 'pomodoro duration 0-99 free' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 37b. 专注：结束并统计（第七轮 item 6） ----
+        #   用户要"结束并统计本次时间"：中途收工也要把已走的分钟记账，
+        #   而不是只有 Reset（清空、白干）。
+        #   断言必须验"账真的变了"，而不是"按钮被点了"：
+        #     ① 今日统计 FocusTodayMin 增加了"已走分钟数"；
+        #     ② $script:LastFocusEndMin 记录了这个数；
+        #     ③ 关联任务的 actualMin 也同步增加；
+        #     ④ 计时器归零（Running = false，Remaining = Total）。
+        #   用 10 分钟的会话模拟"走了 4 分钟就收工"：Total=600s，Remaining=360s。
+        try {
+            $keepTodayMin = [int]$script:Settings['FocusTodayMin']
+            $fw2 = Show-FocusWindow
+            try { $fw2.UpdateLayout() } catch { }
+            $script:FoEnabled.IsChecked = $true
+            $script:FoDurationMin = 10 * 60
+            & $script:DwPaint
+            # 造一个关联任务，验 actualMin 同步
+            $probeTask = [pscustomobject]@{
+                id = 'audit-endfocus'; text = 'Audit end focus'; done = $false
+                due = ''; dueTime = ''; tag = 'task'; priority = 'medium'; project = ''
+                subtasks = @(); estimatedMin = 0; actualMin = 0; reminderMin = 0
+            }
+            [void]$script:Tasks.Add($probeTask)
+            $script:FoTbTask.Text = 'Audit end focus'
+            [void](Save-FocusWindowSettings)
+            # 让本次专注处于"已走 4 分钟"的状态
+            $script:Pomo.Mode = 'focus'
+            $script:Pomo.Total = 600
+            $script:Pomo.Remaining = 360
+            $script:Pomo.Running = $true
+            $script:Pomo.Task = 'Audit end focus'
+            $script:Pomo.TaskId = 'audit-endfocus'
+            $elapsedBefore = Get-FocusElapsedMin
+            $todayBefore = [int]$script:Settings['FocusTodayMin']
+            End-FocusSession
+            $todayAfter = [int]$script:Settings['FocusTodayMin']
+            $logged = [int]$script:LastFocusEndMin
+            $actualAfter = 0
+            $hitT = @($script:Tasks | Where-Object { [string]$_.id -eq 'audit-endfocus' })
+            if ($hitT.Count -gt 0) { $actualAfter = [int]$hitT[0].actualMin }
+            $endOk = ($elapsedBefore -eq 4) -and ($todayAfter -eq ($todayBefore + 4)) -and
+                     ($logged -eq 4) -and ($actualAfter -eq 4) -and
+                     (-not [bool]$script:Pomo.Running)
+            try { $fw2.Close() } catch { }
+            # 清理：删掉探针任务、还原今日统计
+            $script:Tasks.Remove($probeTask)
+            $script:Settings['FocusTodayMin'] = $keepTodayMin
+            Save-Settings
+            Reset-Pomodoro
+            Write-AuditRow 'focus end and log session' $endOk `
+                ('elapsed=' + [int]$elapsedBefore + ' today=' + [int]$todayBefore + '->' + [int]$todayAfter +
+                 ' logged=' + [int]$logged + ' actual=' + [int]$actualAfter +
+                 ' running=' + [string]([bool]$script:Pomo.Running))
+        } catch { Write-AuditRow 'focus end and log session' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 37c. 侧栏宽度随窗口大小自适应（第七轮 item 7） ----
+        #   用户报"左侧栏大小不会跟着界面大小自适应"。
+        #   断言：同一字号档位下，把窗口拉宽 -> 侧栏变宽；缩窄 -> 侧栏变窄。
+        #   只比"宽窗口 >= 窄窗口 + 若干像素"，不比绝对值（绝对值受字号档位影响）。
+        try {
+            $keepW = [double]$script:MainWindow.Width
+            $navW = @{}
+            foreach ($case in @(@('narrow', 860), @('wide', 1400))) {
+                $script:MainWindow.Width = [double]$case[1]
+                try { $script:MainWindow.UpdateLayout() } catch { }
+                Apply-ResponsiveLayout
+                try { $script:MainWindow.UpdateLayout() } catch { }
+                $navW[[string]$case[0]] = [double]$script:NavCol.Width.Value
+            }
+            $script:MainWindow.Width = $keepW
+            Apply-ResponsiveLayout
+            try { $script:MainWindow.UpdateLayout() } catch { }
+            $navAdaptOk = ([double]$navW['wide'] -gt [double]$navW['narrow'])
+            Write-AuditRow 'sidebar width follows window' $navAdaptOk `
+                ('narrow=' + [int]$navW['narrow'] + ' wide=' + [int]$navW['wide'])
+        } catch { Write-AuditRow 'sidebar width follows window' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 37d. 撤销栈纳入"勾选"与"拖动改时间"（第七轮 item 8.1） ----
+        #   第六轮第二十七节的第 1 条建议：撤销栈原来只记"删除"，而勾选和拖动
+        #   同样会改数据、同样会失手。这里断言**两类新 Kind 都能回退**。
+        try {
+            $ugOk = $true
+            # 前面若干条审计自己也压过撤销栈，先清空 —— 否则这里 Undo-Delete 弹出的是
+            # 别人留下的"删除"条目（实测：k1=task 而非 toggle），断言就成了看运气。
+            try { if ($null -ne $script:UndoStack) { $script:UndoStack.Clear() } } catch { }
+            $script:UndoState = $null
+            # -- 勾选：建一个任务，Toggle 两次，再撤两次，必须回到原位 --
+            # 探针任务字段名必须**与真实任务一致**（text 而非 title）：
+            #   Toggle-TaskDone 读 $hit[0].text，StrictMode 下缺字段会直接抛，
+            #   Push-Undo 就被 catch 吞掉，表现为"勾选撤销没进栈"。
+            $tgl = [pscustomobject]@{
+                id = 'audit-undo-toggle'; text = 'Audit undo toggle'; done = $false
+                due = ''; dueTime = ''; tag = ''; prio = ''; note = ''; actualMin = 0; repeat = ''
+            }
+            [void]$script:Tasks.Add($tgl)
+            Save-Data
+            $script:SuppressModal = $true
+            [void](Toggle-TaskDone 'audit-undo-toggle')
+            # 立刻取**值**而不是取对象引用：$script:Tasks 里那个 PSCustomObject 会被
+            # 第二次 Toggle 原地改，拿引用去断言等于在看"最终状态"，永远测不出中间态。
+            $midDone = [bool](@($script:Tasks | Where-Object { [string]$_.id -eq 'audit-undo-toggle' })[0].done)
+            [void](Toggle-TaskDone 'audit-undo-toggle')
+            $script:SuppressModal = $false
+            Undo-Delete
+            $afterOneDone = [bool](@($script:Tasks | Where-Object { [string]$_.id -eq 'audit-undo-toggle' })[0].done)
+            $kindOne = [string]$script:LastUndoKind
+            Undo-Delete
+            $afterTwoDone = [bool](@($script:Tasks | Where-Object { [string]$_.id -eq 'audit-undo-toggle' })[0].done)
+            # 期望：第一次撤销回到"已勾选"（True），第二次回到"未勾选"（False）
+            if (-not $midDone) { $ugOk = $false }
+            if (-not $afterOneDone) { $ugOk = $false }
+            if ($afterTwoDone) { $ugOk = $false }
+            if ($kindOne -ne 'toggle') { $ugOk = $false }
+            # -- 拖动改时间：直接造一条 drag-task 栈项再撤 --
+            $drg = [pscustomobject]@{
+                id = 'audit-undo-drag'; text = 'Audit undo drag'; done = $false
+                due = '2026-09-10'; dueTime = '10:00'; tag = ''; prio = ''; note = ''; actualMin = 0; repeat = ''
+            }
+            [void]$script:Tasks.Add($drg)
+            Save-Data
+            $dragSnap = Copy-Record $drg
+            Push-Undo -Kind 'drag-task' -Id 'audit-undo-drag' -Snapshot $dragSnap -Label 'Audit drag'
+            $target = @($script:Tasks | Where-Object { [string]$_.id -eq 'audit-undo-drag' })[0]
+            $target.due = '2026-09-12'; $target.dueTime = '15:30'
+            Save-Data
+            Undo-Delete
+            $afterDrag = @($script:Tasks | Where-Object { [string]$_.id -eq 'audit-undo-drag' })[0]
+            if ([string]$afterDrag.due -ne '2026-09-10') { $ugOk = $false }
+            if ([string]$afterDrag.dueTime -ne '10:00') { $ugOk = $false }
+            if ([string]$script:LastUndoKind -ne 'drag-task') { $ugOk = $false }
+            # 清理
+            $script:Tasks.Remove($tgl); $script:Tasks.Remove($drg)
+            Save-Data
+            Fill-Tasks
+            Write-AuditRow 'undo covers toggle and drag' $ugOk `
+                ('toggleKind=' + $kindOne + ' dragKind=' + [string]$script:LastUndoKind +
+                 ' mid=' + [string]$midDone + ' one=' + [string]$afterOneDone + ' two=' + [string]$afterTwoDone +
+                 ' drag=' + [string]$afterDrag.due + ' ' + [string]$afterDrag.dueTime)
+        } catch {
+            $script:SuppressModal = $false
+            Write-AuditRow 'undo covers toggle and drag' $false ('crash ' + $_.Exception.Message)
+        }
+
+        # ---- 37e. 侧栏撤销小字可点 + 全局快捷键（第七轮 item 8.3 / 8.4） ----
+        try {
+            $hkOk = $true
+            # 撤销提示小字绑了 MouseLeftButtonUp（点了就 Undo-Delete）
+            $hintTb = $script:UndoHint
+            if ($null -eq $hintTb) { $hkOk = $false }
+            else {
+                if ([string]$hintTb.Cursor -ne 'Hand') { $hkOk = $false }
+                if ($null -eq $hintTb.ToolTip) { $hkOk = $false }
+            }
+            # 全局快捷键只挂钩一次
+            if (-not [bool]$script:HotkeyHooked) { $hkOk = $false }
+            Write-AuditRow 'undo hint clickable and hotkeys armed' $hkOk `
+                ('cursor=' + [string]([string]$hintTb.Cursor) + ' tip=' + [string]($null -ne $hintTb.ToolTip) +
+                 ' hooked=' + [string]([bool]$script:HotkeyHooked))
+        } catch { Write-AuditRow 'undo hint clickable and hotkeys armed' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 37f. 提示条停留时长可配（第七轮 item 8.5） ----
+        #   断两件事：(a) 设置窗里那个选项存在且取值合法；
+        #              (b) 0 表示"不自动关" —— 弹一条后 ToastTimer 必须为 $null。
+        try {
+            $tsOk = $true
+            $chosen = '5'
+            if ($null -ne $script:SetToastSeconds) { $chosen = [string]$script:SetToastSeconds.Tag }
+            if (@('0','3','5','8') -notcontains $chosen) { $tsOk = $false }
+            # 切到"不自动关"弹一条，验证没有定时器
+            $keepTs = [int]$script:Settings['ToastSeconds']
+            $script:Settings['ToastSeconds'] = 0
+            $script:SuppressModal = $false
+            Show-Toast -Title 'Audit toast' -Text 'hold mode' -Seconds 3
+            $noTimer = ($null -eq $script:ToastTimer)
+            if (-not $noTimer) { $tsOk = $false }
+            try { if ($null -ne $script:ToastWindow) { $script:ToastWindow.Close(); $script:ToastWindow = $null } } catch { }
+            # 再切到 8 秒，验证定时器按设置走
+            $script:Settings['ToastSeconds'] = 8
+            Show-Toast -Title 'Audit toast' -Text 'timed mode' -Seconds 3
+            $ivOk = $false
+            if ($null -ne $script:ToastTimer) {
+                if ([int]$script:ToastTimer.Interval.TotalSeconds -eq 8) { $ivOk = $true }
+            }
+            if (-not $ivOk) { $tsOk = $false }
+            try {
+                if ($null -ne $script:ToastTimer) { $script:ToastTimer.Stop() }
+                if ($null -ne $script:ToastWindow) { $script:ToastWindow.Close(); $script:ToastWindow = $null }
+            } catch { }
+            $script:Settings['ToastSeconds'] = $keepTs
+            Write-AuditRow 'toast duration configurable' $tsOk `
+                ('choice=' + $chosen + ' holdNoTimer=' + [string]$noTimer + ' iv8=' + [string]$ivOk)
+        } catch {
+            Write-AuditRow 'toast duration configurable' $false ('crash ' + $_.Exception.Message)
+        }
+
+        # ---- 37g. 设置页签键盘导航 Ctrl+1..4（第七轮 item 8.2） ----
+        #   只断"按键映射表存在且与四个页签一一对应"，不模拟真实按键
+        #   （键盘事件走 InputManager，审计环境里派发不可靠）。
+        try {
+            $tabMapOk = ($null -ne $script:SetTabKeys) -and ($script:SetTabKeys.Count -eq 4) -and
+                        ($script:SetTabKeys[0] -eq 'appear') -and ($script:SetTabKeys[3] -eq 'about')
+            Write-AuditRow 'settings tab hotkeys mapped' $tabMapOk `
+                ('keys=' + [string](@($script:SetTabKeys) -join '/'))
+        } catch { Write-AuditRow 'settings tab hotkeys mapped' $false ('crash ' + $_.Exception.Message) }
 
         # ---- 38. 第五轮：语言切换 / 周视图密度 / 删除撤销 / 空状态入口 ----
         #   这四条都是"改设置之后必须真的生效"，但生效点在三个不同的地方：
@@ -4799,6 +5290,30 @@ function Invoke-TestActions {
                         $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
                         Save-Shot -Path $p -Window $w
                     }
+                    $w.Close()
+                }
+                'pickflip' {
+                    # "pickflip:next" / "pickflip:prev"：点一下期间选择窗的翻月按钮，
+                    # 报告"月份标签 + 首格日期"到底动没动。
+                    # 为什么需要它：审计里原来只验"打开时的天数/首格位置"，
+                    # 从不点 < > —— 于是"翻月按钮点了没反应"这种 bug 可以一路绿灯。
+                    $w = Show-PeriodPickerWindow
+                    $w.Show(); $w.UpdateLayout()
+                    $beforeFirst = ([datetime]$script:DpFirst).ToString('yyyy-MM')
+                    $beforeLbl = [string]$script:DpLabelText.Text
+                    $target = $null
+                    foreach ($b in @(Find-AllOfType $w ([System.Windows.Controls.Primitives.ButtonBase]))) {
+                        if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
+                            [string]$b.Tag['kind'] -eq 'pick-flip' -and [string]$b.Tag['dir'] -eq $arg) { $target = $b; break }
+                    }
+                    $clicked = [bool](Invoke-Click $target)
+                    try { $w.UpdateLayout() } catch { }
+                    $afterFirst = ([datetime]$script:DpFirst).ToString('yyyy-MM')
+                    $afterLbl = [string]$script:DpLabelText.Text
+                    [void]$out.Add('pickflip ' + $arg +
+                        ' clicked=' + [string]$clicked +
+                        ' first=' + $beforeFirst + '->' + $afterFirst +
+                        ' label=' + $beforeLbl + '->' + $afterLbl)
                     $w.Close()
                 }
                 'settingshot' {

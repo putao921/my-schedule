@@ -1321,6 +1321,14 @@ function Finish-WeekDrag {
     $rangeMin = [int]$script:WeekStartHour * 60
     $rangeMax = [int]$script:WeekEndHour * 60
     $ev = $d.Event
+    # 第七轮（第六轮第二十七节第 1 条）：把"拖动改时间"纳入撤销栈。
+    #   必须在**任何时间字段被改写之前**存快照；存改后就没有"改前时间"可回了。
+    #   只在真的发生了位移时才压栈（上面已提前 return 掉"没动"的情况）。
+    #   Copy-Record 而不是直接存引用：否则快照会跟着 $ev 一起变，撤销成了空操作。
+    #   也不能用 .Clone()：数据由 ConvertFrom-Json 反序列化而来，PSCustomObject 没有该方法。
+    try {
+        Push-Undo -Kind 'drag-event' -Id ([string]$ev.id) -Snapshot (Copy-Record $ev) -Label ([string]$ev.title)
+    } catch { Write-ErrLog ('Push-Undo drag-event: ' + $_.Exception.Message) }
     if ($d.Phase -eq 'resize-top') {
         $newStart = [int]$d.StartMin + $deltaMin
         if ($newStart -lt $rangeMin) { $newStart = $rangeMin }
@@ -1665,26 +1673,32 @@ function Render-Tasks {
     $shell = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 8
     $root = New-Object System.Windows.Controls.DockPanel
 
-    # --- 头部：标题 + 计数 + 新建 ---
+    # --- 头部：[计数] + [+New task]（第二行）---
+    # 第七轮（item 4）：
+    #   ① 删掉 "Tasks" 大标题 —— 左栏导航已经高亮了 Tasks，视图里再写一遍是重复信息，
+    #      而且它跟下面的筛选栏挤在同一行，视觉上没起到"分节"的作用。
+    #   ② "+ Add task" 改名为 "+New task"（与需求文案一致），并**挪到下一行**：
+    #      原来它 Dock 在最右、与计数同一行，在窄窗下会和筛选栏抢宽度。
+    #      现在头部是两行：第一行放计数（左对齐），第二行放新建按钮（左对齐）。
     $head = New-Object System.Windows.Controls.Border
     $head.Background = Brush (Get-Pal 'CardAlt')
     $head.BorderBrush = Brush (Get-Pal 'BorderSoft')
     $head.BorderThickness = [System.Windows.Thickness]::new(0, 0, 0, 2)
-    $hp = New-Object System.Windows.Controls.DockPanel
+    $hp = New-Object System.Windows.Controls.StackPanel
     $hp.Margin = [System.Windows.Thickness]::new(14, 10, 14, 10)
-    $t1 = New-Txt -Text 'Tasks' -Size 16 -Color (Get-Pal 'Ink') -Weight 'Bold'
-    $t1.VerticalAlignment = 'Center'
+
     $t2 = New-Txt -Text '' -Size 11 -Color (Get-Pal 'InkFaint')
     $t2.VerticalAlignment = 'Center'
-    $t2.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
     $script:TaskOpenText = $t2
-    $bAdd = New-PixBtn -Text '+ Add task' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 96 -H 30 -FontSize 10
+    [void]$hp.Children.Add($t2)
+
+    $bAdd = New-PixBtn -Text '+New task' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 96 -H 30 -FontSize 10
+    $bAdd.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+    $bAdd.HorizontalAlignment = 'Left'
     $script:TaskAddButton = $bAdd
     $bAdd.Add_Click({ try { Open-TaskEditor } catch { Write-ErrLog ('Add task: ' + $_.Exception.Message) } })
-    [System.Windows.Controls.DockPanel]::SetDock($bAdd, 'Right')
     [void]$hp.Children.Add($bAdd)
-    [void]$hp.Children.Add($t1)
-    [void]$hp.Children.Add($t2)
+
     $head.Child = $hp
     [System.Windows.Controls.DockPanel]::SetDock($head, 'Top')
     [void]$root.Children.Add($head)

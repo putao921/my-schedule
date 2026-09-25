@@ -151,9 +151,29 @@ function Toggle-TaskDone {
     if ([string]::IsNullOrWhiteSpace($Id)) { return $false }
     $hit = @($script:Tasks | Where-Object { [string]$_.id -eq [string]$Id })
     if ($hit.Count -eq 0) { return $false }
-    $hit[0].done = (-not [bool]$hit[0].done)
+    # 第七轮（第六轮第二十七节第 1 条）：把"勾选完成"也纳入撤销栈。
+    #   必须在**改动之前**存快照 —— 存改后的就没有"改前状态"可回了。
+    #   Snapshot 用 Copy-Record：直接存 $hit[0] 存的是同一个引用，
+    #   改完之后快照跟着一起变，撤销就成了空操作（静默失效的典型）。
+    #   也不能用 .Clone()：PSCustomObject（JSON 反序列化的产物）没有该方法。
+    try {
+        Push-Undo -Kind 'toggle' -Id ([string]$Id) -Snapshot (Copy-Record $hit[0]) -Label ([string]$hit[0].text)
+    } catch { Write-ErrLog ('Push-Undo toggle: ' + $_.Exception.Message) }
+    $wasDone = [bool]$hit[0].done
+    $hit[0].done = (-not $wasDone)
     Save-Data
     Fill-Tasks
+    # 撤销提示条：告诉用户"刚做了什么"，顺带提示"可以 Ctrl+Z 回去"。
+    #   只在主窗口可见且非测试/抑制模式下弹，避免审计里刷屏。
+    if (-not $script:SuppressModal -and -not $TestMode) {
+        try {
+            $label = $(if (-not [string]::IsNullOrWhiteSpace([string]$hit[0].text)) { [string]$hit[0].text } else { 'Task' })
+            $verb = $(if ($wasDone) { Get-LangText 'undo.toggleOff' } else { Get-LangText 'undo.toggleOn' })
+            Show-Toast -Title (Get-LangText 'undo.task') -Text ($verb + (Shorten-Text $label 22)) `
+                -ActionText (Get-LangText 'undo.btn') -Seconds 5 -ActionScript { Undo-Delete }
+            Sync-UndoHint
+        } catch { }
+    }
     return $true
 }
 
@@ -370,6 +390,75 @@ if ([int]$script:Pomo.Remaining -le 0) {
 }
 }
 
+function Get-FocusElapsedMin {
+    # 本次专注已经走了多少分钟（= Total - Remaining，把秒折算成分钟）。
+    #   为什么用"总量减剩余"而不是另立一个"已走秒数"计数器：
+    #     计时器只有 Remaining 一个会变的量；再加一个计数器就要在 Tick / 暂停 /
+    #     跨阶段（focus->break）三处同步，迟早漂移。用差值算永远和显示一致。
+    #   取整规则：向下取整。走了 89 秒算 1 分钟（对用户有利，也不虚报）。
+    #   break 阶段的"已走"不算专注时长 —— 那是在休息。
+    try {
+        if ([string]$script:Pomo.Mode -eq 'break') { return 0 }
+        $total = [int]$script:Pomo.Total
+        $rem = [int]$script:Pomo.Remaining
+        $elapsedSec = $total - $rem
+        if ($elapsedSec -lt 0) { $elapsedSec = 0 }
+        return [int][math]::Floor($elapsedSec / 60)
+    } catch { return 0 }
+}
+
+function End-FocusSession {
+    # 结束本次专注并**结算归档**（第七轮 item 6）。
+    #
+    # 与 Complete-PomodoroPhase（自然走完）的区别：
+    #   · 自然走完记录的是 Total（整段时长）；
+    #   · 这里记录的是"实际走了多少"（Get-FocusElapsedMin），因为用户可能提前收工。
+    # 两者的落库口径一致：都加到 Settings['FocusTodayMin']，并且如果关联了任务，
+    # 同步加到该任务的 actualMin 上。
+    #
+    # 边界：
+    #   · 完全没走（elapsed = 0）-> 不记录、不提示"已记录 0 分钟"这种没意义的文案，
+    #     但仍把计时器归零（等价于 Reset），并提示"本次没有可记录的时长"。
+    #   · 正在跑 -> 先停表再结算，避免结算后 Tick 又把它减下去。
+    try {
+        $wasRunning = [bool]$script:Pomo.Running
+        $elapsed = Get-FocusElapsedMin
+        $taskText = [string]$script:Pomo.Task
+        if ([string]::IsNullOrWhiteSpace($taskText)) { $taskText = '' }
+
+        # 先停表：结算与"停表"之间不能再有一次 Tick 改动 Remaining。
+        $script:Pomo.Running = $false
+        if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
+
+        if ($elapsed -gt 0) {
+            $script:Settings['FocusTodayMin'] = [int]$script:Settings['FocusTodayMin'] + $elapsed
+            # 关联任务：把本次分钟数累加到 actualMin（和自然走完那条路径同一口径）
+            if (-not [string]::IsNullOrWhiteSpace([string]$script:Pomo.TaskId)) {
+                $taskHit = @($script:Tasks | Where-Object { [string]$_.id -eq [string]$script:Pomo.TaskId })
+                if ($taskHit.Count -gt 0) {
+                    $oldActual = 0
+                    if ($taskHit[0].PSObject.Properties.Name -contains 'actualMin') { $oldActual = [int]$taskHit[0].actualMin }
+                    $taskHit[0].actualMin = $oldActual + $elapsed
+                }
+            }
+            Save-Settings
+            Save-Data
+            try { Fill-Tasks } catch { }
+            $label = $(if ([string]::IsNullOrWhiteSpace($taskText)) { 'Focus session' } else { $taskText })
+            Show-DesktopNotification 'Focus logged' ($label + ' · +' + [string]$elapsed + ' min')
+            try { Show-Toast 'Focus logged' ($label + ' · +' + [string]$elapsed + ' min') } catch { }
+            $script:LastFocusEndMin = $elapsed
+        } else {
+            try { Show-Toast 'Focus' 'No focus time to log yet' } catch { }
+            $script:LastFocusEndMin = 0
+        }
+
+        # 归零：回到 Ready，剩余 = 当前设置的时长（等价于 Reset 之后的状态）
+        Reset-Pomodoro
+        Refresh-All
+    } catch { Write-ErrLog ('End-FocusSession: ' + $_.Exception.Message) }
+}
+
 function Reset-Pomodoro {
     # 0 = 用户明确选择"不计时"。老代码把 <1 一律当"没设过"回落到 25，
     # 那样 0-99 自由选择里就永远选不出 0（存下去是 0，读回来变 25）。
@@ -578,10 +667,15 @@ function Set-NavCollapsed {
         $script:NavCol.Width = [System.Windows.GridLength]::new(0, 'Pixel')
         $script:NavPanel.Visibility = 'Collapsed'
     } else {
-        # 宽度取 Apply-UiScale 算好的缩放值（默认 142）。以前写死 142，
-        # 字号放大之后导航文字会被这个固定宽度挤成两行。
+        # 宽度取"字号缩放值 × 窗口自适应因子"算好的结果（Apply-ResponsiveLayout 维护）。
+        # 优先级：NavColWidthResponsive（含窗口宽度因子）> NavColWidthScaled（只含字号）> 142。
+        # 以前写死 142，字号放大之后导航文字会被这个固定宽度挤成两行；
+        # 第七轮又加了"窗口越宽侧栏越宽"这一层，所以这里要读最新的那个值。
         $w = 142.0
-        try { if ($null -ne $script:NavColWidthScaled) { $w = [double]$script:NavColWidthScaled } } catch { }
+        try {
+            if ($null -ne $script:NavColWidthResponsive) { $w = [double]$script:NavColWidthResponsive }
+            elseif ($null -ne $script:NavColWidthScaled) { $w = [double]$script:NavColWidthScaled }
+        } catch { }
         $script:NavCol.Width = [System.Windows.GridLength]::new($w, 'Pixel')
         $script:NavPanel.Visibility = 'Visible'
     }
@@ -727,6 +821,30 @@ function Apply-ResponsiveLayout {
     # 曾经在窗口 < 980px 时自动折叠，问题是：用户缩小窗口只是想看看别的东西，
     # 侧栏却自己没了，再放大也不会自己回来（NavUserCollapsed 被写成了"用户选的"）。
     Set-NavCollapsed ([bool]$script:NavUserCollapsed)
+
+    # --- 第七轮（item 7）：侧栏宽度也要"跟着窗口大小走" ---
+    #   用户报"左侧栏大小不会跟着界面大小自适应"。
+    #   根因：侧栏宽度只在 Apply-UiScale 里按**字号倍率**算过一次
+    #   （142 × UiScale），而 UiScale 只跟"用户选的档位"和"窗口宽/窄三档"有关；
+    #   同在三档之内时窗口从 900 拉到 1500，侧栏一动不动。
+    #   修法：在字号倍率之外，再叠一个**仅作用于内容区宽度**的自适应因子，
+    #   让 142px 这个"设计宽度"在宽窗口下适当变宽、窄窗口下适当收窄。
+    #   夹在 [118, 196]：比原来 [120,210] 略紧，避免宽窗口下侧栏吃掉太多内容区。
+    #   注意只改宽度、不改字号 —— 字号已经由 Apply-UiScale 管了，
+    #   这里再动字号会让"用户选的档位"看起来没生效。
+    if ($null -ne $script:NavCol) {
+        $navBase = 142.0
+        if ($null -ne $script:NavColWidthScaled) { $navBase = [double]$script:NavColWidthScaled }
+        $navFactor = 1.0
+        if ($width -lt 900.0) { $navFactor = 0.92 }
+        elseif ($width -ge 1280.0) { $navFactor = 1.10 }
+        elseif ($width -ge 1100.0) { $navFactor = 1.05 }
+        $navW = [math]::Round($navBase * $navFactor)
+        if ($navW -lt 118.0) { $navW = 118.0 }
+        if ($navW -gt 196.0) { $navW = 196.0 }
+        $script:NavColWidthResponsive = $navW
+        try { Set-NavCollapsed ([bool]$script:NavUserCollapsed) } catch { }
+    }
 
     # --- 字号自适应（第四轮）：按窗口宽度给一个 0.9 / 1.0 / 1.08 的自适应因子 ---
     # 为什么宽窗口要"更大"而不只是"不变"：宽窗口下内容区很空，同样的字号看着更小；
@@ -886,6 +1004,20 @@ function Build-Window {
     # 撤销反馈条（第六轮）：Apply-UndoHintText 往它上面写，切主题重建后必须重新绑定，
     #   否则 Ctrl+Z 的"还剩几次"提示会在换肤之后彻底消失（旧控件已随旧树一起丢掉）。
     $script:UndoHint     = $n['UndoHint']
+    # 第七轮（第六轮第二十七节第 3 条）：让这行小字**可点** —— 点一下 = 撤销一次。
+    #   理由：提示条 5 秒后就消失，那时唯一的撤销入口只剩 Ctrl+Z；
+    #   而侧栏这行"还可撤销 N"一直在，做成可点就等于给撤销留了个常驻入口。
+    #   每次 Build-Window 都要重新挂（换主题会重建整棵树，处理器随旧控件一起丢）。
+    try {
+        if ($null -ne $script:UndoHint) {
+            $script:UndoHint.Cursor = [System.Windows.Input.Cursors]::Hand
+            $script:UndoHint.ToolTip = 'Click to undo the last action'
+            $script:UndoHint.Add_MouseLeftButtonUp({
+                param($s, $e)
+                try { Undo-Delete } catch { Write-ErrLog ('Undo hint click: ' + $_.Exception.Message) }
+            })
+        }
+    } catch { Write-ErrLog ('Undo hint bind: ' + $_.Exception.Message) }
     $script:BtnViewMonth = $n['BtnViewMonth']
     $script:BtnViewWeek  = $n['BtnViewWeek']
     $script:BtnViewList  = $n['BtnViewList']
@@ -1160,6 +1292,48 @@ function Build-Window {
     }
     Apply-ResponsiveLayout
 
+    # ---- 全局快捷键（第七轮，第六轮第二十七节第 4 条）----
+    #   关于页里一直列着 Ctrl+N / Ctrl+F / Ctrl+Z 三条，但**从来没有被实现过** ——
+    #   文档写了快捷键而按键没反应，比不写更糟（用户会以为是自己按错）。
+    #   这里一次性补齐，并在审计里加 key:<combo> 动词做端到端确认。
+    #
+    #   为什么挂 PreviewKeyDown 而不是 KeyDown：
+    #     KeyDown 会沿着"焦点元素 -> 冒泡"走，焦点在搜索框里时，Ctrl+F/N/Z 会先给
+    #     文本框处理（甚至被它标记 Handled），主窗口收不到。PreviewKeyDown 是隧道事件，
+    #     从窗口往下传，**在窗口这一层就能先拿到**，不受焦点在哪影响 ——
+    #     这正是"全局快捷键"该有的语义。
+    #
+    #   绑定只挂一次（与 ResponsiveHooked 同理，换皮不换窗）。
+    if (-not $script:HotkeyHooked) {
+        $script:HotkeyHooked = $true
+        $script:MainWindow.Add_PreviewKeyDown({
+            param($s, $e)
+            try {
+                $ctrl = (([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control) -ne 0)
+                if (-not $ctrl) { return }
+                $k = [string]$e.Key
+                if ($k -eq 'Z') {
+                    # Ctrl+Z = 撤销上一次操作（删除 / 勾选 / 拖动改时间）
+                    Undo-Delete
+                    $e.Handled = $true
+                } elseif ($k -eq 'N') {
+                    # Ctrl+N = 新建日程
+                    Open-EventEditor
+                    $e.Handled = $true
+                } elseif ($k -eq 'F') {
+                    # Ctrl+F = 聚焦当前视图的搜索框（列表页 / 任务页各有一个）
+                    if ($script:View -eq 'tasks') {
+                        if ($null -ne $script:TaskSearch) { $script:TaskSearch.Focus() | Out-Null }
+                    } else {
+                        if ($script:View -ne 'list') { Set-View 'list' }
+                        if ($null -ne $script:ListSearch) { $script:ListSearch.Focus() | Out-Null }
+                    }
+                    $e.Handled = $true
+                }
+            } catch { Write-ErrLog ('Hotkey: ' + $_.Exception.Message) }
+        })
+    }
+
     # ---- 生命周期钩子（只挂一次，挂在"会一直活着的那个窗口"上）----
     if (-not $script:LifecycleHooked) {
         $script:LifecycleHooked = $true
@@ -1221,6 +1395,44 @@ function Set-PeriodDate {
     Refresh-All
 }
 
+function Shift-PeriodPickerMonth {
+    # 期间选择窗的翻月：改 $script:DpFirst，然后重画。
+    #
+    # 为什么抽成命名函数，而不是在按钮处理器里直接改（原来的写法）：
+    #   ① 处理器闭包里的 `& $script:DpPaint` 依赖"触发时 $script:DpPaint 仍是本窗口
+    #      那一份"这个隐含前提。写测试/审计时连开两个 picker 是常见操作，后一个
+    #      Show-PeriodPickerWindow 会把 $script:DpPaint 换成新的一份（指向新窗口的
+    #      42 个格子与标签）—— 前一个窗口的按钮再去点，画的是后一个窗口。
+    #   ② 更糟的是作用域：脚本块在"被事件处理器调用"与"被 & 直接调用"两种路径下
+    #      解析变量的作用域链并不完全一致，任一路径解析失败都会抛异常，
+    #      而处理器外面套着 catch -> 只写 errors.log，界面表现是"按钮是死的"。
+    #   本函数把"翻月"这件事收在一处，只依赖 $script: 状态，两条路径行为一致。
+    param([int]$Dir)
+    if ($Dir -eq 0) { return }
+    $first = [datetime]$script:DpFirst
+    $script:DpFirst = $first.AddMonths($Dir)
+    # 用 Invoke-Command 在脚本级作用域执行 paint，避免"被谁调用"影响变量解析。
+    Invoke-PaintPeriodPicker
+}
+
+function Invoke-PaintPeriodPicker {
+    # 触发一次期间选择窗重画。
+    #
+    # 为什么只需要一个 `&`：$script:DpPaint 内部**只引用 $script: 上的东西**
+    # （$script:DpCells / $script:DpFirst / $script:DpLabelText / $script:Selected）。
+    # $script: 变量的解析与"谁调用、在什么作用域调用"无关 —— 已实测：
+    #   脚本块引用 $script:Val：从任意函数 / 处理器里 & 或 . 调用都能解析；
+    #   脚本块引用**局部** $L：只有从"定义它的那个函数"内部调用才解析得到，
+    #   一旦由 WPF 处理器（dispatcher 回调）触发就抛"检索不到变量 $L"。
+    # 这正是本轮 item 1 的根因：$lbl 曾是 Show-PeriodPickerWindow 的局部变量，
+    # 初始 paint 在函数内跑所以看着正常，点 < > 时处理器在函数外跑 -> 抛异常
+    # -> 被 catch 吞掉 -> 界面上"按钮是死的"。
+    # 用 & 而不是点源：点源会把脚本块里的变量写进调用方作用域，
+    # 在 WPF 处理器里点源等于往处理器作用域塞变量，没有必要。
+    if ($null -eq $script:DpPaint) { return }
+    try { & $script:DpPaint } catch { Write-ErrLog ('Picker paint: ' + $_.Exception.Message) }
+}
+
 function Show-PeriodPickerWindow {
     $script:DpWin = New-Object System.Windows.Window
     $script:DpWin.Title = 'Pick a date'
@@ -1259,7 +1471,18 @@ function Show-PeriodPickerWindow {
     $bNextM = New-PixBtn -Text '>' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 34 -H 30 -FontSize 13
     $bPrevM.ToolTip = 'Previous month'
     $bNextM.ToolTip = 'Next month'
+    # 给翻月按钮挂语义 Tag：一是让审计能按 Tag 找到它（pickflip 动词），
+    # 二是避免处理器闭包去抓函数局部变量 —— 本项目多次栽在"处理器看不见局部变量"上。
+    $bPrevM.Tag = @{ kind = 'pick-flip'; dir = 'prev' }
+    $bNextM.Tag = @{ kind = 'pick-flip'; dir = 'next' }
+    # 月份标签挂到 $script: 上：$script:DpPaint 是脚本级脚本块，
+    # 虽然 Windows PowerShell 的脚本块能动态解析调用方作用域里的 $lbl，
+    # 但那是"碰巧能跑"的隐式行为 —— 一旦 DpPaint 在别的函数里被复用/被
+    # 事件处理器（而非直接 &）调用，作用域就不再是本函数，$lbl 会解析失败，
+    # 整段 paint 被 catch 吞掉，对外表现正是"点了 < > 完全没反应"。
+    # 所以这里显式挂 $script:，让 DpPaint 只依赖 $script: 上的东西。
     $lbl = New-Txt -Text '' -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'
+    $script:DpLabelText = $lbl
     $lbl.HorizontalAlignment = 'Center'
     $lbl.VerticalAlignment = 'Center'
     [System.Windows.Controls.Grid]::SetColumn($bPrevM, 0)
@@ -1319,16 +1542,16 @@ function Show-PeriodPickerWindow {
     }
     [void]$sp.Children.Add($grid)
 
-    # ---- 底部：Today / Cancel ----
+    # ---- 底部：只留 Today ----
+    #   第七轮 item 2：用户要求"去掉 save 键"。既然没有 Save，标题栏的 × 就是唯一的退出键，
+    #   底部再放一个 Cancel 会重演第六轮那个问题（Cancel 与 × 同一功能，却占两个位置）。
+    #   Today 保留：它不是"退出"，而是"跳回今天"这个独立动作。
     $foot = New-Object System.Windows.Controls.StackPanel
     $foot.Orientation = 'Horizontal'
     $foot.HorizontalAlignment = 'Right'
     $foot.Margin = [System.Windows.Thickness]::new(0, 14, 0, 0)
     $bToday = New-PixBtn -Text 'Today' -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 84 -H 34
-    $bCancel = New-PixBtn -Text 'Cancel' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 84 -H 34
-    $bCancel.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     [void]$foot.Children.Add($bToday)
-    [void]$foot.Children.Add($bCancel)
     [void]$sp.Children.Add($foot)
 
     # 当前显示的是哪个月（和 $script:Anchor 解耦：翻月份不该立刻改视图，
@@ -1340,7 +1563,10 @@ function Show-PeriodPickerWindow {
     $script:DpPaint = {
         try {
             $first = [datetime]$script:DpFirst
-            $lbl.Text = [string](Get-Culture).DateTimeFormat.GetMonthName($first.Month) + ' ' + [string]$first.Year
+            $lbl = $script:DpLabelText
+            if ($null -ne $lbl) {
+                $lbl.Text = [string](Get-Culture).DateTimeFormat.GetMonthName($first.Month) + ' ' + [string]$first.Year
+            }
             $lead = ([int]$first.DayOfWeek + 6) % 7      # 周一为一周之始，和月视图一致
             $days = [int][datetime]::DaysInMonth($first.Year, $first.Month)
             $sel = ([datetime]$script:Selected).Date
@@ -1393,31 +1619,29 @@ function Show-PeriodPickerWindow {
     # 这里曾经留过一行 `$script:DpFirst = $firstOfMonth` 的旧草稿 —— $firstOfMonth
     # 这个局部变量早就不存在了，StrictMode 下会抛"检索不到变量"，把整个选日期
     # 窗口的构建打断（对外表现：点标题没反应，审计里是一行 crash）。
-    & $script:DpPaint
-    $bPrevM.Add_Click({
-        try {
-            $script:DpFirst = ([datetime]$script:DpFirst).AddMonths(-1)
-            & $script:DpPaint
-        } catch { Write-ErrLog ('Picker prev: ' + $_.Exception.Message) }
-    })
-    $bNextM.Add_Click({
-        try {
-            $script:DpFirst = ([datetime]$script:DpFirst).AddMonths(1)
-            & $script:DpPaint
-        } catch { Write-ErrLog ('Picker next: ' + $_.Exception.Message) }
-    })
+    Invoke-PaintPeriodPicker
+    # 翻月按钮的处理器：**不闭包任何函数局部变量**，只调命名函数。
+    #   历史坑：处理器里写 `& $script:DpPaint` 时，paint 内部若引用本函数的局部
+    #   变量（例如旧版的 $lbl），会因为"处理器在函数作用域之外执行"而抛
+    #   "检索不到变量"，异常被 catch 吞进 errors.log，界面上就是
+    #   "点了 < > 完全没反应"，且没有任何可见报错。
+    #   （本轮已实测复现：脚本块引用局部变量时，只有在定义它的函数内部调用才解析得到。）
+    #   现在改成调 Shift-PeriodPickerMonth，它只读/写 $script: 上的状态。
+    $bPrevM.Add_Click({ try { Shift-PeriodPickerMonth -1 } catch { Write-ErrLog ('Picker prev: ' + $_.Exception.Message) } })
+    $bNextM.Add_Click({ try { Shift-PeriodPickerMonth 1 } catch { Write-ErrLog ('Picker next: ' + $_.Exception.Message) } })
     $bToday.Add_Click({
         try {
             $t = [datetime]::Today
             $script:DpFirst = [datetime]::new($t.Year, $t.Month, 1)
-            & $script:DpPaint
+            Invoke-PaintPeriodPicker
             Close-DialogWindow $script:DpWin $true
             Set-PeriodDate $t
         } catch { Write-ErrLog ('Picker today: ' + $_.Exception.Message) }
     })
-    $bCancel.Add_Click({ try { Close-DialogWindow $script:DpWin $false } catch { } })
 
-    $chrome = Get-EditorChrome 'Pick a date' $sp
+    # 期间选择窗只有"点某天 / Today"才落实跳转，没有"保存"这个动作 ——
+    # Save 传 $false 不生成，标题栏只剩 [标题] + [×]（× = 取消）。
+    $chrome = Get-EditorChrome 'Pick a date' $sp -NoSave
     $script:DpWin.Content = $chrome.Root
     # 标题栏可拖动（和 Avatar 窗口一致）；点在按钮上时不拖
     $chrome.Bar.Add_MouseLeftButtonDown({

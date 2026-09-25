@@ -136,6 +136,167 @@ function New-ComboField {
     return $cb
 }
 
+function New-DigitWheelField {
+    # 四位数字滚轮（第七轮 item 5）。
+    #
+    # 需求原话："音位（应为'因为'）时间都是四个数字，所以给每个数字都设置一个从 1-9
+    #   可以滚动的功能。"  —— 即把 00:00 这样的时长拆成 4 个独立数字位，
+    #   每一位都能用鼠标滚轮 / 上下键单独加减，替代原来那个只有十来档的下拉框。
+    #
+    # 设计：
+    #   · 显示形如 25:00，冒号是分隔符不是可编辑位；
+    #   · 4 个位各自是一个 TextBlock，外面套一个可点/可滚的 Border；
+    #   · 滚轮向上 = 进位 +1，向下 = -1；越界按"该位 0-9 循环"处理（个位 9->0 时
+    #     给十位 +1，方便"滚一滚凑够 90 分钟"）。
+    #   · 整值夹在 0..5999 秒（= 99:59），因为计时器那行大字是 mm:ss，三位数分钟会撑破。
+    #
+    # 返回一个对象：{ Box; Set; Get; SetMin; GetMin } —— Get/Set 都拿"分钟"这个语义值。
+    #   为什么返回对象而不是控件本身：控件是 4 个位 + 分隔符，调用方要的是"读/写分钟"，
+    #   不该关心内部有几位。审计也直接调 .Get() / .Set()。
+    param($Parent, [string]$LabelKey, [int]$Minutes = 25, [int]$MaxMin = 99)
+    [void]$Parent.Children.Add((New-Txt -Text (Get-LangText $LabelKey) -Size 11 -Color (Get-Pal 'InkFaint')))
+    $wrap = New-Object System.Windows.Controls.StackPanel
+    $wrap.Orientation = 'Horizontal'
+    $wrap.Margin = [System.Windows.Thickness]::new(0, 3, 0, 12)
+    $wrap.HorizontalAlignment = 'Left'
+
+    if ($Minutes -lt 0) { $Minutes = 0 }
+    if ($Minutes -gt $MaxMin) { $Minutes = $MaxMin }
+
+    $box = New-Bd -Bg (Get-Pal 'CardAlt') -Border (Get-Pal 'Border') -Radius 8 -Bw 2
+    $box.Padding = [System.Windows.Thickness]::new(12, 4, 12, 6)
+    $row = New-Object System.Windows.Controls.StackPanel
+    $row.Orientation = 'Horizontal'
+    $row.HorizontalAlignment = 'Center'
+
+    # 四个位：每个位是一个 TextBlock，外面套一层可滚动的 Border（"格子"）
+    $cells = New-Object System.Collections.ArrayList
+    for ($i = 0; $i -lt 4; $i++) {
+        $cell = New-Object System.Windows.Controls.Border
+        $cell.Width = 26
+        $cell.Height = 44
+        $cell.CornerRadius = [System.Windows.CornerRadius]::new(6)
+        $cell.Background = Brush (Get-Pal 'Card')
+        $cell.BorderBrush = Brush (Get-Pal 'BorderSoft')
+        $cell.BorderThickness = [System.Windows.Thickness]::new(1)
+        $cell.Margin = [System.Windows.Thickness]::new(2, 0, 2, 0)
+        $cell.Cursor = [System.Windows.Input.Cursors]::Hand
+        $tb = New-Txt -Text '0' -Size 26 -Color (Get-Pal 'Ink') -Weight 'Bold'
+        $tb.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
+        $tb.HorizontalAlignment = 'Center'
+        $tb.VerticalAlignment = 'Center'
+        $tb.IsHitTestVisible = $false     # 点击/滚轮都归外层 Border 收，避免子元素吃掉事件
+        $cell.Child = $tb
+        $cell.Tag = @{ kind = 'digit-wheel'; idx = $i }
+        [void]$row.Children.Add($cell)
+        [void]$cells.Add($cell)
+        # 冒号分隔符（插在前两位与后两位之间）
+        if ($i -eq 1) {
+            $sep = New-Txt -Text ':' -Size 26 -Color (Get-Pal 'InkSoft') -Weight 'Bold'
+            $sep.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
+            $sep.VerticalAlignment = 'Center'
+            $sep.Margin = [System.Windows.Thickness]::new(1, 0, 1, 0)
+            [void]$row.Children.Add($sep)
+        }
+    }
+    $box.Child = $row
+    [void]$wrap.Children.Add($box)
+    [void]$Parent.Children.Add($wrap)
+
+    # 提示行：告诉用户这个控件怎么用（滚轮/上下键）
+    $hintTxt = New-Txt -Text (Get-LangText 'fld.fo.wheelHint') -Size 10 -Color (Get-Pal 'InkFaint')
+    $hintTxt.Margin = [System.Windows.Thickness]::new(0, -8, 0, 10)
+    [void]$Parent.Children.Add($hintTxt)
+
+    $script:FoDigitCells = $cells
+    $script:FoDigitMaxMin = $MaxMin
+
+    # 把"位数组"写回 TextBlock，并同步到 $script:FoDurationMin
+    $script:DwSync = {
+        try {
+            $cs = @($script:FoDigitCells)
+            if ($cs.Count -ne 4) { return }
+            $mm = ([int]$cs[0].Child.Text) * 10 + [int]$cs[1].Child.Text
+            $ss = ([int]$cs[2].Child.Text) * 10 + [int]$cs[3].Child.Text
+            $script:FoDurationMin = ($mm * 60 + $ss)
+        } catch { Write-ErrLog ('DigitWheel sync: ' + $_.Exception.Message) }
+    }
+    $script:DwPaint = {
+        try {
+            $cs = @($script:FoDigitCells)
+            if ($cs.Count -ne 4) { return }
+            $min = [int]$script:FoDurationMin
+            if ($min -lt 0) { $min = 0 }
+            if ($min -gt ([int]$script:FoDigitMaxMin * 60 + 59)) { $min = [int]$script:FoDigitMaxMin * 60 + 59 }
+            $script:FoDurationMin = $min
+            $mm = [int][math]::Floor($min / 60)
+            $ss = [int]($min % 60)
+            $cs[0].Child.Text = [string]([int][math]::Floor($mm / 10) % 10)
+            $cs[1].Child.Text = [string]($mm % 10)
+            $cs[2].Child.Text = [string]([int][math]::Floor($ss / 10) % 10)
+            $cs[3].Child.Text = [string]($ss % 10)
+        } catch { Write-ErrLog ('DigitWheel paint: ' + $_.Exception.Message) }
+    }
+
+    # 每一位的滚轮 / 点击
+    for ($idx = 0; $idx -lt 4; $idx++) {
+        $c = $cells[$idx]
+        $c.Tag = @{ kind = 'digit-wheel'; idx = $idx }
+        $c.Add_MouseWheel({
+            param($s, $e)
+            try {
+                if ($null -eq $s -or $null -eq $s.Tag) { return }
+                $i = [int]$s.Tag['idx']
+                Step-FocusDigit $i $(if ($e.Delta -gt 0) { 1 } else { -1 })
+                $e.Handled = $true
+            } catch { Write-ErrLog ('DigitWheel wheel: ' + $_.Exception.Message) }
+        })
+        # 左键点上半 = +1，下半 = -1（滚轮不好使的设备用它）
+        $c.Add_MouseLeftButtonDown({
+            param($s, $e)
+            try {
+                if ($null -eq $s -or $null -eq $s.Tag) { return }
+                $i = [int]$s.Tag['idx']
+                $up = ($e.GetPosition($s).Y -lt ($s.ActualHeight / 2.0))
+                Step-FocusDigit $i $(if ($up) { 1 } else { -1 })
+                $e.Handled = $true
+            } catch { Write-ErrLog ('DigitWheel click: ' + $_.Exception.Message) }
+        })
+    }
+
+    $script:FoDurationMin = $Minutes * 60
+    & $script:DwPaint
+    return [pscustomobject]@{
+        Box = $box
+        Set = { param([int]$m) $script:FoDurationMin = $m * 60; & $script:DwPaint }
+        Get = { return [int][math]::Floor([int]$script:FoDurationMin / 60) }
+        GetSeconds = { return [int]$script:FoDurationMin }
+    }
+}
+
+function Step-FocusDigit {
+    # 把 Focus 时长控件的第 $Idx 位加/减 1，并按"时分秒进位"规则重算总时长。
+    #   进位规则（让"滚轮凑时长"符合直觉）：
+    #     · 十位分 / 个位分 / 十位秒 / 个位秒 四个位各自是十进制；
+    #     · 任一位越界就整体 ±1 秒（或 ±10 秒）地借位，而不是"该位 0-9 空转"。
+    #   例：00:59 时滚个位秒 +1 -> 01:00（而不是 00:50）。
+    #   整值夹在 [0, MaxMin*60+59]。
+    param([int]$Idx, [int]$Delta)
+    try {
+        $cs = @($script:FoDigitCells)
+        if ($cs.Count -ne 4) { return }
+        $cur = [int]$script:FoDurationMin
+        # 该位在"总秒数"里的权重：十位分=600s，个位分=60s，十位秒=10s，个位秒=1s
+        $weight = @(600, 60, 10, 1)[$Idx]
+        $cur = $cur + ($weight * $Delta)
+        $max = [int]$script:FoDigitMaxMin * 60 + 59
+        if ($cur -lt 0) { $cur = 0 }
+        if ($cur -gt $max) { $cur = $max }
+        $script:FoDurationMin = $cur
+        & $script:DwPaint
+    } catch { Write-ErrLog ('Step-FocusDigit: ' + $_.Exception.Message) }
+}
+
 function New-ChoiceField {
     # 下拉框的"可本地化"版本（第六轮第二项建议：弹窗字段名接进语言表）。
     #
@@ -614,7 +775,7 @@ function Get-EditorChrome {
     # 参数类型不能写 Control：StackPanel 继承自 Panel（Panel -> FrameworkElement -> UIElement），
     # 并不在 Control 这条继承链上，传 StackPanel 会在参数绑定阶段就抛
     # "无法将 StackPanel 转换为 Control"，整个窗口都建不起来。
-    param([string]$Title, [System.Windows.FrameworkElement]$Content)
+    param([string]$Title, [System.Windows.FrameworkElement]$Content, [switch]$NoSave)
     $wrap = New-Object System.Windows.Controls.Grid
     for ($i = 0; $i -lt 2; $i++) {
         $rd = New-Object System.Windows.Controls.RowDefinition
@@ -638,11 +799,17 @@ function Get-EditorChrome {
     #   现在标题栏只保留"Save（保存）+ ×（放弃关闭）"，是二选一，语义无歧义。
     #   后果：Esc 与 × 仍然都等于"放弃"；审计里按 Name 找 'DlgCancel' 的地方
     #   一并改掉了（否则会静默找到 $null，那条断言变成假绿）。
+    # 第七轮（item 2）：`-NoSave` 时不生成 Save 列，标题栏只剩 [标题] + [×]。
+    #   适用对象是"没有保存语义"的窗口（期间选择窗：只有"点某天 / Today"才落实跳转，
+    #   点 × 就是取消）。原来 Save 与 × 在这个窗口里功能完全一样，两个按钮做同一件事
+    #   只会让人反复试。保留列定义会让 × 左边空出一条 70px 的缝，所以列也要一起省。
     $barGrid = New-Object System.Windows.Controls.Grid
     $cdTitle = New-Object System.Windows.Controls.ColumnDefinition
     $cdTitle.Width = [System.Windows.GridLength]::new(1, 'Star')
     $barGrid.ColumnDefinitions.Add($cdTitle)
-    foreach ($px in @(70.0, 34.0)) {
+    $pxCols = @(34.0)
+    if (-not $NoSave) { $pxCols = @(70.0, 34.0) }
+    foreach ($px in $pxCols) {
         $cd = New-Object System.Windows.Controls.ColumnDefinition
         $cd.Width = [System.Windows.GridLength]::new($px, 'Pixel')
         $barGrid.ColumnDefinitions.Add($cd)
@@ -654,14 +821,21 @@ function Get-EditorChrome {
     [System.Windows.Controls.Grid]::SetColumn($barTxt, 0)
     [void]$barGrid.Children.Add($barTxt)
 
-    $btnSave = New-DialogSaveButton
-    $btnSave.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
-    [void]$barGrid.Children.Add($btnSave)
+    # BtnSave 一并返回（哪怕没生成）：六个弹窗的调用点都写 `$chrome.BtnSave`，
+    # 返回 $null 让它们走"没有 Save 就跳过绑定"的分支，不必各自再判一次开关。
+    $btnSave = $null
+    $closeCol = 1
+    if (-not $NoSave) {
+        $btnSave = New-DialogSaveButton
+        $btnSave.VerticalAlignment = 'Center'
+        [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
+        [void]$barGrid.Children.Add($btnSave)
+        $closeCol = 2
+    }
 
     $btnClose = New-DialogCloseButton
     $btnClose.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnClose, 2)
+    [System.Windows.Controls.Grid]::SetColumn($btnClose, $closeCol)
     [void]$barGrid.Children.Add($btnClose)
 
     $bar.Child = $barGrid
@@ -689,6 +863,28 @@ function Get-EditorChrome {
 # ---------------------------------------------------------------------------
 #  新建 / 编辑日程
 # ---------------------------------------------------------------------------
+function Test-EventEditorDirty {
+    # 日程编辑窗"用户是否动过任何字段"。
+    #   与 $script:EdSnapshot（开窗那一刻的快照）逐项比对；任意一项不同即算动过。
+    #   只读 $script: 上的东西 —— 会被 WPF 处理器调用，抓局部变量会抛"检索不到变量"。
+    #   返回 $true = 动过（要走校验）；$false = 原封未动（可以直接退出）。
+    try {
+        $now = (@(
+            ([string]$script:EdTbTitle.Text).Trim()
+            ([string]$script:EdTbDate.Text).Trim()
+            ([string]$script:EdTbStart.Text).Trim()
+            ([string]$script:EdTbEnd.Text).Trim()
+            ([string]$script:EdEvery.Text).Trim()
+            ([string]$script:EdUntil.Text).Trim()
+            ([string]$script:EdRepeat.Tag)
+            ([string]$script:EdReminder.Tag)
+            ([string]$script:EdTag)
+            [string]([bool]$script:EdMonthLast.IsChecked)
+        ) -join [char]1)
+        return ($now -ne [string]$script:EdSnapshot)
+    } catch { return $true }   # 读不到就保守当成"动过"，宁可多校验一次也别丢用户输入
+}
+
 function Show-EventEditorWindow {
     param([string]$Id = '', [string]$PrefillDate = '', [int]$PrefillStart = -1, [int]$PrefillEnd = -1)
 
@@ -864,11 +1060,48 @@ function Show-EventEditorWindow {
 
     $script:EdWin.Add_KeyDown({
         param($s, $e)
+        # Esc = 放弃关闭。第七轮起：没动过的空表单直接退（与 × 一致）；
+        # 动过的表单也允许 Esc 放弃 —— Esc 的语义本来就是"不要了"，
+        # 用户既然主动按了 Esc，就不该被校验拦住（× 才承担"保存并校验"）。
         if ($e.Key -eq 'Escape') { Close-DialogWindow $script:EdWin $false }
     })
 
     # × = 保存并关闭（原 Save 的全部逻辑原样搬过来）；Esc = 放弃（上面的 KeyDown）。
+    #
+    # 第七轮（item 3）：**没动过的空表单必须能直接退出**。
+    #   用户报"有时候没有新建日程的想法，不小心点进去就出不来了"——
+    #   原来 × 无条件走校验，标题为空就拦住，于是"误点进来"变成了"必须编一条出来"。
+    #   现在的规则：
+    #     · 表单与打开时一模一样（没动过任何字段）-> 直接放弃关闭，不校验；
+    #     · 动过任何一个字段 -> 才进入校验（标题必填、日期/时间格式要对）。
+    #   编辑既有日程时永远算"动过"，行为与本轮之前完全一致。
+    #
+    # 为什么用"开窗快照 + 关窗比对"而不是在每个控件上挂 TextChanged 打脏标记：
+    #   ① 需要盯的控件有 8 个（标题/日期/起止/每/截止/勾选/三组下拉），
+    #      逐个挂处理器既啰嗦又容易漏；
+    #   ② 下拉框与勾选框是 New-ChoiceField / CheckBox，它们的"用户改过"
+    #      不一定触发同一个事件（ComboBox 选固定项不触发 TextChanged）；
+    #   ③ 快照比对是"以结果为准"，比"以事件为准"更不容易假阴性。
+    #   比对放在关窗那一刻做一次，成本可以忽略。
+    $script:EdSnapshot = (@(
+        ([string]$script:EdTbTitle.Text).Trim()
+        ([string]$script:EdTbDate.Text).Trim()
+        ([string]$script:EdTbStart.Text).Trim()
+        ([string]$script:EdTbEnd.Text).Trim()
+        ([string]$script:EdEvery.Text).Trim()
+        ([string]$script:EdUntil.Text).Trim()
+        ([string]$script:EdRepeat.Tag)
+        ([string]$script:EdReminder.Tag)
+        ([string]$script:EdTag)
+        [string]([bool]$script:EdMonthLast.IsChecked)
+    ) -join [char]1)
+    $script:EdIsNew = (-not [bool]$script:EdEditing)
+    # × = 保存并关闭（原 Save 的全部逻辑原样搬过来）；Esc = 放弃（上面的 KeyDown）。
     $chrome.BtnClose.Add_Click({
+        if ([bool]$script:EdIsNew -and -not (Test-EventEditorDirty)) {
+            Close-DialogWindow $script:EdWin $false
+            return
+        }
         $title = ([string]$script:EdTbTitle.Text).Trim()
         if ([string]::IsNullOrWhiteSpace($title)) {
             $script:EdErr.Text = 'Title is required.'
@@ -1028,6 +1261,11 @@ function Save-SettingsDialogValues {
     $corner = ([string]$script:SetToastCorner.Tag).ToLowerInvariant()
     if (@('bl','br','tl','tr') -notcontains $corner) { $corner = 'br' }
     $script:Settings['ToastCorner'] = $corner
+    # 提示条停留秒数（第七轮）：0 = 不自动关。非法值一律落回 5（与默认一致）。
+    $toastSecs = 0
+    if (-not [int]::TryParse(([string]$script:SetToastSeconds.Tag), [ref]$toastSecs)) { $toastSecs = 5 }
+    if (@(0,3,5,8) -notcontains $toastSecs) { $toastSecs = 5 }
+    $script:Settings['ToastSeconds'] = $toastSecs
     $newTheme = ([string]$script:SetThemeBox.Tag).ToLowerInvariant()
     if (@('light','night') -notcontains $newTheme) { $newTheme = 'light' }
     $script:Settings['Theme'] = $newTheme
@@ -1129,7 +1367,11 @@ function Show-SettingsWindow {
     #  注意：**所有控件都要在本次函数里全部建出来**（不论当前显示哪一页），
     #  因为 Save-SettingsDialogValues 会读它们中的每一个；分页只影响"看不看得见"。
     # ===========================================================================
-    $tabs = New-SettingsTabs @('appear','window','data','about') `
+    # 页签顺序的**唯一真源**：Ctrl+1..4 键盘导航按这个顺序映射，审计也读它。
+    #   为什么单独抽一个变量：页签按钮、SetTabsShow 的 switch、键盘映射三处都依赖
+    #   这个顺序，各自写一份字面量迟早会有一处漏改。
+    $script:SetTabKeys = @('appear', 'window', 'data', 'about')
+    $tabs = New-SettingsTabs $script:SetTabKeys `
         @((Get-LangText 'set.tab.appear'), (Get-LangText 'set.tab.window'), `
           (Get-LangText 'set.tab.data'), (Get-LangText 'set.tab.about'))
     [void]$sp.Children.Add($tabs.Strip)
@@ -1261,6 +1503,13 @@ function Show-SettingsWindow {
     $script:SetToastCorner = New-ChoiceField $pw 'fld.st.toastCorner' ([string]$script:Settings['ToastCorner']) @(
         @{ V = 'br'; K = 'opt.corner.br' }, @{ V = 'bl'; K = 'opt.corner.bl' },
         @{ V = 'tl'; K = 'opt.corner.tl' }, @{ V = 'tr'; K = 'opt.corner.tr' })
+    # 提示条停留时长（第七轮）：3 / 5 / 8 秒，或 0 = 不自动关。
+    #   值和角落放一起，因为它们回答的是同一个问题："这条提示条怎么出现、怎么消失"。
+    $toastSecsInit = [string]([int]$script:Settings['ToastSeconds'])
+    if (@('0','3','5','8') -notcontains $toastSecsInit) { $toastSecsInit = '5' }
+    $script:SetToastSeconds = New-ChoiceField $pw 'fld.st.toastSeconds' $toastSecsInit @(
+        @{ V = '3'; K = 'opt.toast.s3' }, @{ V = '5'; K = 'opt.toast.s5' },
+        @{ V = '8'; K = 'opt.toast.s8' }, @{ V = '0'; K = 'opt.toast.hold' })
     # 番茄钟（第三轮就有）挪到窗口页：它算"运行期行为"，不是"长什么样"。
     $script:SetTbPomo = New-EditorField $pw (Get-LangText 'fld.st.pomo') ([string]$script:Settings['PomodoroMin'])
 
@@ -1338,11 +1587,11 @@ function Show-SettingsWindow {
     # ================= 关于页 =================
     [void]$pb.Children.Add((New-Txt -Text 'My Schedule' -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
     [void]$pb.Children.Add((New-Txt -Text 'PowerShell 5.1 + WPF · 单文件·零依赖·纯本地' -Size 10 -Color (Get-Pal 'InkSoft')))
-    $verTxt = 'v0.6'
+    $verTxt = 'v0.7'
     try { if ($null -ne $script:AppVersion) { $verTxt = [string]$script:AppVersion } } catch { }
     [void]$pb.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.version') + $verTxt) -Size 11 -Color (Get-Pal 'Ink')))
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'fld.st.shortcuts') -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
-    foreach ($k in @('sc.newEvent', 'sc.search', 'sc.esc', 'sc.undo')) {
+    foreach ($k in @('sc.newEvent', 'sc.search', 'sc.undo', 'sc.esc', 'sc.tabs')) {
         [void]$pb.Children.Add((New-Txt -Text (Get-LangText $k) -Size 10 -Color (Get-Pal 'InkSoft')))
     }
 
@@ -1370,7 +1619,26 @@ function Show-SettingsWindow {
     } catch { }
     $script:SetWin.Add_KeyDown({
         param($s, $e)
-        if ($e.Key -eq 'Escape') { Close-DialogWindow $script:SetWin $false }
+        # 第七轮（第六轮第二十七节第 2 条）：设置窗页签支持 Ctrl+1..4 键盘导航。
+        #   与"弹窗里 Esc 关闭"形成同一套键盘习惯：手不离开键盘就能翻页 + 退出。
+        #   只在按着 Ctrl 时生效，免得普通数字键（将来若加数字输入框）被吞。
+        if ($e.Key -eq 'Escape') { Close-DialogWindow $script:SetWin $false; return }
+        try {
+            if (([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control) -ne 0) {
+                # 键位表挂在 $script: 上（而不是本处理器局部）：审计要能读它验证映射，
+                #   而且它跟 $script:SetTabKeys 的**页签顺序**必须一致，分散写迟早对不上。
+                $map = @{}
+                for ($ti = 0; $ti -lt 4; $ti++) {
+                    $map['D' + ($ti + 1)] = [string]$script:SetTabKeys[$ti]
+                    $map['NumPad' + ($ti + 1)] = [string]$script:SetTabKeys[$ti]
+                }
+                $k = [string]$e.Key
+                if ($map.ContainsKey($k)) {
+                    if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow ([string]$map[$k]) }
+                    $e.Handled = $true
+                }
+            }
+        } catch { Write-ErrLog ('Settings tab key: ' + $_.Exception.Message) }
     })
     $bReset.Add_Click({
         Reset-Pomodoro
@@ -1743,15 +2011,15 @@ function Show-TaskEditorWindow {
 #  专注设置窗口：启用状态 / 时长 / 任务内容 / 计时控制
 # ---------------------------------------------------------------------------
 function Save-FocusWindowSettings {
-    if ($null -eq $script:FoTbDuration) { return $false }
-    # 时长范围：0-99 分钟自由填（0 = 不计时，只当作"专注状态开关"）。
-    # 上界从 180 收到 99 是刻意的：倒计时按 mm:ss 显示，三位数分钟会撑破浮窗那行 46pt 大字。
-    $m = 0
-    if (-not [int]::TryParse(([string]$script:FoTbDuration.Text).Trim(), [ref]$m) -or $m -lt 0 -or $m -gt 99) {
-        $script:FoErr.Text = 'Session length must be a whole number from 0 to 99 minutes (0 = no countdown).'
-        $script:FoErr.Visibility = 'Visible'
-        return $false
-    }
+    if ($null -eq $script:FoDurationField) { return $false }
+    # 时长范围：0-99 分钟（0 = 不计时，只当作"专注状态开关"）。
+    # 第七轮起时长由四位滚轮维护。**注意单位**：$script:FoDurationMin 存的是**秒**
+    #   （mm:ss 里那 4 位数字的合计），而落库的 PomodoroMin 是**分钟** ——
+    #   这里做一次换算，不要再拿秒去和 99 比（那样 1 分钟的会话会被当成 60 而夹到 99）。
+    #   先向下取整到分钟：走了 90 秒的会话 = 1 分钟（与 Get-FocusElapsedMin 同一口径）。
+    $m = [int][math]::Floor([int]$script:FoDurationMin / 60)
+    if ($m -lt 0) { $m = 0 }
+    if ($m -gt 99) { $m = 99 }
     # 休息时长上界同步收到 99，跟会话同一套心智模型（也是 mm:ss）
     $breakMin = 0
     if (-not [int]::TryParse(([string]$script:FoBreakMin.Text).Trim(), [ref]$breakMin) -or $breakMin -lt 0 -or $breakMin -gt 99) {
@@ -1810,11 +2078,13 @@ function Show-FocusWindow {
     [void]$enabledRow.Children.Add($script:FoEnabled)
     [void]$sp.Children.Add($enabledRow)
 
-    # 0-99 自由填：预设把"常用档"和"边界档"都摆出来 —— 0（不计时）与 99 都在里面，
-    # 用户一眼就知道上下界在哪，不用去猜输入框能填多少。
-    $durationChoices = @('0','5','10','15','20','25','30','45','60','75','90','99')
-    $script:FoTbDuration = New-ComboField $sp (Get-LangText 'fld.fo.duration') `
-        ([string]$script:Settings['PomodoroMin']) $durationChoices
+    # 第七轮（item 5）：时长从"十来个档位的下拉"换成四位数字滚轮。
+    #   用户的说法是"时间是四个数字，给每一位都做成 1-9 可滚动"。
+    #   语义取值仍然是"分钟"（0-99），只是操作方式变了 ——
+    #   Save-FocusWindowSettings 读的是 $script:FoDurationMin，不再是 .Text。
+    #   0 = 不计时（只当专注状态开关）这个约定保持不变。
+    $script:FoDurationField = New-DigitWheelField $sp 'fld.fo.duration' `
+        ([int]$script:Settings['PomodoroMin']) 99
 
     $breakRow = New-Object System.Windows.Controls.StackPanel
     $breakRow.Orientation = 'Horizontal'
@@ -1870,11 +2140,23 @@ function Show-FocusWindow {
     $btnRow = New-Object System.Windows.Controls.StackPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.HorizontalAlignment = 'Right'
-    # Start / Reset 是"动作"，留着；"Save & close" 由标题栏的 × 接管。
+    # 第七轮（item 6）：新增"结束并统计"。原来只有 Start/Pause 与 Reset ——
+    #   用户走完一整个番茄钟才会自动计入统计；中途想收工（干完了/要走了）只有 Reset，
+    #   而 Reset 是**清空**（把已走的分钟数丢掉），等于"这段白干了"。
+    #   现在三件套语义：
+    #     · Start / Pause —— 继续或暂停当前这段；
+    #     · End & log    —— 把**本次已专注的分钟数**结算进今日统计（并计入关联任务），
+    #                       弹提示条告知，计时器归零回到 Ready；
+    #     · Reset        —— 放弃本次，不记录。
+    #   为什么"结束"要能算出"本次已走多少"：剩余时长 = Total - Remaining，
+    #   走完的部分就是 Total - Remaining（Reset 后 Remaining = Total，所以算出来 0）。
     $bStart = New-PixBtn -Text 'Start' -Bg (Get-Pal 'AccentEvent') -Fg '#FFFFFF' -W 94 -H 36 -FontSize 12
+    $bEnd = New-PixBtn -Text 'End & log' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 104 -H 36 -FontSize 12
     $bReset = New-PixBtn -Text 'Reset' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 88 -H 36 -FontSize 12
     $bStart.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+    $bEnd.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     [void]$btnRow.Children.Add($bStart)
+    [void]$btnRow.Children.Add($bEnd)
     [void]$btnRow.Children.Add($bReset)
     [void]$sp.Children.Add($btnRow)
     $script:FoStartText = $bStart.Content
@@ -1916,6 +2198,9 @@ function Show-FocusWindow {
     })
     $bReset.Add_Click({
         try { if (Save-FocusWindowSettings) { Reset-Pomodoro } } catch { Write-ErrLog ('Focus reset: ' + $_.Exception.Message) }
+    })
+    $bEnd.Add_Click({
+        try { End-FocusSession } catch { Write-ErrLog ('Focus end: ' + $_.Exception.Message) }
     })
     # × = 保存设置并关闭；校验不通过就不关（错误提示留在窗口里）。
     $chrome.BtnClose.Add_Click({
@@ -2169,11 +2454,27 @@ function Show-Toast {
         # 事件处理器 scriptblock 真正被 WPF 回调时，函数局部变量（$t / $w）已经随作用域消失，
         # StrictMode 下会直接抛"检索不到变量"，被 catch 吞掉后就表现为"Toast 永不关闭"。
         $script:ToastWindow = $w
+        # ---- 停留时长（第七轮：ToastSeconds）----
+        # 调用方传的 $Seconds 只是"默认值"，设置里选了就覆盖它。
+        #   0 = 不挂定时器 —— 提示条留在屏幕上，直到用户点它（或关了主窗口）。
+        #   为什么不让"0 = 立刻关"：那等于把提示条删掉了，语义上说不通。
+        $secs = [int]$Seconds
+        try {
+            if ($null -ne $script:Settings -and $script:Settings.Contains('ToastSeconds')) {
+                $secs = [int]$script:Settings['ToastSeconds']
+            }
+        } catch { }
+        if ($secs -le 0) {
+            # 手动关闭模式：仍然建一个指向该窗口的引用，方便别处（动作按钮 / 退出）收尾。
+            $script:ToastTimer = $null
+            return
+        }
         $script:ToastTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $script:ToastTimer.Interval = [timespan]::FromSeconds($Seconds)
+        $script:ToastTimer.Interval = [timespan]::FromSeconds($secs)
         $script:ToastTimer.Add_Tick({
             try {
-                $script:ToastTimer.Stop()
+                # 非动作按钮的普通提示条：点它就立即消失（手动关闭模式下这是唯一出口）。
+                if ($null -ne $script:ToastTimer) { $script:ToastTimer.Stop() }
                 if ($null -ne $script:ToastWindow) {
                     $script:ToastWindow.Close()
                     $script:ToastWindow = $null
