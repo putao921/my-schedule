@@ -3579,6 +3579,21 @@ function Invoke-TestActions {
                     }
                     $w.Close()
                 }
+                'settingshot' {
+                    # "settingshot:<name>"：拍设置窗口。第四轮设置里多了
+                    # 字号 / 主题 / 置顶 / 托盘 / 周时段，需要截图留证。
+                    # 这里刻意不点任何东西 —— 拍的就是"刚打开、还是默认值"的样子，
+                    # 那张图要能一眼看出 Appearance 和 Window 两组是新加的。
+                    $w = Show-SettingsWindow
+                    $w.Show(); $w.UpdateLayout()
+                    if ($AllowShot -and $ScreenshotPath) {
+                        $fn = 'settings-window.png'
+                        if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
+                        $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
+                        Save-Shot -Path $p -Window $w
+                    }
+                    $w.Close()
+                }
                 'focusshot' {
                     $w = Show-FocusWindow
                     $w.Show(); $w.UpdateLayout()

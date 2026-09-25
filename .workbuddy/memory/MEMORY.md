@@ -46,7 +46,21 @@
 - **自定义 ComboBox 模板必须含 `TextBox Name="PART_EditableTextBox"` + `IsEditable` 触发器**：否则 `IsEditable=True` 的字段（重复/提醒/优先级）一个字都不显示。
 - **外观断言读"真正画底色的模板元素"**：`ApplyTemplate()` 后 `Template.FindName('PART_Toggle', $x).Background`，并断言"文字色 ≠ 底色"；读控件自己的 `Background` 读不到真相。
 - **周视图时段可调**（全天/常用/工作/上午/下午/晚间/自定义）：状态是 `$script:WeekStartHour` / `WeekEndHour`，映射用 `Week-MinuteToY` / `Get-WeekMinuteFromY`；刻度画在**独立轴层 `WeekAxis`**（换时段只重画轴，不能重建控件，否则 ComboBox 弹层被撕掉）。**拖动写入必须与视觉同夹到 `[Start,End]`**，否则 08:00–20:00 视图里往上拖会写回 00:00、事件直接消失。
-- **六个弹窗共用一套 chrome**：`Get-EditorChrome` 返回 `@{Root;Bar;BarText;BtnClose}`，标题栏是 2 列 Grid（标题 + 34px 关闭位）。改弹窗外观**只改这一个函数**。语义：**右上角 × = 确认并关闭**（各弹窗把旧主按钮的处理器搬过去，校验逻辑不动），**Esc = 放弃修改**；底部不再放 Cancel/Save/Close。× 用独立模板（`New-PixBtn` 的 ContentPresenter 有 9px 内边距，26px 按钮放不下 10px 的 ×）。
+- **六个弹窗共用一套 chrome**：`Get-EditorChrome` 返回 `@{Root;Bar;BarText;BtnSave;BtnCancel;BtnClose}`，标题栏是 **4 列 Grid**（`1*` 标题 + `70px` Save + `74px` Cancel + `34px` ×）。改弹窗外观**只改这一个函数**。
+  - **第四轮语义（三件套）**：`Save` = 保存并关闭；`Cancel` = 关闭**不保存**；`×` = 保存并关闭（与 Save 等价）；`Esc` = Cancel。底部不再放任何按钮。
+  - **Save 不单独写保存逻辑**：`Bind-DialogChromeButtons` 给 Save 挂的处理器是"**手工给 × 触发一次 Click 再吞掉自己**"（`$hit.RaiseEvent(RoutedEventArgs(ButtonBase::ClickEvent))` + `$e.Handled=$true`）→ 全局只有一条真实保存路径，不会漂移。
+  - **`Bind-DialogChromeButtons $chrome $win` 必须在各弹窗的 `$chrome.BtnClose.Add_Click` 之后调用**（Save 转发依赖 × 的处理器已挂好）。
+  - 引用传递一律走 `$s.Tag = @{ kind=...; close=$close; win=$Win }`，**禁止在处理器里读创建函数的局部变量**（见硬规则第 1 条）。踩过的坑：首版这么写 → `catch{}` 吞异常 → 表现是"点 Save 完全没反应"。
+  - × 用独立模板（`New-PixBtn` 的 ContentPresenter 有 9px 内边距，26px 按钮放不下 10px 的 ×）。
+- **全局界面倍率体系（第四轮）**：`$script:UiScale = UiScaleUser × UiScaleAuto`，夹在 `[0.75, 1.60]`。用户档位 4 档（Small 0.85 / Normal 1.00 / Large 1.15 / Huge 1.30）× 窗口宽度自适应 3 档（`<900`→0.90、`>=1280`→1.08、否则 1.00，可由 `Settings['UiAdaptive']` 关掉）。
+  - `Scale-Ui $V` 是**唯一换算入口**，内部 `[math]::Round($r*2.0)/2.0` **取到 0.5 整数倍**（防 ClearType 半像素发虚）。禁止在别处手写 `$x * $script:UiScale`。
+  - `New-Txt` / `New-PixBtn` 内部走倍率；XAML 里 15 处硬编码字号由 `Collect-XamlFontNodes`（`ReadLocalValue(FontSizeProperty)` 判是否 XAML 显式赋值，只采一次）采集基线 → `Apply-UiScale` 按 `base × UiScale` 重设。
+  - **改字号必须重建界面**（`New-Txt` 的字号在创建时定死）→ 走 `Build-Window`（换皮不换窗）；改主题走 `Set-Theme -Sync`（本身就是重建路径，且会带上新倍率）；两者都变时只走一次 `Set-Theme`。
+  - **自适应刻意只做 3 档，不做连续值** —— 连续缩放会让用户拖窗口时看到文字"呼吸"。
+  - 侧栏宽度跟字号走：`$script:NavColWidthScaled = Round(142 × s)` 夹在 `[120, 210]`。
+- **`Save-SettingsDialogValues`（第四轮）**：设置窗的**唯一落库入口**，返回 `$true/$false`。校验失败写 `$script:SetErr`（折叠行，不弹 MessageBox），顶层 catch 也要把消息写进它。设置项现有 7 个（番茄钟时长 / 字号 / 自适应 / 主题 / 置顶 / 关闭到托盘 / 周视图时段）。
+  - 新增设置项的**必做动作**：① 加进 `$script:Settings` 默认值；② 加进 `Save-SettingsDialogValues`；③ 加进 `settings cancel saves nothing` 那条断言的字段清单（否则漏接 Cancel 查不出来）。
+- **裸字号基线上限（第四轮静态规则）**：`SyntaxCheck.ps1` 匹配 `\.FontSize\s*=\s*\d`，上限 **23**。旧写法保持不动，**新增即报红**。下轮把 `New-EditorField` 系列改造后逐步把上限压到 0，届时规则可从"上限"升级为"全禁"。
 - **从未 `Show()` 过的 Window 尺寸恒为 0**，`Window.UpdateLayout()` 修不好 → 无头断言要 `Measure-DialogContent`（内容根上手工 `Measure(∞)` + `Arrange(DesiredSize)`）。同族：非模态窗口赋 `DialogResult` 会抛，必须 `try` 包住（见 `Close-DialogWindow`）；判"控件在不在"别用 `IsVisible`（未 Show 恒 false），用 `Find-AllOfType`。
 - **挂 `DragMove()` 的自定义标题栏要显式放行按钮**：`Test-ClickOnButton` 从 `OriginalSource` 往上走可视树（带 guard），碰到 `ButtonBase` 就 return，否则点按钮会进模态拖动循环。
 - **按文字定位控件的辅助函数在换图标后静默返回 `$null`**：× 的 Content 是 Path，`Find-ButtonByText` 永远找不到 → 用 `Find-DialogClose`（按 `Name='DlgClose'`）。改 UI 文案/图标时 grep 一遍旧判据。
