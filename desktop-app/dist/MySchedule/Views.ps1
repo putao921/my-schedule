@@ -13,10 +13,14 @@ function New-Bd { param([string]$Bg, [string]$Border, [int]$Radius = 7, [double]
     $b.CornerRadius = [System.Windows.CornerRadius]::new($Radius)
     return $b
 }
-function New-Txt { param([string]$Text, [double]$Size = 12, [string]$Color = '', [string]$Weight = 'Normal')
+function New-Txt {
+    # 字号走全局倍率（第四轮）：调用方一律传"设计字号"，实际值由 Scale-Ui 换算。
+    # 这是全项目字号的唯一收口点 —— 在别处手写 FontSize = N 就会漏掉倍率，
+    # SyntaxCheck 里有一条静态规则专门拦这个（见 verification\SyntaxCheck.ps1）。
+    param([string]$Text, [double]$Size = 12, [string]$Color = '', [string]$Weight = 'Normal')
     $t = New-Object System.Windows.Controls.TextBlock
     $t.Text = $Text
-    $t.FontSize = $Size
+    $t.FontSize = (Scale-Ui $Size)
     if ($Color) { $t.Foreground = Brush $Color }
     switch ($Weight) {
         'Bold'   { $t.FontWeight = [System.Windows.FontWeights]::Bold }
@@ -29,22 +33,28 @@ function New-Txt { param([string]$Text, [double]$Size = 12, [string]$Color = '',
 
 # 带硬阴影的按钮（像素风）
 function New-PixBtn {
+    # W / H / FontSize 三个尺寸参数都走全局倍率：按钮的宽高必须跟文字一起长，
+    # 否则放大字号后文字会溢出按钮（或者按钮大而字小，看着像没生效）。
     param([string]$Text, [string]$Bg, [string]$Fg, [double]$W = 0, [double]$H = 30,
           [double]$FontSize = 12, [int]$Radius = 7, [string]$Tag = '',
           [string]$BorderCol = '')
     if (-not $BorderCol) { $BorderCol = Get-Pal 'Border' }
     $btn = New-Object System.Windows.Controls.Button
     $btn.Tag = $Tag
-    $btn.Height = $H
-    if ($W -gt 0) { $btn.Width = $W }
+    $btn.Height = (Scale-Ui $H)
+    if ($W -gt 0) { $btn.Width = (Scale-Ui $W) }
+    # 圆角跟着一起缩放：字号涨了、按钮大了，圆角还停在 7px 会显得"方"，
+    # 失去像素风的圆润感。至少 4px，免得小倍率下退化成尖角。
+    $rad = [int][math]::Round([double]$Radius * [double]$script:UiScale)
+    if ($rad -lt 4) { $rad = 4 }
     $tpl = @"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  TargetType="Button">
   <Grid>
-    <Border x:Name="sh" Background="$(Get-Pal 'Shadow')" CornerRadius="$Radius" Margin="1,1,0,0"/>
+    <Border x:Name="sh" Background="$(Get-Pal 'Shadow')" CornerRadius="$rad" Margin="1,1,0,0"/>
     <Border x:Name="bd" Background="$Bg" BorderBrush="$BorderCol" BorderThickness="2"
-            CornerRadius="$Radius">
+            CornerRadius="$rad">
       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
     </Border>
   </Grid>
@@ -1825,7 +1835,8 @@ function Fill-Tasks {
         $tPriority = [string](Get-TaskField $t 'priority' 'medium')
         $tText     = [string](Get-TaskField $t 'text' '')
         $tId       = [string](Get-TaskField $t 'id' '')
-        # 双击展开：只允许一张卡片处于展开态，展开的是哪张记在 $script:TaskExpandedId 里。
+        # 行内详情面板的展开态：只允许一张卡片处于展开态，展开的是哪张记在
+        # $script:TaskExpandedId 里。第四轮起入口是卡片右端的 ▾/▸ 按钮（不再是双击）。
         # 为什么不做成"多张同时展开"：侧栏纵向空间很紧，展开面板本身就有 ~120px，
         # 多张一起开会把下面的任务全推出视野，反而找不回来。
         $expanded = (-not [string]::IsNullOrWhiteSpace($script:TaskExpandedId)) -and ($script:TaskExpandedId -eq $tId)
@@ -1977,19 +1988,33 @@ function Fill-Tasks {
         $bPost.Add_Click({ param($s,$e) try { Postpone-Task -Id ([string]$s.Tag['id']); $e.Handled = $true } catch { Write-ErrLog ('Postpone task: ' + $_.Exception.Message) } })
         [void]$actRow.Children.Add($bFocus)
         [void]$actRow.Children.Add($bPost)
-        # 展开指示（▾/▸）：没有它用户根本不知道双击能展开。
-        $caret = New-Txt -Text $expCaret -Size 9 -Color (Get-Pal 'InkFaint')
-        $caret.VerticalAlignment = 'Center'
-        $caret.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
-        $caret.ToolTip = $(if ($expanded) { 'Double-click to collapse' } else { 'Double-click for details, Edit and Delete' })
+        # 展开指示器（▾/▸）：第四轮起它不再只是"装饰 + 暗示双击"，
+        # 而是一个**真正可点的按钮** —— 双击卡片现在去开编辑窗口了，
+        # 行内详情面板必须另有一个显式入口，否则这个能力就变成"没人知道怎么用"。
+        # 用 New-PixBtn 而不是 TextBlock：需要一个真正的可点命中区（8px 高的文字
+        # 命中区太小，在卡片右边缘几乎点不到），而且按钮能自带 hover/按下反馈。
+        $caret = New-PixBtn -Text $expCaret -Bg (Get-Pal 'Card') -Fg (Get-Pal 'InkFaint') -W 24 -H 23 -FontSize 9
+        $caret.Tag = @{ kind = 'task-expand'; id = $tId }
+        $caret.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
+        $caret.ToolTip = $(if ($expanded) { 'Hide details' } else { 'Show details' })
+        $caret.Add_Click({
+            param($s,$e)
+            try {
+                if ($null -eq $s.Tag) { return }
+                $hitId = [string]$s.Tag['id']
+                if ($script:TaskExpandedId -eq $hitId) { $script:TaskExpandedId = '' } else { $script:TaskExpandedId = $hitId }
+                Fill-Tasks
+                $e.Handled = $true
+            } catch { Write-ErrLog ('Task expand: ' + $_.Exception.Message) }
+        })
         [void]$actRow.Children.Add($caret)
         [void]$body.Children.Add($actRow)
 
-        # ---- 行内详情面板（双击展开）：完整字段 + Edit / Del ----
+        # ---- 行内详情面板（由卡片上的 ▾/▸ 按钮展开）：完整字段 + Edit / Del ----
         # 为什么把 Edit / Del 放这里而不是继续留在卡片上：
         #   用户在窄侧栏里点这两个按钮的误触率不低（Del 紧挨着 Edit），而它们本身是
-        #   低频动作。收进"要双击才出现"的面板之后，既解决了"双击没反应"的疑惑，
-        #   也给删除动作加了一层天然的护栏。
+        #   低频动作。收进"要显式展开才出现"的面板之后，既给删除动作加了一层护栏，
+        #   也让卡片主行保持干净（只留 Focus / +1 / ▾）。
         # 为什么字段要在这里重复一遍（卡片上已经有芯片）：芯片为了省地方用了缩写
         #   （'09-30' / 'Time 25/60m' / 'Sub 1/3'），而展开面板是"我要看清楚"的场景，
         #   必须给全量原文。
@@ -2113,7 +2138,21 @@ function Fill-Tasks {
             $wrap.Background = Brush (Get-Pal 'Card')
             $wrap.BorderBrush = Brush (Get-Pal 'Border')
         }
-        # 双击展开/收起详情面板。用 MouseLeftButtonUp + ClickCount（而不是 MouseDoubleClick）：
+        # 双击卡片 = 打开任务编辑窗口（第四轮改版）。
+        #
+        # 历史：
+        #   第二轮把 Edit / Del 从卡片收进"双击展开"的行内面板，解决了"双击没反应"；
+        #   但用户第三轮反馈的原话是"双击 task，不能调出修改界面" —— "展开一段只读
+        #   详情 + 再点 Edit" 和 "直接进编辑界面" 是两件事，用户要的是后者。
+        #
+        # 现在：
+        #   · 双击卡片（非按钮区域）-> Open-TaskEditor -Id  —— 直接进编辑窗口
+        #   · 单击卡片上的 ▾/▸ 指示器  -> 切换行内详情面板（原来的展开能力不丢，
+        #     而且从"隐藏的双击"变成"看得见的可点入口"，比原来更好发现）
+        #   · Edit 按钮的处理器里先清 $script:TaskExpandedId 再开窗，
+        #     这样关掉编辑窗口回到列表时不会留着一个展开的面板。
+        #
+        # 为什么仍然用 MouseLeftButtonUp + ClickCount（而不是 MouseDoubleClick）：
         #   卡片上任何一个按钮吃掉一个 click 都会让 MouseDoubleClick 不触发，
         #   而 Up 事件的 ClickCount 在托管的 WPF 路由里稳得多。
         # ClickCount 必须从 $e 上读 —— 写成局部变量在处理器里是看不到的（闭包规则）。
@@ -2121,23 +2160,25 @@ function Fill-Tasks {
             param($s,$e)
             try {
                 if ((Get-MouseClickCount $e) -lt 2) { return }
-                # 第一下已经排了一次"待勾选完成"，双击的意思是"看详情"，不是"勾掉它"。
+                # 第一下已经排了一次"待勾选完成"，双击的意思是"去编辑"，不是"勾掉它"。
                 Cancel-PendingTaskToggle
                 # 统一走 Get-EventSourceOf：手工造的事件 OriginalSource 可能读不到，
                 # 裸读 $e.OriginalSource 在 StrictMode 下会直接抛，把双击彻底打哑。
                 $bt = Test-BtnTag (Get-EventSourceOf $e $s)
-                if ($null -ne $bt -and $null -ne $bt.kind -and (@('task-edit','task-delete','task-focus','task-postpone') -contains [string]$bt.kind)) { return }
-                $hitId = [string]$s.Tag['id']
-                if ($script:TaskExpandedId -eq $hitId) { $script:TaskExpandedId = '' } else { $script:TaskExpandedId = $hitId }
-                # 双击后可能紧跟一次拖拽起点，清掉免得"展开一下就飞了"
+                if ($null -ne $bt -and $null -ne $bt.kind -and (@('task-edit','task-delete','task-focus','task-postpone','task-expand') -contains [string]$bt.kind)) { return }
+                # 双击后可能紧跟一次拖拽起点，清掉免得"开个窗口的功夫卡片飞了"
                 $script:TaskDragId = ''
                 $script:TaskDragPoint = $null
-                Fill-Tasks
+                # 若这张卡正展开着，先收起：不然编辑窗口关掉后回到列表，
+                # 会看到一个"上次展开的面板"还挂在那里，像是没保存生效。
+                $hitId = [string]$s.Tag['id']
+                if ($script:TaskExpandedId -eq $hitId) { $script:TaskExpandedId = '' }
+                Open-TaskEditor -Id $hitId
                 $e.Handled = $true
             } catch {
                 # 日志必须带出处。只写 Exception.Message 的话，从深层脚本块里炸出来的
                 # CommandNotFoundException 只能看到"找不到某个函数"，定位不到是谁在调它 ——
-                # 这次的双击展开面板就是靠 ScriptStackTrace 里的 Views.ps1:1999 钉死的。
+                # 第三轮的双击展开面板就是靠 ScriptStackTrace 里的 Views.ps1:1999 钉死的。
                 $where = ''
                 try {
                     $fr = @(($_.ScriptStackTrace -split "`r?`n") | Where-Object { $_.Trim() })

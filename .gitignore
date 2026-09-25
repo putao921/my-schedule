@@ -10,6 +10,17 @@ desktop-app/**/errors.log
 desktop-app/**/audit.txt
 desktop-app/**/audit.live.txt
 
+# 临时诊断产物（临时写的探针/中间输出，不是交付物）
+desktop-app/_*.txt
+desktop-app/syn2.txt
+desktop-app/syntax.txt
+desktop-app/syntax_tail.txt
+/syntax.txt
+/syntax_tail.txt
+
+# 改动前的源码快照（保留在磁盘上可回滚，但不进版本库）
+desktop-app/backups/
+
 # 系统 / 编辑器
 Thumbs.db
 desktop.ini

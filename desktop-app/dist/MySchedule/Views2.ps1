@@ -136,14 +136,57 @@ function New-ComboField {
     return $cb
 }
 
+function New-SettingsSection {
+    # 设置窗口里的分组小标题（第四轮：设置项从 1 项涨到 7 项，必须分组，
+    # 否则一长条全是控件、找不到自己要改的那一项在哪）。
+    # 上面留一条细分隔线，视觉上把"上一组"和"这一组"切开。
+    param($Parent, [string]$Text)
+    $line = New-Bd -Bg (Get-Pal 'BorderSoft') -Border '' -Radius 0
+    $line.Height = 1.5
+    $line.Margin = [System.Windows.Thickness]::new(0, 14, 0, 8)
+    [void]$Parent.Children.Add($line)
+    [void]$Parent.Children.Add((New-Txt -Text $Text -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
+}
+
+function New-ToggleRow {
+    # 设置项里的复选框行。和 New-EditorField / New-ComboField 一样是"标签在上、
+    # 控件在下"的纵向结构 —— 横向排会把 408px 宽的窗口挤得很乱。
+    # 返回 CheckBox，调用方把它挂到 $script: 上（处理器里读不到局部变量）。
+    param($Parent, [string]$Label, [bool]$Checked = $false, [string]$Hint = '')
+    $cb = New-Object System.Windows.Controls.CheckBox
+    $cb.Content = $Label
+    $cb.IsChecked = $Checked
+    $cb.FontSize = (Scale-Ui 12)
+    $cb.Foreground = Brush (Get-Pal 'Ink')
+    $cb.Margin = [System.Windows.Thickness]::new(0, 4, 0, 2)
+    [void]$Parent.Children.Add($cb)
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        $h = New-Txt -Text $Hint -Size 10 -Color (Get-Pal 'InkFaint')
+        $h.Margin = [System.Windows.Thickness]::new(24, 0, 0, 6)
+        $h.TextWrapping = 'Wrap'
+        [void]$Parent.Children.Add($h)
+    }
+    return $cb
+}
+
 # ---------------------------------------------------------------------------
-#  弹窗的"关闭"语义
+#  弹窗的"关闭"语义（第四轮改版）
 #
-#  六个弹窗（日程编辑 / 设置 / 任务编辑 / 专注 / 头像 / 当日议程）统一只留右上角
-#  一个 ×，底部不再放 Cancel / Save / Close：
-#    · ×  = 确认并关闭（等于原来那个主按钮：Save / Save & close / Close）
-#    · Esc = 放弃修改直接关闭（本来就是这个行为，保留）
-#  所以 × 的处理器由各弹窗自己接（行为不同），这里只提供外观与"是否是按钮"的判定。
+#  第三轮把六个弹窗（日程编辑 / 设置 / 任务编辑 / 专注 / 头像 / 当日议程）压成
+#  只留右上角一个 ×，结果用户反馈两条：
+#    ① "无法直接不保存关闭" —— Esc 是个隐藏快捷键，界面上没有任何可见入口；
+#    ② "也没有保存按钮"     —— × 到底会不会保存，用户只能猜。
+#  "一个 × 兼三职"在设计上是省事，在使用上是把决策成本推给了用户。
+#
+#  第四轮改为标题栏三件套（六弹窗共用，位置固定在右上角）：
+#    · Save    = 确认并保存关闭（校验失败不关，错误留在窗口里）
+#    · Cancel  = 放弃修改直接关闭（= 原 Esc 行为，现在有可见按钮）
+#    · ×       = 等同 Save（保持第三轮建立的肌肉记忆，不让老用户踩空）
+#    · Esc     = 等同 Cancel（保留）
+#  底部仍然不放按钮：动作入口全部集中在标题栏右端，正文区保持干净。
+#
+#  所以保存/放弃的处理器由各弹窗自己接（行为不同），这里只提供外观、
+#  几何排布与"是否是按钮"的判定。
 # ---------------------------------------------------------------------------
 function Test-ClickOnButton {
     # 标题栏挂的是 DragMove。按钮内部的 MouseLeftButtonDown 理论上会被 ButtonBase
@@ -275,6 +318,63 @@ function Enable-DialogDrag {
     })
 }
 
+function New-DialogBarButton {
+    # 标题栏上的文字按钮（Save / Cancel）。与 × 一样是"手写模板 + 自带配色"，
+    # 不走 New-PixBtn：那个模板的 ContentPresenter 带 9px 水平内边距，
+    # 在 38px 高的标题栏里会把按钮撑得很高，且它的阴影边框在细标题栏里太重。
+    # Name 由调用方给：审计要按 Name 精确定位（文字随语言/文案变动，Name 不会）。
+    param([string]$Text, [string]$Name, [string]$Bg, [string]$Fg = '', [double]$W = 0.0, [string]$Tip = '')
+    if (-not $Fg) { $Fg = Get-Pal 'Ink' }
+    $hover = Get-Pal 'CardAlt'
+    $press = Get-Pal 'BorderSoft'
+    $btn = New-Object System.Windows.Controls.Button
+    $btn.Name = $Name
+    $btn.Height = 24
+    if ($W -gt 0.0) { $btn.Width = $W }
+    $btn.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
+    $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+    if ($Tip) { $btn.ToolTip = $Tip }
+    $pad = '8,0'
+    $tpl = @"
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 TargetType="Button">
+  <Border x:Name="bd" Background="$Bg" BorderBrush="$(Get-Pal 'Border')" BorderThickness="1.5"
+          CornerRadius="6">
+    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="$pad"/>
+  </Border>
+  <ControlTemplate.Triggers>
+    <Trigger Property="IsMouseOver" Value="True">
+      <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+    </Trigger>
+    <Trigger Property="IsPressed" Value="True">
+      <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+    </Trigger>
+  </ControlTemplate.Triggers>
+</ControlTemplate>
+"@
+    $reader = New-Object System.Xml.XmlNodeReader ([xml]$tpl)
+    $btn.Template = [System.Windows.Markup.XamlReader]::Load($reader)
+    $btn.Content = (New-Txt -Text $Text -Size 11 -Color $Fg -Weight 'Semi')
+    return $btn
+}
+
+function New-DialogSaveButton {
+    # 主按钮：用当前主题的强调色，视觉上明确区分"保存"与"放弃"。
+    param([string]$Text = 'Save')
+    return (New-DialogBarButton -Text $Text -Name 'DlgSave' `
+        -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 64.0 `
+        -Tip 'Save and close  (same as the x button)')
+}
+
+function New-DialogCancelButton {
+    # 次按钮：走卡片底色，和标题栏同色系，表示"什么都不做直接走"。
+    param([string]$Text = 'Cancel')
+    return (New-DialogBarButton -Text $Text -Name 'DlgCancel' `
+        -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 68.0 `
+        -Tip 'Close without saving  (same as Esc)')
+}
+
 function New-DialogCloseButton {
     # 不用 New-PixBtn：那个模板的 ContentPresenter 带 9px 水平内边距，
     # 26px 宽的按钮里塞不下 10px 的 ×（会被压成一条竖线）。
@@ -289,7 +389,7 @@ function New-DialogCloseButton {
     $btn.Height = 24
     $btn.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     $btn.Cursor = [System.Windows.Input.Cursors]::Hand
-    $btn.ToolTip = 'Close  (Esc = discard changes)'
+    $btn.ToolTip = 'Save and close  (Esc = discard changes)'
     $tpl = @"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -315,6 +415,59 @@ function New-DialogCloseButton {
     return $btn
 }
 
+function Bind-DialogChromeButtons {
+    # 把标题栏三件套接上：Save 与 × 走同一条保存路径，Cancel 走"放弃修改"。
+    #
+    # 为什么必须放在各弹窗挂完 $chrome.BtnClose.Add_Click 之后再调：
+    #   Save 的实现是 RaiseEvent(ClickEvent) 打到 × 上，复用它的处理器。
+    #   如果在挂 BtnClose 之前就绑，Save 点下去什么也不会发生 —— 而按钮看上去
+    #   一切正常，是最难查的一类"静默失效"。所以调用点必须紧跟 BtnClose 之后。
+    #
+    # 为什么 Save 用 RaiseEvent 而不是把保存逻辑抽成命名函数：
+    #   各弹窗的保存逻辑都闭包着窗口局部状态（$script:EdWin / $script:TkWin …），
+    #   抽函数要额外传一堆参数、还得把校验分支原样搬一遍，两份代码迟早漂移。
+    #   打一个 Click 事件给 × 是零重复的方案：保存逻辑全世界只有一份。
+    #
+    # 作用域：处理器里只能读 $script: 和形参 —— 这个函数的局部变量（$close / $Win）
+    #   在处理器真正触发时早已随作用域销毁，StrictMode 下直接抛"检索不到变量"，
+    #   而异常会被下面的 catch 吞掉，表现成"点 Save / Cancel 没反应"。
+    #   所以两个引用一律走 $s.Tag（$s 就是被点的那个按钮，是形参天然带进来的）：
+    #     · BtnSave.Tag   = 同 chrome 里的 × 按钮
+    #     · BtnCancel.Tag = 该弹窗的 Window
+    param($Chrome, $Win)
+    if ($null -eq $Chrome) { return }
+    $save = $Chrome['BtnSave']
+    $cancel = $Chrome['BtnCancel']
+    $close = $Chrome['BtnClose']
+    # Tag 上放窗体引用。注意 Button.Tag 默认是 $null，直接赋值即可。
+    if ($null -ne $save -and $null -ne $close) {
+        $save.Tag = @{ kind = 'dlg-save'; close = $close }
+        $save.Add_Click({
+            param($s, $e)
+            try {
+                $hit = $null
+                if ($null -ne $s -and $null -ne $s.Tag -and ($s.Tag -is [hashtable])) { $hit = $s.Tag['close'] }
+                if ($null -eq $hit) { return }
+                $hit.RaiseEvent((New-Object System.Windows.RoutedEventArgs(
+                    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+                $e.Handled = $true
+            } catch { Write-ErrLog ('Dialog save: ' + $_.Exception.Message) }
+        })
+    }
+    if ($null -ne $cancel) {
+        $cancel.Tag = @{ kind = 'dlg-cancel'; win = $Win }
+        $cancel.Add_Click({
+            param($s, $e)
+            try {
+                $w = $null
+                if ($null -ne $s -and $null -ne $s.Tag -and ($s.Tag -is [hashtable])) { $w = $s.Tag['win'] }
+                Close-DialogWindow $w $false
+                $e.Handled = $true
+            } catch { Write-ErrLog ('Dialog cancel: ' + $_.Exception.Message) }
+        })
+    }
+}
+
 function Get-EditorChrome {
     # 参数类型不能写 Control：StackPanel 继承自 Panel（Panel -> FrameworkElement -> UIElement），
     # 并不在 Control 这条继承链上，传 StackPanel 会在参数绑定阶段就抛
@@ -332,15 +485,19 @@ function Get-EditorChrome {
     $bar.BorderBrush = Brush (Get-Pal 'Border')
     $bar.BorderThickness = [System.Windows.Thickness]::new(2, 2, 2, 0)
     $bar.CornerRadius = [System.Windows.CornerRadius]::new(10, 10, 0, 0)
-    # 标题栏 = [标题(占满)] + [右上角 ×]。用 Grid 而不是 DockPanel：
-    # DockPanel 要先加的被停靠项，写反了标题会被 × 挤到中间。
+    # 标题栏 = [标题(占满)] + [Save] + [Cancel] + [×]。用 Grid 而不是 DockPanel：
+    # DockPanel 要先加的被停靠项，写反了标题会被按钮挤到中间。
+    # 固定宽度列的尺寸必须在这里跟按钮的 Width + Margin 对齐，改一处要同步另一处，
+    # 否则 Save 会被裁掉一半（Grid 不会因为内容超宽就撑开）。
     $barGrid = New-Object System.Windows.Controls.Grid
     $cdTitle = New-Object System.Windows.Controls.ColumnDefinition
     $cdTitle.Width = [System.Windows.GridLength]::new(1, 'Star')
     $barGrid.ColumnDefinitions.Add($cdTitle)
-    $cdBtn = New-Object System.Windows.Controls.ColumnDefinition
-    $cdBtn.Width = [System.Windows.GridLength]::new(34, 'Pixel')
-    $barGrid.ColumnDefinitions.Add($cdBtn)
+    foreach ($px in @(70.0, 74.0, 34.0)) {
+        $cd = New-Object System.Windows.Controls.ColumnDefinition
+        $cd.Width = [System.Windows.GridLength]::new($px, 'Pixel')
+        $barGrid.ColumnDefinitions.Add($cd)
+    }
 
     $barTxt = New-Txt -Text $Title -Size 12 -Color (Get-Pal 'Ink') -Weight 'Semi'
     $barTxt.VerticalAlignment = 'Center'
@@ -348,9 +505,19 @@ function Get-EditorChrome {
     [System.Windows.Controls.Grid]::SetColumn($barTxt, 0)
     [void]$barGrid.Children.Add($barTxt)
 
+    $btnSave = New-DialogSaveButton
+    $btnSave.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
+    [void]$barGrid.Children.Add($btnSave)
+
+    $btnCancel = New-DialogCancelButton
+    $btnCancel.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($btnCancel, 2)
+    [void]$barGrid.Children.Add($btnCancel)
+
     $btnClose = New-DialogCloseButton
     $btnClose.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnClose, 1)
+    [System.Windows.Controls.Grid]::SetColumn($btnClose, 3)
     [void]$barGrid.Children.Add($btnClose)
 
     $bar.Child = $barGrid
@@ -371,7 +538,8 @@ function Get-EditorChrome {
     $root.CornerRadius = [System.Windows.CornerRadius]::new(12)
     $root.Padding = [System.Windows.Thickness]::new(0)
     $root.Child = $wrap
-    return @{ Root = $root; Bar = $bar; BarText = $barTxt; BtnClose = $btnClose }
+    return @{ Root = $root; Bar = $bar; BarText = $barTxt;
+              BtnSave = $btnSave; BtnCancel = $btnCancel; BtnClose = $btnClose }
 }
 
 # ---------------------------------------------------------------------------
@@ -629,6 +797,8 @@ function Show-EventEditorWindow {
         Close-DialogWindow $script:EdWin $true
         Refresh-All
     })
+    # 标题栏 Save / Cancel 接上（必须在 × 的处理器挂好之后调，见函数注释）
+    Bind-DialogChromeButtons $chrome $script:EdWin
     $script:EdTbTitle.Focus() | Out-Null
     return $script:EdWin
 }
@@ -636,6 +806,103 @@ function Show-EventEditorWindow {
 # ---------------------------------------------------------------------------
 #  设置 / 专注统计
 # ---------------------------------------------------------------------------
+function Save-SettingsDialogValues {
+    # 把设置窗口里的所有控件读回 $script:Settings 并落盘。
+    #
+    # 为什么抽成命名函数而不是写在 × 的处理器里：
+    #   第四轮设置项涨到 7 个，处理器里再堆这些分支会长得看不清；
+    #   而且"字号 / 主题"这类改动需要在别处复用（例如将来加"恢复默认"按钮）。
+    #   处理器只负责"调它、关窗、刷新"，逻辑在这儿。
+    #
+    # 返回值：$true = 全部接受；$false = 有校验失败（窗口不该关）。
+    # 校验失败时错误显示在 $script:SetErr 那一行（新增），不弹 MessageBox ——
+    # 与项目里其它弹窗一致：错误提示留在出错的地方附近。
+    $script:SetErr.Visibility = 'Collapsed'
+
+    # ---- 番茄钟时长（第三轮就有） ----
+    $m = 0
+    if (-not [int]::TryParse(([string]$script:SetTbPomo.Text).Trim(), [ref]$m) -or $m -lt 0 -or $m -gt 99) {
+        $script:SetErr.Text = 'Session length must be a whole number from 0 to 99 minutes (0 = no countdown).'
+        $script:SetErr.Visibility = 'Visible'
+        return $false
+    }
+
+    # ---- 字号档位 ----
+    $scaleVal = 1.0
+    $scaleName = [string]$script:SetUiScale.Text
+    if ($script:SetScaleChoices.Contains($scaleName)) {
+        $scaleVal = [double]$script:SetScaleChoices[$scaleName]
+    } else {
+        # 用户手打了别的字（ComboBox 是可编辑的）：不报错，静默回落到 Normal，
+        # 但把控件文字改回去 —— 否则用户会以为"我输入的值生效了"。
+        $scaleVal = 1.0
+        $scaleName = 'Normal'
+        $script:SetUiScale.Text = 'Normal'
+    }
+
+    # ---- 周视图默认时段 ----
+    $weekRange = ([string]$script:SetWeekRange.Text).Trim()
+    $rangeOk = $false
+    if ($weekRange -match '^(\d{1,2})-(\d{1,2})$') {
+        $rh1 = [int]$Matches[1]; $rh2 = [int]$Matches[2]
+        # 与 Set-WeekRange 同一套规则：起 0..23、止 1..24、起 < 止。
+        # 两处不能各说各话，否则设置里存了个 Set-WeekRange 会拒绝的区间。
+        if ($rh1 -ge 0 -and $rh1 -le 23 -and $rh2 -ge 1 -and $rh2 -le 24 -and $rh1 -lt $rh2) { $rangeOk = $true }
+    }
+    if (-not $rangeOk) { $weekRange = '0-24' }
+
+    # ---- 落库 ----
+    $oldTheme = [string]$script:Theme
+    $oldScale = [double]$script:Settings['UiScale']
+    $script:Settings['PomodoroMin'] = $m
+    $script:Settings['UiScale'] = $scaleVal
+    $script:Settings['UiAdaptive'] = [bool]$script:SetUiAdaptive.IsChecked
+    $script:Settings['Topmost'] = [bool]$script:SetTopmost.IsChecked
+    $script:Settings['CloseToTray'] = [bool]$script:SetCloseToTray.IsChecked
+    $script:Settings['WeekViewRange'] = $weekRange
+    $newTheme = ([string]$script:SetThemeBox.Text).ToLowerInvariant()
+    if (@('light','night') -notcontains $newTheme) { $newTheme = 'light' }
+    $script:Settings['Theme'] = $newTheme
+
+    # 应用到运行时状态
+    $script:UiScaleUser = $scaleVal
+    [void](Update-UiScale)
+    $script:TopmostOn = [bool]$script:SetTopmost.IsChecked
+    try { if ($null -ne $script:MainWindow) { $script:MainWindow.Topmost = [bool]$script:TopmostOn } } catch { }
+    $script:CloseToTray = [bool]$script:Settings['CloseToTray']
+
+    Save-Settings
+    Reset-Pomodoro
+
+    # ---- 需要重建界面的改动 ----
+    # 字号变了：代码 new 出来的控件（New-Txt / New-PixBtn）字号在创建时就定死了，
+    #   只有重建整棵树才会按新倍率重画。所以走 Build-Window（换皮不换窗，窗口对象不变）。
+    # 主题变了：Set-Theme 本身就是重建路径，且它会带上新的 UiScale。
+    # 两者都变时只走一次（Set-Theme -Sync），避免重建两遍。
+    $scaleChanged = ([math]::Abs([double]$oldScale - $scaleVal) -gt 0.001)
+    $themeChanged = ($oldTheme -ne $newTheme)
+    try {
+        if ($themeChanged) {
+            Set-Theme $newTheme -Sync
+        } elseif ($scaleChanged) {
+            Build-Window
+            Refresh-All
+        } else {
+            Apply-UiScale
+            Refresh-All
+        }
+    } catch { Write-ErrLog ('Settings apply: ' + $_.Exception.Message) }
+
+    # 周视图时段：只在用户当前就在周视图时才立刻应用（否则会改掉"下次进周视图"的默认值）
+    try {
+        if ($weekRange -match '^(\d{1,2})-(\d{1,2})$') {
+            if ($script:View -eq 'week') { [void](Set-WeekRange ([int]$Matches[1]) ([int]$Matches[2])) }
+        }
+    } catch { }
+
+    return $true
+}
+
 function Show-SettingsWindow {
     $script:SetWin = New-Object System.Windows.Window
     $script:SetWin.Title = 'Settings'
@@ -671,6 +938,46 @@ function Show-SettingsWindow {
     [void]$sp.Children.Add($dirBox)
 
     $script:SetTbPomo = New-EditorField $sp 'Session length (0-99 minutes; 0 = no countdown)' ([string]$script:Settings['PomodoroMin'])
+
+    # ================= 外观（第四轮新增） =================
+    #  这一组是用户报的"在 setting 处增加修改字号、调整主题以及其他软件常用设置"。
+    #  为什么字号用"档位下拉"而不是滑块：档位是离散的、可预期的（小/标准/大/特大），
+    #  滑块会让人反复调、还调不出"和默认一样"的那个点。
+    New-SettingsSection $sp 'Appearance'
+    # 档位键做成"显示文字 -> 倍率"的映射表，存在 $script: 上：
+    # 处理器里要用它做反查，而它是本函数的局部变量（处理器触发时已销毁）。
+    $script:SetScaleChoices = [ordered]@{
+        'Small'  = 0.85
+        'Normal' = 1.00
+        'Large'  = 1.15
+        'Huge'   = 1.30
+    }
+    # 反查当前档位名：存的是倍率，配置被手改成一个"不在档位表里"的值时回落到 Normal。
+    $curScale = [double]$script:Settings['UiScale']
+    $curScaleName = 'Normal'
+    foreach ($k in $script:SetScaleChoices.Keys) {
+        if ([math]::Abs([double]$script:SetScaleChoices[$k] - $curScale) -lt 0.001) { $curScaleName = $k; break }
+    }
+    $script:SetUiScale = New-ComboField $sp 'Text size  (also follows the window width)' $curScaleName @('Small','Normal','Large','Huge')
+    $script:SetUiScale.IsEditable = $false
+
+    $script:SetUiAdaptive = New-ToggleRow $sp 'Let text size follow the window width' `
+        ([bool]$script:Settings['UiAdaptive']) `
+        'On: text grows a little in wide windows and shrinks in narrow ones. Off: text size only depends on the choice above.'
+
+    $script:SetThemeBox = New-ComboField $sp 'Theme' $(if ($script:Theme -eq 'night') { 'Night' } else { 'Light' }) @('Light','Night')
+    $script:SetThemeBox.IsEditable = $false
+
+    # ================= Window（第四轮新增） =================
+    New-SettingsSection $sp 'Window'
+    $script:SetTopmost = New-ToggleRow $sp 'Keep the window on top of other windows' `
+        ([bool]$script:Settings['Topmost'])
+    $script:SetCloseToTray = New-ToggleRow $sp 'Closing the window hides it to the tray' `
+        ([bool]$script:Settings['CloseToTray']) `
+        'On: the x button hides the window and the app keeps running in the tray. Off: the x button asks whether to quit.'
+    $script:SetWeekRange = New-ComboField $sp 'Hours shown in the week view by default' `
+        ([string]$script:Settings['WeekViewRange']) @('0-24','8-20','6-22','9-18')
+    $script:SetWeekRange.IsEditable = $false
 
     # 近 7 天专注柱状
     [void]$sp.Children.Add((New-Txt -Text 'Focus last 7 days (minutes)' -Size 10 -Color (Get-Pal 'InkFaint')))
@@ -717,11 +1024,20 @@ function Show-SettingsWindow {
     [void]$sp.Children.Add((New-Txt -Text ("Events {0} (done {1}) · Open tasks {2}" -f $allN, $doneN, $openN) `
         -Size 11 -Color (Get-Pal 'InkSoft')))
 
+    # 校验错误行：默认折叠，只有在 Save-SettingsDialogValues 返回 $false 时才显形。
+    #  为什么放在按钮行上方而不是底部：底部按钮行已撤销，这里是唯一"离眼睛近"的地方；
+    #  而且错误行出现/消失会推挤下面的按钮，反而更醒目。
+    $script:SetErr = New-Txt -Text '' -Size 10 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
+    $script:SetErr.Visibility = 'Collapsed'
+    $script:SetErr.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
+    $script:SetErr.TextWrapping = 'Wrap'
+    [void]$sp.Children.Add($script:SetErr)
+
     $btnRow = New-Object System.Windows.Controls.StackPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.HorizontalAlignment = 'Right'
-    $btnRow.Margin = [System.Windows.Thickness]::new(0, 16, 0, 0)
-    # 只留两个"动作"按钮；关窗统一走标题栏的 ×（× 里带上番茄钟时长的保存）。
+    $btnRow.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
+    # 只留两个"动作"按钮；保存/放弃统一走标题栏的 Save / Cancel / ×（三者语义见 New-DialogSaveButton 注释）。
     $bReset = New-PixBtn -Text 'Reset timer' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 110 -H 34 -FontSize 12
     $bOpen = New-PixBtn -Text 'Open folder' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 106 -H 34 -FontSize 12
     $bReset.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
@@ -749,18 +1065,24 @@ function Show-SettingsWindow {
         Close-DialogWindow $script:SetWin $true
     })
     $bOpen.Add_Click({ Open-DataFolder })
+    # × / Save 都走 Save-SettingsDialogValues（统一落库入口），Cancel 走 Bind-DialogChromeButtons 的
+    #   Close-DialogWindow $win $false —— 三者语义差异是这一轮的验收点，不能各自为政。
+    #   这里仍然保留 × 的原生处理器（Bind-DialogChromeButtons 只是把 Save 转发到 ×，不覆盖 × 自身）。
     $chrome.BtnClose.Add_Click({
-        $m = 0
-        if ([int]::TryParse(([string]$script:SetTbPomo.Text).Trim(), [ref]$m)) {
-            # 0-99 自由填，0 = 不计时（与 Focus 浮窗同一套规则，两处不能各说各话）
-            if ($m -ge 0 -and $m -le 99) {
-                $script:Settings['PomodoroMin'] = $m
-                Save-Settings
-                Reset-Pomodoro
-            }
+        try {
+            if (Save-SettingsDialogValues) { Close-DialogWindow $script:SetWin $true }
+        } catch {
+            # 真正把异常露出来：静默吞掉会导致"点保存没反应"这种最难查的 bug。
+            try {
+                if ($null -ne $script:SetErr) {
+                    $script:SetErr.Text = ('Could not save: ' + $_.Exception.Message)
+                    $script:SetErr.Visibility = 'Visible'
+                }
+            } catch { }
+            Write-ErrLog ('Settings save: ' + $_.Exception.Message)
         }
-        Close-DialogWindow $script:SetWin $true
     })
+    Bind-DialogChromeButtons $chrome $script:SetWin
     return $script:SetWin
 }
 
@@ -815,6 +1137,10 @@ function Show-DayAgendaWindow {
         try { $script:DayAgendaWin.DragMove() } catch { }
     })
     $chrome.BtnClose.Add_Click({ Close-DialogWindow $script:DayAgendaWin $true })
+    # 当日议程是只读列表：Save 与 × 同义（都是"关掉"），Cancel 也是"关掉"。
+    # 仍然接上，保证六个弹窗的标题栏按钮行为一致 —— 一个弹窗不响应 Save
+    # 会让人以为程序卡了，比"这个按钮其实没意义"更糟。
+    Bind-DialogChromeButtons $chrome $win
     try { if ($null -ne $script:MainWindow -and $script:MainWindow.IsVisible) { $win.Owner = $script:MainWindow } } catch { }
     $win.Add_KeyDown({ param($s,$e) if ($e.Key -eq 'Escape') { Close-DialogWindow $script:DayAgendaWin $false } })
     return $win
@@ -1088,6 +1414,7 @@ function Show-TaskEditorWindow {
             Close-DialogWindow $script:TkWin $true
         } catch { Write-ErrLog ('Task save: ' + $_.Exception.Message) }
     })
+    Bind-DialogChromeButtons $chrome $script:TkWin
     $script:TkText.Focus() | Out-Null
     return $script:TkWin
 }
@@ -1274,6 +1601,7 @@ function Show-FocusWindow {
     $chrome.BtnClose.Add_Click({
         try { if (Save-FocusWindowSettings) { Close-DialogWindow $script:FoWin $true } } catch { Write-ErrLog ('Focus save: ' + $_.Exception.Message) }
     })
+    Bind-DialogChromeButtons $chrome $script:FoWin
     Update-PomodoroVisual
     return $script:FoWin
 }
@@ -1394,6 +1722,9 @@ function Show-AvatarWindow {
             Close-DialogWindow $script:AvWin $true
         } catch { Write-ErrLog ('Avatar save: ' + $_.Exception.Message) }
     })
+    # 头像窗口的 Cancel 语义"撤销草稿"：选完图后 Cancel 必须把预览与草稿一起回退，
+    # 否则用户点了 Cancel 却发现头像已经变了（Apply-AvatarImage 是立刻生效的）。
+    Bind-DialogChromeButtons $chrome $script:AvWin
     return $script:AvWin
 }
 

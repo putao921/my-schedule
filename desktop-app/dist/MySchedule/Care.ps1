@@ -548,8 +548,88 @@ function Set-NavCollapsed {
         $script:NavCol.Width = [System.Windows.GridLength]::new(0, 'Pixel')
         $script:NavPanel.Visibility = 'Collapsed'
     } else {
-        $script:NavCol.Width = [System.Windows.GridLength]::new(142, 'Pixel')
+        # 宽度取 Apply-UiScale 算好的缩放值（默认 142）。以前写死 142，
+        # 字号放大之后导航文字会被这个固定宽度挤成两行。
+        $w = 142.0
+        try { if ($null -ne $script:NavColWidthScaled) { $w = [double]$script:NavColWidthScaled } } catch { }
+        $script:NavCol.Width = [System.Windows.GridLength]::new($w, 'Pixel')
         $script:NavPanel.Visibility = 'Visible'
+    }
+}
+
+function Collect-XamlFontNodes {
+    # 采集 Ui.ps1 内嵌 XAML 里所有带硬编码 FontSize 的元素，把"设计字号"记下来。
+    #
+    # 为什么需要这一步：那些 FontSize 是 XAML 解析时就烘进对象里的字面量，
+    # New-Txt 工厂管不到它们（它们根本不是 New-Txt 造出来的）。要让字号倍率对
+    # 标题栏 / HeroDate / CalPeriod / 侧栏导航文字也生效，只能事后遍历一遍。
+    #
+    # 为什么现在采、而不是每次 Apply-UiScale 都采：
+    #   采到的"基础值"必须永远是设计值。如果每次都重新采，第二次采到的就已经是
+    #   被乘过的值，再乘一遍 -> 0.85 → 0.72 → 0.61 指数塌陷。
+    #   所以只在 Build-Window 里采一次，之后 Apply-UiScale 一律按这份基线赋值。
+    param($Root)
+    $script:XamlFontNodes = New-Object System.Collections.ArrayList
+    if ($null -eq $Root) { return }
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Root)
+    $guard = 0
+    while ($stack.Count -gt 0 -and $guard -lt 60000) {
+        $guard++
+        $n = $stack.Pop()
+        if ($null -eq $n) { continue }
+        $tb = $n -as [System.Windows.Controls.TextBlock]
+        if ($null -ne $tb) {
+            # 只采 XAML 里显式写了 FontSize 的（继承来的默认值不该被我们改写）。
+            # TextBlock 的 FontSize 没有"是否本地赋值"的公开 API，用 LocalValue
+            # 与 DependencyProperty 比对来判断：显式写了才会有 LocalValue。
+            try {
+                $lv = $tb.ReadLocalValue([System.Windows.Controls.TextBlock]::FontSizeProperty)
+                if ($null -ne $lv -and $lv -isnot [System.Windows.DependencyProperty]) {
+                    $base = [double]$tb.FontSize
+                    if ($base -gt 0.0) {
+                        [void]$script:XamlFontNodes.Add(@{ node = $tb; base = $base })
+                    }
+                }
+            } catch { }
+        }
+        $kids = @()
+        if ($n -is [System.Windows.Controls.Panel]) { $kids = $n.Children }
+        elseif ($n -is [System.Windows.Controls.Decorator]) { $kids = @($n.Child) }
+        elseif ($n -is [System.Windows.Controls.ContentControl]) { $kids = @($n.Content) }
+        foreach ($k in $kids) { $stack.Push($k) }
+    }
+    Write-Trace ('xaml font nodes = ' + @($script:XamlFontNodes).Count)
+}
+
+function Apply-UiScale {
+    # 把当前倍率正式落到界面上。三件事：
+    #   ① 重算 $script:UiScale（User × Auto）
+    #   ② XAML 那批硬编码字号按基线 × 倍率重设
+    #   ③ 侧栏宽度这类"跟字号一起长"的固定像素量同步调整
+    #
+    # 注意：代码 new 出来的控件（New-Txt / New-PixBtn）**不需要**在这里处理 ——
+    # 它们的字号在创建时就已经按当时的倍率算好了。改了倍率要重建才会生效，
+    # 所以改设置的入口那边走的是 Refresh-All / Build-Window 重建路径。
+    param()
+    [void](Update-UiScale)
+    $s = [double]$script:UiScale
+    foreach ($e in @($script:XamlFontNodes)) {
+        try {
+            $node = $e['node']
+            if ($null -eq $node) { continue }
+            $v = [double]$e['base'] * $s
+            $node.FontSize = [math]::Round($v * 2.0) / 2.0
+        } catch { }
+    }
+    # 侧栏宽度：导航文字放大后 142px 会挤，跟着倍率一起放。
+    # 夹在 [120, 210]：太窄文字换行，太宽把内容区吃掉。
+    if ($null -ne $script:NavCol) {
+        $w = [math]::Round(142.0 * $s)
+        if ($w -lt 120.0) { $w = 120.0 }
+        if ($w -gt 210.0) { $w = 210.0 }
+        $script:NavColWidthScaled = $w
+        try { Set-NavCollapsed ([bool]$script:NavUserCollapsed) } catch { }
     }
 }
 
@@ -561,9 +641,32 @@ function Apply-ResponsiveLayout {
     # 曾经在窗口 < 980px 时自动折叠，问题是：用户缩小窗口只是想看看别的东西，
     # 侧栏却自己没了，再放大也不会自己回来（NavUserCollapsed 被写成了"用户选的"）。
     Set-NavCollapsed ([bool]$script:NavUserCollapsed)
-    if ($null -ne $script:HeroTitle) {
-        if ($width -lt 860.0) { $script:HeroTitle.FontSize = 24 } else { $script:HeroTitle.FontSize = 28 }
+
+    # --- 字号自适应（第四轮）：按窗口宽度给一个 0.9 / 1.0 / 1.08 的自适应因子 ---
+    # 为什么宽窗口要"更大"而不只是"不变"：宽窗口下内容区很空，同样的字号看着更小；
+    # 稍微放大能保持视觉密度一致。窄窗口则缩一点，给内容腾地方（否则按钮会互相挤）。
+    # 开关关掉时固定为 1.0，让"我就想字号永远不变"的用户得到完全稳定的结果。
+    if ([bool]$script:Settings['UiAdaptive']) {
+        if ($width -lt 900.0) { $script:UiScaleAuto = 0.90 }
+        elseif ($width -ge 1280.0) { $script:UiScaleAuto = 1.08 }
+        else { $script:UiScaleAuto = 1.00 }
+    } else {
+        $script:UiScaleAuto = 1.00
     }
+    $scaleChanged = ([math]::Abs([double]$script:UiScale -
+        ([double]$script:UiScaleUser * [double]$script:UiScaleAuto)) -gt 0.0001)
+    if ($scaleChanged) { Apply-UiScale }
+
+    # HeroTitle 以前是硬编码 24/28 的特例，现在并进倍率体系：
+    # 它的设计字号是 28，窄窗口靠自适应因子（0.90）自然缩到 25。
+    # 保留一条更狠的"极窄"分支：< 760px 时额外降到 0.85，否则标题会换行。
+    if ($null -ne $script:HeroTitle) {
+        $heroDesign = 28.0
+        $heroFactor = [double]$script:UiScale
+        if ($width -lt 760.0) { $heroFactor = $heroFactor * 0.85 }
+        $script:HeroTitle.FontSize = [math]::Round($heroDesign * $heroFactor * 2.0) / 2.0
+    }
+    # 下面两条按宽度隐藏次要文字：这是"空间不够就别硬塞"，不是字号问题，保留原逻辑。
     if ($null -ne $script:HeroStats) {
         if ($width -lt 820.0) { $script:HeroStats.Visibility = 'Collapsed' }
         else { $script:HeroStats.Visibility = 'Visible' }
@@ -904,6 +1007,12 @@ function Build-Window {
     Draw-Avatar $script:AvatarCanvas
     Apply-AvatarImage -Path ([string]$script:Settings['AvatarPath']) | Out-Null
     Draw-AllIcons $n
+
+    # ---- 字号倍率基线 ----
+    # 必须在"树刚建好、还没被任何倍率改写"的时刻采一次：这份基线是设计值，
+    # Apply-UiScale 每次都用它 × 当前倍率，才不会累计放大（见 Collect-XamlFontNodes）。
+    Collect-XamlFontNodes $w.Content
+    Apply-UiScale
 
     Attach-ViewHandlers $script:NodeHost
 

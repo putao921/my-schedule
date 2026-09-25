@@ -8,7 +8,7 @@ function W { param([string]$t) $lines.Add($t) }
 
 $files = @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1',
            'verification\RegressionHarness.ps1', 'verification\RunApp.ps1',
-           'verification\SyntaxCheck.ps1')
+           'verification\RunShots10.ps1', 'verification\SyntaxCheck.ps1')
 $errTotal = 0
 W ("Root: " + $Root)
 W ("Time: " + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
@@ -217,6 +217,45 @@ if (@($paBad).Count -eq 0) {
 } else {
     W ('[BAD ] 有函数参数叫 $Args ' + @($paBad).Count + ' 处:')
     foreach ($l in $paBad) { W ('      ' + $l) }
+    $errTotal++
+}
+
+# --------------------------------------------------------------------------
+#  新增字号必须走 Scale-Ui（第四轮）
+#  背景：第四轮做了"界面变大变小，字号按钮自动适应"，靠的是 New-Txt / New-PixBtn
+#  内部调 Scale-Ui（设计尺寸 × 当前倍率）。XAML 里那 15 处硬编码字号由
+#  Collect-XamlFontNodes + Apply-UiScale 统一接管。
+#  剩下的漏洞是：**在别处手写 $x.FontSize = 12**。这么写出来的控件不跟倍率走 ——
+#  用户把字号调大，绝大多数文字变大了，就它一个不变，看着像 bug 又特别难找。
+#
+#  为什么不一次改干净：Views.ps1 的 New-EditorField 系列、Views2.ps1 的弹窗输入框、
+#  Care.ps1 的右键菜单，一共有几十处。它们都是"内层小字/输入框"，字号本身不大，
+#  一次性全改会动到大量布局（Height 也写死了），回归面太大、收益不成比例。
+#  所以在"第四轮结束时的现状"上钉一个**基线计数**：允许旧代码保持原样，
+#  但总数不许增加。下次谁再手写一个裸 FontSize，这条就报红。
+#  （这比"整个禁掉"务实：既拦住了增量污染，又不逼着在一轮里做完大重构。）
+# --------------------------------------------------------------------------
+W ''
+$bareFontBudget = 23      # 第四轮基线（实测；只数 5 个源文件，不含 backups/dist）
+$bareFont = @()
+foreach ($name in @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1')) {
+    $p = Join-Path $Root $name
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $txt = [System.IO.File]::ReadAllText($p)
+    $n = 0
+    foreach ($ln in ($txt -split "`r?`n")) {
+        $n++
+        if ($ln -match '^\s*#') { continue }
+        # 只匹配"直接赋一个数字字面量"：$x.FontSize = 12
+        # 走 Scale-Ui / 走变量 / 走 math 换算的一律放过。
+        if ($ln -match '\.FontSize\s*=\s*\d') { $bareFont += ($name + ':' + $n + '  ' + $ln.Trim()) }
+    }
+}
+if (@($bareFont).Count -le $bareFontBudget) {
+    W ('[OK  ] 裸字号没有增加（' + @($bareFont).Count + '/' + $bareFontBudget + ' 处，均为第四轮前的既有写法；新增请用 New-Txt 或 Scale-Ui）')
+} else {
+    W ('[BAD ] 裸字号比基线多了 ' + (@($bareFont).Count - $bareFontBudget) + ' 处（' + @($bareFont).Count + ' > ' + $bareFontBudget + '）—— 新写的字号请走 New-Txt / New-PixBtn / Scale-Ui:')
+    foreach ($l in $bareFont) { W ('      ' + $l) }
     $errTotal++
 }
 

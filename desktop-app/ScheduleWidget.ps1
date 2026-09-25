@@ -228,6 +228,50 @@ function Col { param([string]$Hex)
 }
 
 # ---------------------------------------------------------------------------
+#  3b. 全局界面倍率（第四轮新增）
+#
+#  需求："在 setting 处增加修改字号" + "界面视图变大变小时，字体按键都要自动适应"。
+#
+#  设计：一个全局浮点倍率 $script:UiScale，所有字号/控件尺寸都乘它。
+#    · 用户设置档位 -> $script:UiScaleUser（0.85 / 1.0 / 1.15 / 1.30）
+#    · 窗口宽度自适应 -> $script:UiScaleAuto（0.90 / 1.0 / 1.08，见 Apply-ResponsiveLayout）
+#    · 最终生效值 $script:UiScale = User × Auto，夹在 [0.75, 1.60]
+#
+#  为什么是"两个因子相乘"而不是"覆盖"：
+#    用户选了"大字号"，窗口再拉宽时应该**更大一点**，而不是被窗口宽度重置回中号。
+#    两者是独立的诉求（一个是我视力/偏好，一个是当前窗口的宽松程度），必须正交。
+#
+#  为什么倍率在"创建控件时"就乘进去，而不是事后遍历可视树改 FontSize：
+#    全项目有 100+ 处 New-Txt / New-PixBtn 调用，事后再遍历会遇到两个麻烦：
+#      ① 分不清"这个 FontSize 是原始值还是已经被乘过的"，重复调用会指数放大；
+#      ② 动态重建（Fill-Tasks / Refresh-All）产生的树每次都要重扫一遍。
+#    在工厂里一次性乘掉就天然幂等，代价是 Ui.ps1 里 XAML 硬编码的那 15 处要单独处理
+#    （见 Apply-UiScale，那批是 XAML 解析时烘死的，工厂管不到）。
+# ---------------------------------------------------------------------------
+$script:UiScaleUser = 1.0      # 用户设置档位（Settings['UiScale']）
+$script:UiScaleAuto = 1.0      # 窗口宽度自适应因子
+$script:UiScale     = 1.0      # 最终生效值 = User × Auto（实际被工厂读取的就是它）
+$script:UiScaleMin  = 0.75
+$script:UiScaleMax  = 1.60
+
+function Update-UiScale {
+    # 重算最终倍率。任何一处因子变化（改设置 / 窗口缩放）之后都要调一次。
+    $v = [double]$script:UiScaleUser * [double]$script:UiScaleAuto
+    if ($v -lt $script:UiScaleMin) { $v = $script:UiScaleMin }
+    if ($v -gt $script:UiScaleMax) { $v = $script:UiScaleMax }
+    $script:UiScale = $v
+    return $v
+}
+function Scale-Ui {
+    # 把一个"设计尺寸"换算成当前倍率下的实际尺寸。
+    # 所有字号、按钮宽高、间距都应该走这个函数，不要在别处手写 $x * $script:UiScale。
+    param([double]$V)
+    $r = [double]$V * [double]$script:UiScale
+    # 向上取到 0.5 的整数倍：亚像素字号会让 WPF 的文字渲染发虚（ClearType 对齐要求）。
+    return [math]::Round($r * 2.0) / 2.0
+}
+
+# ---------------------------------------------------------------------------
 #  4. 默认设置
 # ---------------------------------------------------------------------------
 $script:Settings = [ordered]@{
@@ -252,6 +296,18 @@ $script:Settings = [ordered]@{
     # 每次打开都回到屏幕正中、还得再拖一次，是它最烦人的一点。
     FocusWinLeft   = -1
     FocusWinTop    = -1
+    # ---- 第四轮新增：界面倍率与常用软件设置 ----
+    # UiScale：用户选的字号档位（0.85 小 / 1.0 标准 / 1.15 大 / 1.30 特大）。
+    #   存倍率而不是存"档位名"，是为了让以后加档位（或允许自由滑动）不需要迁移旧配置。
+    UiScale        = 1.0
+    # 自适应开关：关掉之后字号只由用户档位决定，不随窗口宽度变（给"我就想固定大小"的人）。
+    UiAdaptive    = $true
+    # CloseToTray：点标题栏 × 时收进托盘而不是退出。以前只有托盘菜单里的开关，
+    # 用户找不到，第四轮把它做成设置里的一项。
+    CloseToTray    = $false
+    # WeekViewDefault：新建时周视图默认显示哪一段（0-24 / 8-20 / 6-22 / 9-18）。
+    #   存的是"起-止"字符串而不是两个整数，是为了跟 Set-WeekRange 的校验规则共用一套。
+    WeekViewRange  = '0-24'
 }
 
 function Load-Settings {
@@ -561,6 +617,10 @@ $script:NavUserCollapsed = $false
 $script:ResponsiveHooked = $false
 $script:FocusWindowOpen = $false
 $script:AvatarWindowOpen = $false
+# 字号倍率相关（第四轮）：XAML 硬编码字号的基线表 + 侧栏缩放后的宽度。
+# 必须在根作用域显式起个值 —— StrictMode 2.0 下读未赋值变量会直接抛。
+$script:XamlFontNodes = New-Object System.Collections.ArrayList
+$script:NavColWidthScaled = 142.0
 
 $script:MainWindow = $null
 $script:NodeHost   = $null      # 视图宿主（三视图挂在这里）
@@ -728,6 +788,15 @@ $script:LifecycleHooked = $false # 生命周期钩子只挂一次（换皮不换
 # ---------------------------------------------------------------------------
 $script:Theme = 'light'
 Load-Settings
+
+# 恢复用户选的字号档位（第四轮）。必须在 Build-Window 之前应用 —— 那里会
+# 用当前倍率去算所有 XAML 字号的基线映射，晚了就会先按 1.0 画一帧再跳变。
+try {
+    $us = [double]$script:Settings['UiScale']
+    if ($us -lt 0.7 -or $us -gt 1.4) { $us = 1.0 }   # 配置被手改坏时回落到标准档
+    $script:UiScaleUser = $us
+} catch { $script:UiScaleUser = 1.0 }
+[void](Update-UiScale)
 
 # 主题/视图/置顶覆盖（测试与快捷启动用；覆盖值不落盘）
 $script:ThemeOverrideApplied = $false
@@ -2431,6 +2500,187 @@ function Invoke-HandlerAudit {
                 ('x=' + $okX1 + ' save=' + $okS2 + ' cancel-keeps=' + $okC3 + ' day=' + $okD + ' dayCancel=' + $okD2)
         } catch { Write-AuditRow 'dialog x / save / cancel wiring' $false ('crash ' + $_.Exception.Message) }
 
+        # ---- 29c. 设置里改字号：落库 + 真的生效（第四轮新增，用户第 3 项） ----
+        #   为什么不能只验"Settings['UiScale'] 变了"：
+        #   倍率是一个纯数字，落库对了不代表界面真的按它重画了。
+        #   所以这里同时验三件事：
+        #     ① 落库（Settings['UiScale']）
+        #     ② 运行时因子（$script:UiScaleUser）
+        #     ③ **真的造一个控件出来量它的字号** —— 这是唯一能证明"工厂真的读了倍率"的方式。
+        #   只验①②的话，即使 New-Txt 忘了走 Scale-Ui，断言也照样是绿的。
+        try {
+            $keepScale0 = [double]$script:Settings['UiScale']
+            $keepUser0 = [double]$script:UiScaleUser
+
+            # 先量一个"标准档"下的参照字号
+            $script:Settings['UiScale'] = 1.00
+            $script:UiScaleUser = 1.00
+            [void](Update-UiScale)
+            $baseTxt = New-Txt -Text 'probe' -Size 12
+            $baseFs = [double]$baseTxt.FontSize
+            $baseBtn = New-PixBtn -Text 'probe' -W 100 -H 34 -FontSize 12
+            $baseBtnH = [double]$baseBtn.Height
+
+            # 走真实链路：开设置窗 -> 选 Huge -> 点 Save
+            $script:DlgClosed = ''
+            $sw5 = Show-SettingsWindow
+            $sw5.Add_Closed({ $script:DlgClosed = 'scale-applied' })
+            $sw5.UpdateLayout()
+            $script:SetUiScale.Text = 'Huge'
+            # 自适应会让结果掺进窗口宽度的影响，这里先关掉，保证验的是"用户档位"这一条线
+            $script:SetUiAdaptive.IsChecked = $false
+            [void](Invoke-Click (Find-DialogButton $sw5 'DlgSave'))
+
+            $saved = [double]$script:Settings['UiScale']
+            $user = [double]$script:UiScaleUser
+            $hugeTxt = New-Txt -Text 'probe' -Size 12
+            $hugeFs = [double]$hugeTxt.FontSize
+            $hugeBtn = New-PixBtn -Text 'probe' -W 100 -H 34 -FontSize 12
+            $hugeBtnH = [double]$hugeBtn.Height
+
+            $okSave = ([math]::Abs($saved - 1.30) -lt 0.001) -and ([math]::Abs($user - 1.30) -lt 0.001)
+            # 字号与按钮高度都必须真的变大（且不是"变了一点点"，1.30/1.00 应看得见）
+            $okTxt = ($hugeFs -gt $baseFs + 1.0)
+            $okBtn = ($hugeBtnH -gt $baseBtnH + 1.0)
+            $okClosed = ($script:DlgClosed -eq 'scale-applied')
+
+            Write-AuditRow 'settings text size applies' ($okSave -and $okTxt -and $okBtn -and $okClosed) `
+                ('saved=' + $saved + ' txt ' + $baseFs + '->' + $hugeFs + ' btn ' + $baseBtnH + '->' + $hugeBtnH + ' closed=' + $okClosed)
+
+            $script:Settings['UiScale'] = $keepScale0
+            $script:UiScaleUser = $keepUser0
+            [void](Update-UiScale)
+            $script:Settings['UiAdaptive'] = $true
+            Save-Settings
+        } catch { Write-AuditRow 'settings text size applies' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29d. 设置里改主题 / 置顶 / 关闭到托盘：Cancel 不该落库 ----
+        #   主题切换最容易写错的地方：Set-Theme 会在重建界面时二次触发，
+        #   所以断言要连"重建之后 Theme 仍然是新的"一起断（不能只断处理器入口那一瞬）。
+        try {
+            $keepTheme0 = [string]$script:Theme
+            $keepTop0 = [bool]$script:Settings['Topmost']
+            $keepTray0 = [bool]$script:Settings['CloseToTray']
+            $keepRange0 = [string]$script:Settings['WeekViewRange']
+
+            $script:DlgClosed = ''
+            $sw6 = Show-SettingsWindow
+            $sw6.Add_Closed({ $script:DlgClosed = 'theme-applied' })
+            $sw6.UpdateLayout()
+            $script:SetThemeBox.Text = 'Night'
+            $script:SetTopmost.IsChecked = $true
+            $script:SetCloseToTray.IsChecked = $true
+            $script:SetWeekRange.Text = '8-20'
+            [void](Invoke-Click (Find-DialogButton $sw6 'DlgSave'))
+
+            $okTheme = ([string]$script:Theme -eq 'night') -and ([string]$script:Settings['Theme'] -eq 'night')
+            $okTop = ([bool]$script:Settings['Topmost'])
+            $okTray = ([bool]$script:Settings['CloseToTray'])
+            $okRange = ([string]$script:Settings['WeekViewRange'] -eq '8-20')
+            $okClosed2 = ($script:DlgClosed -eq 'theme-applied')
+
+            Write-AuditRow 'settings theme and window opts' ($okTheme -and $okTop -and $okTray -and $okRange -and $okClosed2) `
+                ('theme=' + $script:Theme + ' top=' + $okTop + ' tray=' + $okTray + ' range=' + $script:Settings['WeekViewRange'])
+
+            # 复原
+            if ($keepTheme0 -ne [string]$script:Theme) { try { Set-Theme $keepTheme0 -Sync } catch { } }
+            $script:Settings['Topmost'] = $keepTop0
+            $script:Settings['CloseToTray'] = $keepTray0
+            $script:Settings['WeekViewRange'] = $keepRange0
+            $script:TopmostOn = $keepTop0
+            try { if ($null -ne $script:MainWindow) { $script:MainWindow.Topmost = $keepTop0 } } catch { }
+            $script:CloseToTray = $keepTray0
+            Save-Settings
+        } catch { Write-AuditRow 'settings theme and window opts' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29e. Cancel 真的"不保存"：改一堆设置再 Cancel，一个都不许落库 ----
+        #   29b 的 ③ 只验了番茄钟这一次。设置项涨到 7 个之后，
+        #   任何一项漏了"只在 Save 路径落库"都会变成静默数据污染 —— 这条把它们一次性钉住。
+        try {
+            $keepTheme1 = [string]$script:Theme
+            $keepScale1 = [double]$script:Settings['UiScale']
+            $keepTop1 = [bool]$script:Settings['Topmost']
+            $keepTray1 = [bool]$script:Settings['CloseToTray']
+            $keepRange1 = [string]$script:Settings['WeekViewRange']
+            $keepPomo1 = [int]$script:Settings['PomodoroMin']
+
+            $script:DlgClosed = ''
+            $sw7 = Show-SettingsWindow
+            $sw7.Add_Closed({ $script:DlgClosed = 'cancel-all' })
+            $sw7.UpdateLayout()
+            $script:SetTbPomo.Text = '88'
+            $script:SetUiScale.Text = 'Huge'
+            $script:SetThemeBox.Text = 'Night'
+            $script:SetTopmost.IsChecked = $true
+            $script:SetCloseToTray.IsChecked = $true
+            $script:SetWeekRange.Text = '9-18'
+            [void](Invoke-Click (Find-DialogButton $sw7 'DlgCancel'))
+
+            $okC = ($script:DlgClosed -eq 'cancel-all') -and
+                   ([string]$script:Theme -eq $keepTheme1) -and
+                   ([math]::Abs([double]$script:Settings['UiScale'] - $keepScale1) -lt 0.001) -and
+                   ([bool]$script:Settings['Topmost'] -eq $keepTop1) -and
+                   ([bool]$script:Settings['CloseToTray'] -eq $keepTray1) -and
+                   ([string]$script:Settings['WeekViewRange'] -eq $keepRange1) -and
+                   ([int]$script:Settings['PomodoroMin'] -eq $keepPomo1)
+
+            Write-AuditRow 'settings cancel saves nothing' $okC `
+                ('closed=' + $script:DlgClosed + ' theme=' + $script:Theme + ' scale=' + $script:Settings['UiScale'] +
+                 ' top=' + $script:Settings['Topmost'] + ' tray=' + $script:Settings['CloseToTray'] +
+                 ' range=' + $script:Settings['WeekViewRange'] + ' pomo=' + $script:Settings['PomodoroMin'])
+        } catch { Write-AuditRow 'settings cancel saves nothing' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 29f. 窗口变大变小时字号跟着自适应（第四轮新增，用户第 4 项） ----
+        #   为什么要直接改 Width 再调 Apply-ResponsiveLayout 而不是真的 Resize：
+        #   审计里没有消息循环，改 Width 后 ActualWidth 不会立刻更新，
+        #   所以这里显式设 Width 并让函数走它自己的 $width 取值分支。
+        #   断三档：< 900 缩小、1280+ 放大、中间不变；再断"关掉开关后恒为 1.0"。
+        try {
+            $keepW = [double]$script:MainWindow.Width
+            $script:Settings['UiAdaptive'] = $true
+
+            $script:MainWindow.Width = 800
+            Apply-ResponsiveLayout
+            $autoNarrow = [double]$script:UiScaleAuto
+
+            $script:MainWindow.Width = 1080
+            Apply-ResponsiveLayout
+            $autoMid = [double]$script:UiScaleAuto
+
+            $script:MainWindow.Width = 1360
+            Apply-ResponsiveLayout
+            $autoWide = [double]$script:UiScaleAuto
+
+            # 关掉开关：多宽都必须是 1.0
+            $script:Settings['UiAdaptive'] = $false
+            $script:MainWindow.Width = 800
+            Apply-ResponsiveLayout
+            $autoOff = [double]$script:UiScaleAuto
+            $script:MainWindow.Width = 1360
+            Apply-ResponsiveLayout
+            $autoOff2 = [double]$script:UiScaleAuto
+
+            $okA = ([math]::Abs($autoNarrow - 0.90) -lt 0.001) -and
+                   ([math]::Abs($autoMid - 1.00) -lt 0.001) -and
+                   ([math]::Abs($autoWide - 1.08) -lt 0.001)
+            $okOff = ([math]::Abs($autoOff - 1.00) -lt 0.001) -and ([math]::Abs($autoOff2 - 1.00) -lt 0.001)
+            # 最终倍率必须是 User × Auto 的乘积（证明自适应真的接进了 UiScale，不只是改了个旁支变量）
+            $script:Settings['UiAdaptive'] = $true
+            $script:UiScaleUser = 1.00
+            $script:MainWindow.Width = 1360
+            Apply-ResponsiveLayout
+            $okProd = ([math]::Abs([double]$script:UiScale - 1.08) -lt 0.001)
+
+            Write-AuditRow 'ui scale follows window width' ($okA -and $okOff -and $okProd) `
+                ('narrow=' + $autoNarrow + ' mid=' + $autoMid + ' wide=' + $autoWide +
+                 ' off=' + $autoOff + '/' + $autoOff2 + ' final=' + $script:UiScale)
+
+            # 复原
+            $script:MainWindow.Width = $keepW
+            $script:Settings['UiAdaptive'] = $true
+            Apply-ResponsiveLayout
+        } catch { Write-AuditRow 'ui scale follows window width' $false ('crash ' + $_.Exception.Message) }
+
         # ---- 30. 月视图每页只画本月：1 号起、当月最后一天止 ----
         try {
             $keepAnchor = $script:Anchor
@@ -3323,6 +3573,21 @@ function Invoke-TestActions {
                     $w.Show(); $w.UpdateLayout()
                     if ($AllowShot -and $ScreenshotPath) {
                         $fn = 'period-picker.png'
+                        if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
+                        $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
+                        Save-Shot -Path $p -Window $w
+                    }
+                    $w.Close()
+                }
+                'settingshot' {
+                    # "settingshot:<name>"：拍设置窗口。第四轮设置里多了
+                    # 字号 / 主题 / 置顶 / 托盘 / 周时段，需要截图留证。
+                    # 这里刻意不点任何东西 —— 拍的就是"刚打开、还是默认值"的样子，
+                    # 那张图要能一眼看出 Appearance 和 Window 两组是新加的。
+                    $w = Show-SettingsWindow
+                    $w.Show(); $w.UpdateLayout()
+                    if ($AllowShot -and $ScreenshotPath) {
+                        $fn = 'settings-window.png'
                         if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
                         $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
                         Save-Shot -Path $p -Window $w

@@ -13,10 +13,14 @@ function New-Bd { param([string]$Bg, [string]$Border, [int]$Radius = 7, [double]
     $b.CornerRadius = [System.Windows.CornerRadius]::new($Radius)
     return $b
 }
-function New-Txt { param([string]$Text, [double]$Size = 12, [string]$Color = '', [string]$Weight = 'Normal')
+function New-Txt {
+    # 字号走全局倍率（第四轮）：调用方一律传"设计字号"，实际值由 Scale-Ui 换算。
+    # 这是全项目字号的唯一收口点 —— 在别处手写 FontSize = N 就会漏掉倍率，
+    # SyntaxCheck 里有一条静态规则专门拦这个（见 verification\SyntaxCheck.ps1）。
+    param([string]$Text, [double]$Size = 12, [string]$Color = '', [string]$Weight = 'Normal')
     $t = New-Object System.Windows.Controls.TextBlock
     $t.Text = $Text
-    $t.FontSize = $Size
+    $t.FontSize = (Scale-Ui $Size)
     if ($Color) { $t.Foreground = Brush $Color }
     switch ($Weight) {
         'Bold'   { $t.FontWeight = [System.Windows.FontWeights]::Bold }
@@ -29,22 +33,28 @@ function New-Txt { param([string]$Text, [double]$Size = 12, [string]$Color = '',
 
 # 带硬阴影的按钮（像素风）
 function New-PixBtn {
+    # W / H / FontSize 三个尺寸参数都走全局倍率：按钮的宽高必须跟文字一起长，
+    # 否则放大字号后文字会溢出按钮（或者按钮大而字小，看着像没生效）。
     param([string]$Text, [string]$Bg, [string]$Fg, [double]$W = 0, [double]$H = 30,
           [double]$FontSize = 12, [int]$Radius = 7, [string]$Tag = '',
           [string]$BorderCol = '')
     if (-not $BorderCol) { $BorderCol = Get-Pal 'Border' }
     $btn = New-Object System.Windows.Controls.Button
     $btn.Tag = $Tag
-    $btn.Height = $H
-    if ($W -gt 0) { $btn.Width = $W }
+    $btn.Height = (Scale-Ui $H)
+    if ($W -gt 0) { $btn.Width = (Scale-Ui $W) }
+    # 圆角跟着一起缩放：字号涨了、按钮大了，圆角还停在 7px 会显得"方"，
+    # 失去像素风的圆润感。至少 4px，免得小倍率下退化成尖角。
+    $rad = [int][math]::Round([double]$Radius * [double]$script:UiScale)
+    if ($rad -lt 4) { $rad = 4 }
     $tpl = @"
 <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  TargetType="Button">
   <Grid>
-    <Border x:Name="sh" Background="$(Get-Pal 'Shadow')" CornerRadius="$Radius" Margin="1,1,0,0"/>
+    <Border x:Name="sh" Background="$(Get-Pal 'Shadow')" CornerRadius="$rad" Margin="1,1,0,0"/>
     <Border x:Name="bd" Background="$Bg" BorderBrush="$BorderCol" BorderThickness="2"
-            CornerRadius="$Radius">
+            CornerRadius="$rad">
       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
     </Border>
   </Grid>
