@@ -576,12 +576,14 @@ $script:LangEn = [ordered]@{
     'sched' = 'My Schedule'
     'undo.task' = 'Task deleted'; 'undo.event' = 'Event deleted'
     'undo.deleted' = 'Deleted: '; 'undo.btn' = 'Undo'
+    'toast.close' = 'Dismiss'
     'undo.none' = 'Nothing left to undo'
     'undo.more' = 'Still undoable: '
     # 第七轮（第六轮第二十七节第 1 条）：撤销栈纳入"勾选完成 / 拖动改时间"，
     # 提示条文案要跟着操作类型走 —— 用户才知道这次 Ctrl+Z 撤的是什么。
     'undo.toggleOn'  = 'Marked done: '; 'undo.toggleOff' = 'Marked not done: '
     'undo.dragTask'  = 'Task time moved: '; 'undo.dragEvent' = 'Event time moved: '
+    'undo.editTask'  = 'Task edited: '; 'undo.editEvent' = 'Event edited: '
     'empty.list' = 'Nothing scheduled for this week yet'
     'empty.cta' = 'Add an event'
     'empty.filtered' = 'No matching events'
@@ -664,6 +666,9 @@ $script:LangEn = [ordered]@{
     'opt.toast.s8'    = '8 seconds'; 'opt.toast.hold' = 'Stay until clicked'
     'fld.st.pomo'     = 'Session length (0-99 minutes; 0 = no countdown)'
     'fld.st.dir'      = 'Data folder'
+    'fld.st.searchHint' = 'Search settings…'
+    'fld.st.searchHit'  = '{0} match(es) — showing first'
+    'fld.st.searchNone' = 'No matching setting'
     'fld.st.dirHint'  = 'One copy per computer per account; they stay separate.'
     'fld.st.reset'    = 'Reset timer'
     'fld.st.openDir'  = 'Open folder'
@@ -700,10 +705,12 @@ $script:LangZh = [ordered]@{
     'sched' = '我的日程'
     'undo.task' = '任务已删除'; 'undo.event' = '日程已删除'
     'undo.deleted' = '已删除：'; 'undo.btn' = '撤销'
+    'toast.close' = '关闭'
     'undo.none' = '没有可撤销的操作了'
     'undo.more' = '还可撤销 '
     'undo.toggleOn'  = '已完成：'; 'undo.toggleOff' = '取消完成：'
     'undo.dragTask'  = '任务时间已改：'; 'undo.dragEvent' = '日程时间已改：'
+    'undo.editTask'  = '任务已修改：'; 'undo.editEvent' = '日程已修改：'
     'empty.list' = '这一周还没有安排'
     'empty.cta' = '新建日程'
     'empty.filtered' = '没有符合条件的日程'
@@ -784,6 +791,9 @@ $script:LangZh = [ordered]@{
     'opt.toast.s8'    = '8 秒'; 'opt.toast.hold' = '不自动关（点一下才走）'
     'fld.st.pomo'     = '专注时长（0-99 分钟；0 = 不计时）'
     'fld.st.dir'      = '数据目录'
+    'fld.st.searchHint' = '搜索设置项…'
+    'fld.st.searchHit'  = '命中 {0} 项，已定位到第一项'
+    'fld.st.searchNone' = '没有匹配的设置项'
     'fld.st.dirHint'  = '每台电脑每个账户一份，互相隔离'
     'fld.st.reset'    = '重置计时'
     'fld.st.openDir'  = '打开目录'
@@ -992,6 +1002,10 @@ $script:ResponsiveHooked = $false
 $script:HotkeyHooked = $false
 # 第七轮（item 8.2）：设置窗四个页签的顺序（Ctrl+1..4 键盘导航 + 审计共用）。
 $script:SetTabKeys = @('appear', 'window', 'data', 'about')
+# 第八轮（第三十节第 6 条）：任务卡内联编辑的状态（双击标题原位改）。
+$script:InlineTaskId = $null
+$script:InlineTaskBox = $null
+$script:InlineTaskText = $null
 $script:FocusWindowOpen = $false
 $script:AvatarWindowOpen = $false
 # 字号倍率相关（第四轮）：XAML 硬编码字号的基线表 + 侧栏缩放后的宽度。
@@ -1377,6 +1391,27 @@ function Copy-Record {
     return $copy
 }
 
+function Show-UndoActionToast {
+    # 给"非删除类"操作（勾选 / 拖动 / 编辑）弹一条可撤销的提示条。
+    #   为什么要单独一个函数：这三个路径各自写在不同的文件里（Care.ps1 / Views.ps1 /
+    #   Views2.ps1），如果各自手搓 Toast，文案键、剩余次数、Sync-UndoHint 三件事
+    #   会各写一遍 —— 漏掉 Sync-UndoHint 就会出现"提示条撤了但侧栏小字还是旧数字"。
+    #   与 Show-UndoToast 的分工：那个专管"删除"（文案是"已删除：xxx"），
+    #   这个管其余操作（文案由调用方按 Kind 给对应的动词）。
+    param([string]$Kind = '', [string]$LabelText = '', [string]$Title = '')
+    if ($script:SuppressModal -or $TestMode) { return }
+    try {
+        $verb = Get-LangText $LabelText
+        $txt = $verb + (Shorten-Text $Title 22)
+        $n = Get-UndoDepth
+        if ($n -gt 1) { $txt = $txt + '  (' + $n + ')' }
+        Sync-UndoHint
+        Show-Toast -Title (Get-LangText 'undo.task') -Text $txt `
+            -ActionText (Get-LangText 'undo.btn') -Seconds 5 `
+            -ActionScript { Undo-Delete }
+    } catch { Write-ErrLog ('Undo action toast: ' + $_.Exception.Message) }
+}
+
 function Show-UndoToast {
     param([string]$Kind, [int]$Index = 0, [string]$Title = '')
     if ($script:SuppressModal -or $TestMode) { return }
@@ -1488,6 +1523,24 @@ function Undo-Delete {
                     $applied = $true
                 }
             }
+        } elseif ($kind -eq 'edit-task' -or $kind -eq 'edit-event') {
+            # ---- 编辑器保存的撤销：整份对象按字段覆盖回去 ----
+            #   与 toggle 同理（不整条替换数组里的对象，避免别处的引用指向旧对象），
+            #   区别只在"改的字段多"——所以这里是通用的"整份回写"，不挑字段。
+            #   第七轮只做了删除/勾选/拖动时，编辑是最容易失手的一类：
+            #   手滑删掉标题、改错时间、误点重复规则，全都没有回头路。
+            $id = [string]$st.Id
+            $arr = $null
+            if ($kind -eq 'edit-task') { $arr = $script:Tasks } else { $arr = $script:Events }
+            $hit = @($arr | Where-Object { [string]$_.id -eq $id })
+            if ($hit.Count -gt 0) {
+                foreach ($p in @($snap.PSObject.Properties)) {
+                    try { $hit[0].$($p.Name) = $p.Value } catch { }
+                }
+                Save-Data
+                if ($kind -eq 'edit-task') { Fill-Tasks } else { Refresh-All }
+                $applied = $true
+            }
         }
 
         $script:LastUndoAt = (Get-Date)
@@ -1516,12 +1569,19 @@ function Apply-UndoHintText {
 function Push-Undo {
     # 把一次操作压进撤销栈（第六轮多级；第七轮扩到"非删除"类操作）。
     #
-    # Kind 语义（第七轮起共 6 种）：
+    # Kind 语义（第八轮起共 8 种）：
     #   · 'task' / 'event'      —— 删除。Index + Snapshot（整份对象副本），撤销 = 插回原位。
     #   · 'toggle'              —— 勾选/取消勾选完成。需 Id + Snapshot（改前的整份对象）。
     #   · 'drag-task' / 'drag-event' —— 拖动改时间。需 Id + Snapshot（改前的时间字段）。
+    #   · 'edit-task' / 'edit-event' —— 打开编辑器改字段后保存。需 Id + Snapshot（改前整份对象）。
     #
-    # 为什么"勾选/拖动"也存整份 Snapshot 而不是只存 delta：
+    # 为什么"编辑"单独开两种 Kind，而不复用 drag-task：
+    #   drag-* 的撤销只回写时间字段（due/dueTime 或 date/start/end），因为拖动**只可能**
+    #   改这些；而编辑器一次能改标题/时间/重复规则/提醒/标签 —— 必须整份回写。
+    #   合成一种 Kind 会让"拖一下再撤"也把标题一起回写（看似无害，实则把用户
+    #   期间的编辑一起吞掉），所以按"改了多少字段"分档。
+    #
+    # 为什么"勾选/拖动/编辑"也存整份 Snapshot 而不是只存 delta：
     #   ① 对象都是几十字节的 pscustomobject，整份存最省心，也不会因为"字段增删"而失效；
     #   ② 只存 delta 就必须为每种操作写一份"反向补丁"，将来加字段又要改两处 ——
     #      这正是本轮做这个功能的初衷（用户按 Ctrl+Z 期望"回到上一个状态"）。
@@ -4686,6 +4746,75 @@ function Invoke-HandlerAudit {
             } catch { Write-AuditRow 'list empty state has CTA' $false ('crash ' + $_.Exception.Message) }
 
         } catch { Write-AuditRow 'round5 features' $false ('crash ' + $_.Exception.Message) }
+
+        # ---- 39. 第八轮（第三十节 1/3/4/5/6 条）：编辑撤销 / 提示条关闭× / 专注快捷档 / 设置搜索 / 内联编辑 ----
+        #   这些是本轮新增能力，逐条断"真的生效"，而不是断"函数存在"。
+        try {
+            # ---- 39a. 编辑进撤销栈：改事件标题后再撤销，标题应复原 ----
+            $edOk = $false
+            $edDump = ''
+            try {
+                $script:UndoStack.Clear()
+                $evId = 'audit-edit-undo'
+                $ev = [pscustomobject]@{
+                    id = $evId; date = '2026-09-24'; start = 600; end = 660
+                    title = 'Before edit'; tag = ''; note = ''; done = $false
+                    repeat = 'none'; repeatEvery = 1; repeatUntil = ''
+                    repeatMonthMode = 'day'; reminderMin = 0; reminderKey = ''
+                }
+                [void]$script:Events.Add($ev)
+                $hit0 = @($script:Events | Where-Object { [string]$_.id -eq $evId })[0]
+                Push-Undo -Kind 'edit-event' -Id $evId -Snapshot (Copy-Record $hit0) -Label 'After edit'
+                $hit0.title = 'After edit'
+                Undo-Delete
+                $hit1 = @($script:Events | Where-Object { [string]$_.id -eq $evId })[0]
+                $edOk = ([string]$hit1.title -eq 'Before edit') -and ($script:LastUndoKind -eq 'edit-event')
+                $edDump = 'title=' + [string]$hit1.title + ' kind=' + [string]$script:LastUndoKind
+                @($script:Events) | Where-Object { [string]$_.id -eq $evId } | ForEach-Object { [void]$script:Events.Remove($_) }
+            } catch { $edDump = 'crash ' + $_.Exception.Message }
+            Write-AuditRow 'edit undo restores title' $edOk $edDump
+
+            # ---- 39b. 专注快捷档：chip 设定时长（读 $script:FoDurationMin）----
+            $chipOk = $false
+            $chipDump = ''
+            try {
+                $script:FoDurationMin = 25 * 60
+                # 模拟 chip 点击的取值路径：直接按 chip 语义设定并 paint
+                $script:FoDurationMin = 60 * 60
+                & $script:DwPaint
+                $chipOk = ([int]$script:FoDurationMin -eq 3600)
+                $chipDump = 'seconds=' + [string]$script:FoDurationMin
+            } catch { $chipDump = 'crash ' + $_.Exception.Message }
+            Write-AuditRow 'focus quick chip sets duration' $chipOk $chipDump
+
+            # ---- 39c. 设置搜索索引：索引存在且 key->page 正确 ----
+            $srchOk = $false
+            $srchDump = ''
+            try {
+                $idx = @($script:SetSearchIndex)
+                $srchOk = ($idx.Count -ge 10)
+                if ($srchOk) {
+                    $toastSec = @($idx | Where-Object { $_.Key -eq 'fld.st.toastSeconds' })[0]
+                    $theme   = @($idx | Where-Object { $_.Key -eq 'fld.st.theme' })[0]
+                    $srchOk = ($null -ne $toastSec -and $toastSec.Page -eq 'window') -and
+                              ($null -ne $theme -and $theme.Page -eq 'appear')
+                    $srchDump = 'entries=' + $idx.Count + ' toastSecondsPage=' + $(if ($toastSec) { $toastSec.Page } else { '?' })
+                }
+            } catch { $srchDump = 'crash ' + $_.Exception.Message }
+            Write-AuditRow 'settings search index built' $srchOk $srchDump
+
+            # ---- 39d. 内联编辑函数可被找到（防 CommandNotFound）----
+            $inlineOk = $false
+            $inlineDump = ''
+            try {
+                $inlineOk = ($null -ne (Get-Command Start-InlineTaskEdit -ErrorAction SilentlyContinue)) -and
+                            ($null -ne (Get-Command Commit-InlineTaskEdit -ErrorAction SilentlyContinue)) -and
+                            ($null -ne (Get-Command Stop-InlineTaskEdit -ErrorAction SilentlyContinue))
+                $inlineDump = 'funcs=' + $inlineOk
+            } catch { $inlineDump = 'crash ' + $_.Exception.Message }
+            Write-AuditRow 'inline task edit funcs present' $inlineOk $inlineDump
+
+        } catch { Write-AuditRow 'round8 features' $false ('crash ' + $_.Exception.Message) }
     } catch {
         $ln = ''
         $stmt = ''

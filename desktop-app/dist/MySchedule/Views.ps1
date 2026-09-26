@@ -1826,6 +1826,116 @@ function Test-TaskHasDue {
     return (-not [string]::IsNullOrWhiteSpace([string](Get-TaskField $Task 'due' '')))
 }
 
+function Start-InlineTaskEdit {
+    # 第八轮（第三十节第 6 条）：双击任务标题"原位改标题"，不弹编辑器。
+    #
+    # 为什么：改标题是任务列表里最高频的微调，为了它开一整个编辑窗口（七字段）很重。
+    #   现在双击标题直接进入行内编辑框：Enter 提交 / Esc 取消 / 失焦提交。
+    #   其它字段（截止、优先级、子任务）仍走原来的编辑窗口（双击卡片空白处）。
+    #
+    # 作用域铁律：本函数把要改的东西都挂 $script:（InlineTaskId / InlineTaskBox /
+    #   InlineTaskText），因为 TextBox 的 KeyDown / LostFocus 处理器是 WPF 回调，
+    #   触发时本函数作用域早没了。回调里只读 $script: 与事件源 $s。
+    param($TitleBlock, [string]$Id)
+    try {
+        if ($null -eq $TitleBlock) { return }
+        $tId = [string]$Id
+        $orig = [string](Get-TaskField (@($script:Tasks | Where-Object { [string]$_.id -eq $tId })[0]) 'text' '')
+        # 已有内联编辑框在用时先退出（幂等，防双击连点叠两个框）
+        try { Stop-InlineTaskEdit $true } catch { }
+
+        $grid = [System.Windows.Controls.Grid]::GetParent($TitleBlock)
+        $col = [System.Windows.Controls.Grid]::GetColumn($TitleBlock)
+        # 标题 TextBlock 隐藏，编辑框放在同一列
+        $TitleBlock.Visibility = 'Collapsed'
+
+        $tb = New-Object System.Windows.Controls.TextBox
+        $tb.Text = $orig
+        $tb.FontSize = (Scale-Ui 12)
+        $tb.FontFamily = New-Object System.Windows.Media.FontFamily('Microsoft YaHei')
+        $tb.Padding = [System.Windows.Thickness]::new(3, 2, 3, 2)
+        $tb.VerticalAlignment = 'Center'
+        $tb.TextWrapping = 'Wrap'
+        $tb.AcceptsReturn = $false
+        $tb.BorderBrush = Brush (Get-Pal 'AccentFocus')
+        $tb.BorderThickness = [System.Windows.Thickness]::new(1)
+        $tb.Background = Brush (Get-Pal 'Card')
+        $tb.Foreground = Brush (Get-Pal 'Ink')
+        $tb.Margin = [System.Windows.Thickness]::new(0, 1, 0, 1)
+        [System.Windows.Controls.Grid]::SetColumn($tb, $col)
+        [void]$grid.Children.Add($tb)
+
+        # 挂状态，供回调读取
+        $script:InlineTaskId   = $tId
+        $script:InlineTaskText = $TitleBlock
+        $script:InlineTaskBox  = $tb
+        $tb.Tag = @{ kind = 'inline-task-edit'; id = $tId; orig = $orig }
+
+        $tb.Add_KeyDown({
+            param($s, $e)
+            try {
+                if ($e.Key -eq 'Enter') { $e.Handled = $true; Commit-InlineTaskEdit $s }
+                elseif ($e.Key -eq 'Escape') { $e.Handled = $true; Stop-InlineTaskEdit $false }
+            } catch { Write-ErrLog ('InlineTaskEdit key: ' + $_.Exception.Message) }
+        })
+        $tb.Add_LostFocus({
+            param($s, $e)
+            try { Commit-InlineTaskEdit $s } catch { }
+        })
+
+        $tb.Focus() | Out-Null
+        $tb.SelectAll()
+    } catch { Write-ErrLog ('Start-InlineTaskEdit: ' + $_.Exception.Message) }
+}
+
+function Commit-InlineTaskEdit {
+    # 提交内联编辑：标题非空且与原文不同才写回（并进撤销栈）。
+    param($Box)
+    try {
+        if ($null -eq $Box -or $null -eq $Box.Tag) { return }
+        $tId = [string]$Box.Tag['id']
+        $orig = [string]$Box.Tag['orig']
+        $newText = [string]$Box.Text
+        $isActive = ($null -ne $script:InlineTaskBox -and $script:InlineTaskBox -eq $Box)
+        if (-not $isActive) { return }   # 已经处理过（幂等），避免 Enter 后又触发 LostFocus 重复提交
+        Stop-InlineTaskEdit $false
+        $newText = $newText.Trim()
+        if ([string]::IsNullOrWhiteSpace($newText)) { return }   # 空标题不写回
+        if ($newText -eq $orig) { return }                        # 没改不写回
+        $hit = @($script:Tasks | Where-Object { [string]$_.id -eq $tId })
+        if ($hit.Count -eq 0) { return }
+        # 压撤销栈（改前整份快照）再改
+        try {
+            Push-Undo -Kind 'edit-task' -Id $tId -Snapshot (Copy-Record $hit[0]) -Label $newText
+        } catch { Write-ErrLog ('InlineTaskEdit undo: ' + $_.Exception.Message) }
+        $hit[0].text = $newText
+        Save-Data
+        Fill-Tasks
+        Show-UndoActionToast -Kind 'edit-task' -LabelText 'undo.editTask' -Title $newText
+    } catch { Write-ErrLog ('Commit-InlineTaskEdit: ' + $_.Exception.Message) }
+}
+
+function Stop-InlineTaskEdit {
+    # 退出内联编辑：恢复标题 TextBlock、移除编辑框、清状态。
+    #   $Commit：$true 时先把当前编辑框文本提交再清理（用于"另一个编辑要开始"时的让位）。
+    param([bool]$Commit)
+    try {
+        if ($Commit -and $null -ne $script:InlineTaskBox) {
+            Commit-InlineTaskEdit $script:InlineTaskBox
+        }
+        $box = $script:InlineTaskBox
+        $tt  = $script:InlineTaskText
+        $script:InlineTaskId   = $null
+        $script:InlineTaskBox  = $null
+        $script:InlineTaskText = $null
+        if ($null -ne $tt) { $tt.Visibility = 'Visible' }
+        if ($null -ne $box) {
+            $grid = [System.Windows.Controls.Grid]::GetParent($box)
+            if ($null -ne $grid) { try { $grid.Children.Remove($box) } catch { } }
+        }
+    } catch { Write-ErrLog ('Stop-InlineTaskEdit: ' + $_.Exception.Message) }
+}
+
 function Fill-Tasks {
     if ($null -eq $script:TaskStack) { return }
     # 这里**不**立刻 Clear：新卡片先全部建到一个本地列表里，等整轮渲染无异常地跑完，
@@ -2048,8 +2158,21 @@ function Fill-Tasks {
         $tt = New-Txt -Text $tText -Size 12 -Color (Get-Pal 'Ink')
         $tt.TextWrapping = 'Wrap'
         $tt.VerticalAlignment = 'Center'
+        $tt.Tag = @{ kind = 'task-title'; id = $tId }
         if ($tDone) { $tt.TextDecorations = [System.Windows.TextDecorations]::Strikethrough; $tt.Opacity = 0.55 }
         [System.Windows.Controls.Grid]::SetColumn($tt, 1)
+        # 第八轮（第三十节第 6 条）：双击标题 = 原位改标题（内联编辑），
+        #   双击卡片其它空白处仍是打开完整编辑窗口。这里在 Up 事件上拦双击，
+        #   并 $e.Handled = $true 截断路由，让外层 $wrap 的"双击开窗"别叠加触发。
+        $tt.Add_MouseLeftButtonUp({
+            param($s, $e)
+            try {
+                if ((Get-MouseClickCount $e) -lt 2) { return }
+                $e.Handled = $true
+                $hitId = [string]$s.Tag['id']
+                Start-InlineTaskEdit $s $hitId
+            } catch { Write-ErrLog ('Task title dblclick: ' + $_.Exception.Message) }
+        })
         [void]$head.Children.Add($tt)
         [void]$body.Children.Add($head)
 

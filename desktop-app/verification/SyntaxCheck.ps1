@@ -440,6 +440,42 @@ if (@($early).Count -eq 0) {
     $errTotal++
 }
 
+# --------------------------------------------------------------------------
+#  禁止对"任务 / 日程记录"调 .Clone()
+#  坑（第七轮实测，不是推测）：任务和日程是从 JSON 反序列化出来的 PSCustomObject
+#  （ConvertFrom-Json 的产物），**没有** Clone 方法。写 $hit[0].Clone() 会在运行期
+#  抛"不包含名为 Clone 的方法"，而撤销栈的压栈逻辑包在 try/catch 里 → 异常被吞 →
+#  快照压根没压进去 → 用户按 Ctrl+Z 没反应，界面上毫无提示（静默失效）。
+#  正确做法：Copy-Record（逐字段浅拷贝）。
+#
+#  判定方式：扫"看起来像记录对象的变量"上调用 .Clone() 的行。记录变量的命名约定
+#  是 $hit / $ev / $task / $rec / $snap / $record 以及含 [0] 下标访问的 $hit[0] 等。
+#  为降低误报，只匹配这些明确前缀，不扫任意的 $x.Clone()。
+# --------------------------------------------------------------------------
+W ''
+$cloneBad = @()
+foreach ($name in @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1')) {
+    $p = Join-Path $Root $name
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $txt = [System.IO.File]::ReadAllText($p)
+    $n = 0
+    foreach ($ln in ($txt -split "`r?`n")) {
+        $n++
+        if ($ln -match '^\s*#') { continue }
+        # 记录型变量名 + .Clone()；排除 $this.Clone() / $obj.Clone() 这类泛指
+        if ($ln -match '\$(hit|ev|task|rec|record|snap|snapshot|drag|drg|orig|old|before)(\[[^]]*\])?\.Clone\s*\(') {
+            $cloneBad += ($name + ':' + $n + '  ' + $ln.Trim())
+        }
+    }
+}
+if (@($cloneBad).Count -eq 0) {
+    W '[OK  ] 没有对任务/日程记录调 .Clone()（记录是 PSCustomObject，无此方法，应 Copy-Record）'
+} else {
+    W ('[BAD ] 对记录对象调了 .Clone() ' + @($cloneBad).Count + ' 处（会静默失效，应改 Copy-Record）:')
+    foreach ($l in $cloneBad) { W ('      ' + $l) }
+    $errTotal++
+}
+
 W ''
 W '--- 汇总 ---'
 W ("  语法错误总数: " + $errTotal)

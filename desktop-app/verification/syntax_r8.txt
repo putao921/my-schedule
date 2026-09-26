@@ -1,0 +1,58 @@
+Root: C:\Users\lenovo\WorkBuddy\2026-09-23-15-30-45\desktop-app
+Time: 2026-09-26 10:03:26
+
+[OK  ] ScheduleWidget.ps1
+      BOM=True  bytes=330115  funcs=72  parseErrors=0
+[OK  ] Ui.ps1
+      BOM=True  bytes=41181  funcs=10  parseErrors=0
+[OK  ] Views.ps1
+      BOM=True  bytes=146948  funcs=58  parseErrors=0
+[OK  ] Views2.ps1
+      BOM=True  bytes=147935  funcs=35  parseErrors=0
+[OK  ] Care.ps1
+      BOM=True  bytes=85277  funcs=39  parseErrors=0
+[OK  ] verification\RegressionHarness.ps1
+      BOM=True  bytes=21911  funcs=5  parseErrors=0
+[OK  ] verification\RunApp.ps1
+      BOM=True  bytes=1495  funcs=0  parseErrors=0
+[OK  ] verification\RunShots10.ps1
+      BOM=True  bytes=4424  funcs=0  parseErrors=0
+[OK  ] verification\RunShots11.ps1
+      BOM=True  bytes=4616  funcs=0  parseErrors=0
+[OK  ] verification\RunShots12.ps1
+      BOM=True  bytes=4470  funcs=0  parseErrors=0
+[OK  ] verification\Run6.ps1
+      BOM=True  bytes=2720  funcs=0  parseErrors=0
+[OK  ] verification\SyntaxCheck.ps1
+      BOM=True  bytes=26356  funcs=1  parseErrors=0
+
+[OK  ] Ui.ps1 内嵌 XAML 是合法 XML
+
+浅色板键 23 个 · 夜间板键 23 个
+[OK  ] 两套色板键一一对应
+[OK  ] XAML 里 15 个 __Key__ 占位符全部能在色板里解析
+[OK  ] XAML 里没有硬编码色值（全部走 __Key__ 占位符）
+[OK  ] XAML 注释里没有非法的双横线
+[OK  ] 没有 [string]$x.Method() 这类恒真写法
+[OK  ] $script:Holidays / $script:Settings 没有裸 dot 访问（读键都走 Contains）
+[OK  ] $script:Settings.Holidays 没有非法的 .ContainsKey()（OrderedDictionary 只有 Contains）
+
+[OK  ] 没有 .GetNewClosure()（它会另起模块作用域，闭包里找不到脚本作用域的函数）
+
+[OK  ] 没有把函数参数命名为 $Args（会与自动变量 $args 冲突、被覆盖成 @()）
+
+[OK  ] 裸字号没有增加（23/23 处，均为第四轮前的既有写法；新增请用 New-Txt 或 Scale-Ui）
+
+XAML x:Name 50 个 · 取用 40 个 · 赋值给 $script: 40 个
+[WARN] 有 x:Name 没被取用（可能是不需要操作的纯装饰元素）: IcAdd,IcClose,IcMax,IcMin,IcMore,IcNavFocus,IcNavList,IcNavMonth,IcNavProfile,IcNavSettings,IcNavTask,IcNavWeek,IcNext,IcPrev
+[OK  ] 每个取用的名字都赋值给了 $script:（不会出现"检索不到变量"）
+
+[OK  ] 没有运行期改 PixBtn .Background 的写法（模板烘焙底色，改了不生效）
+
+[OK  ] 没有"用了还没定义"的 $script: 变量（跨文件顺序扫描）
+
+[OK  ] 没有对任务/日程记录调 .Clone()（记录是 PSCustomObject，无此方法，应 Copy-Record）
+
+--- 汇总 ---
+  语法错误总数: 0
+  结论: PASS

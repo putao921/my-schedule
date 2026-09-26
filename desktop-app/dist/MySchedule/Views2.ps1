@@ -203,9 +203,35 @@ function New-DigitWheelField {
     [void]$wrap.Children.Add($box)
     [void]$Parent.Children.Add($wrap)
 
+    # ---- 分钟级快捷档（第八轮第三十节第 4 条）----
+    # 滚轮自由了，但常用值（25 / 45 / 60）反而要一格一格滚。放三个 chip 一键设定。
+    #   chip 点击处理器只读 $s.Tag（把分钟数挂上去），不捕获创建函数的局部变量 ——
+    #   与四位滚轮同一条作用域铁律。
+    $chipRow = New-Object System.Windows.Controls.StackPanel
+    $chipRow.Orientation = 'Horizontal'
+    $chipRow.HorizontalAlignment = 'Left'
+    $chipRow.Margin = [System.Windows.Thickness]::new(0, 0, 0, 6)
+    foreach ($cm in @(25, 45, 60)) {
+        $chip = New-PixBtn -Text ([string]$cm) -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') `
+                           -H 26 -W 44 -FontSize 11 -Radius 6 -BorderCol (Get-Pal 'Border')
+        $chip.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
+        $chip.Tag = @{ kind = 'focus-chip'; minutes = $cm }
+        $chip.Add_Click({
+            param($s, $e)
+            try {
+                if ($null -eq $s -or $null -eq $s.Tag) { return }
+                $mins = [int]$s.Tag['minutes']
+                $script:FoDurationMin = $mins * 60
+                & $script:DwPaint
+            } catch { Write-ErrLog ('Focus chip: ' + $_.Exception.Message) }
+        })
+        [void]$chipRow.Children.Add($chip)
+    }
+    [void]$Parent.Children.Add($chipRow)
+
     # 提示行：告诉用户这个控件怎么用（滚轮/上下键）
     $hintTxt = New-Txt -Text (Get-LangText 'fld.fo.wheelHint') -Size 10 -Color (Get-Pal 'InkFaint')
-    $hintTxt.Margin = [System.Windows.Thickness]::new(0, -8, 0, 10)
+    $hintTxt.Margin = [System.Windows.Thickness]::new(0, -6, 0, 10)
     [void]$Parent.Children.Add($hintTxt)
 
     $script:FoDigitCells = $cells
@@ -1151,7 +1177,15 @@ function Show-EventEditorWindow {
         if ($reminderMin -lt 0 -or $reminderMin -gt 99) { $reminderMin = 0 }
 
         if ($script:EdEditing) {
-            # 只改用户看得见的四个字段，其余（id / note / done）原样保留
+            # 第八轮（第三十节第 1 条）：编辑也进撤销栈。
+            #   必须在**任何字段被改写之前**压栈 —— 压完再改，快照才是"改前"的。
+            #   用 Copy-Record（不能用 .Clone()：JSON 反序列化出来的 PSCustomObject
+            #   没有该方法，见第二十九节的坑）。
+            try {
+                Push-Undo -Kind 'edit-event' -Id ([string]$script:EdEv.id) `
+                    -Snapshot (Copy-Record $script:EdEv) -Label $title
+            } catch { Write-ErrLog ('Push-Undo edit-event: ' + $_.Exception.Message) }
+            # 只改用户看得见的字段，其余（id / note / done）原样保留
             $script:EdEv.date = Fmt-Date $dt
             $script:EdEv.start = $sMin
             $script:EdEv.end = $eMin
@@ -1177,6 +1211,10 @@ function Show-EventEditorWindow {
         $script:Anchor = $dt
         Close-DialogWindow $script:EdWin $true
         Refresh-All
+        # 第八轮（第三十节第 1 条）：编辑后弹一条可撤销的提示条（与删除/勾选/拖动一致）。
+        if ($script:EdEditing) {
+            Show-UndoActionToast -Kind 'edit-event' -LabelText 'undo.editEvent' -Title $title
+        }
     })
     # 标题栏 Save / Cancel 接上（必须在 × 的处理器挂好之后调，见函数注释）
     Bind-DialogChromeButtons $chrome $script:EdWin
@@ -1352,6 +1390,60 @@ function Show-SettingsWindow {
     [void]$sp.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.user') + $who) -Size 11 -Color (Get-Pal 'InkSoft')))
     # 数据目录这一段（第四节）第六轮挪到"数据"页了 —— 它是数据类信息，
     #   和字号/主题不在一个心智抽屉里。这里只留一行极简说明（谁在用哪份数据）。
+
+    # ---- 设置项搜索（第八轮第三十节第 5 条）----
+    # 设置已经四页二十多项，找"提示条停留多久"要翻页。给一个搜索框：
+    #   输入时按**当前语言文案**对字段名做子串匹配，命中即切到对应页签并高亮该字段。
+    #   实现：字段 key -> 页签 的索引建在 $script:SetSearchIndex（见下方各页构建完后），
+    #   搜索处理器只读 $s.Text 和 $script: 索引，不捕获创建函数的局部变量。
+    $script:SetSearchBox = New-Object System.Windows.Controls.TextBox
+    $script:SetSearchBox.FontSize = (Scale-Ui 12)
+    $script:SetSearchBox.FontFamily = New-Object System.Windows.Media.FontFamily('Microsoft YaHei')
+    $script:SetSearchBox.Padding = [System.Windows.Thickness]::new(8, 5, 8, 5)
+    $script:SetSearchBox.Margin = [System.Windows.Thickness]::new(0, 10, 0, 2)
+    $script:SetSearchBox.Background = Brush (Get-Pal 'CardAlt')
+    $script:SetSearchBox.Foreground = Brush (Get-Pal 'Ink')
+    $script:SetSearchBox.BorderBrush = Brush (Get-Pal 'BorderSoft')
+    $script:SetSearchBox.BorderThickness = [System.Windows.Thickness]::new(2)
+    $script:SetSearchBox.ToolTip = (Get-LangText 'fld.st.searchHint')
+    # 占位提示（无原生 Placeholder，用空字符串 + 下面一行小字提示即可，保持零依赖）
+    [void]$sp.Children.Add($script:SetSearchBox)
+    $script:SetSearchResult = New-Txt -Text '' -Size 10 -Color (Get-Pal 'InkFaint')
+    $script:SetSearchResult.Margin = [System.Windows.Thickness]::new(0, 0, 0, 6)
+    [void]$sp.Children.Add($script:SetSearchResult)
+    $script:SetSearchBox.Add_TextChanged({
+        param($s, $e)
+        try {
+            $q = [string]$s.Text
+            if ([string]::IsNullOrWhiteSpace($q)) {
+                if ($null -ne $script:SetSearchResult) { $script:SetSearchResult.Text = '' }
+                return
+            }
+            $q = $q.Trim().ToLowerInvariant()
+            # 在索引里找：字段 key 或它的当前语言文案包含输入词即命中。
+            #   命中多个时取"第一个"（页签顺序），并在结果行列出命中数。
+            $hits = @()
+            foreach ($entry in @($script:SetSearchIndex)) {
+                $key = [string]$entry.Key
+                $page = [string]$entry.Page
+                $label = ''
+                try { $label = Get-LangText $key } catch { }
+                $labelL = $label.ToLowerInvariant()
+                if ($key.ToLowerInvariant().Contains($q) -or $labelL.Contains($q)) {
+                    $hits += $entry
+                }
+            }
+            if ($hits.Count -eq 0) {
+                if ($null -ne $script:SetSearchResult) { $script:SetSearchResult.Text = (Get-LangText 'fld.st.searchNone') }
+                return
+            }
+            $first = $hits[0]
+            if ($null -ne $script:SetTabsShow) { & $script:SetTabsShow ([string]$first.Page) }
+            if ($null -ne $script:SetSearchResult) {
+                $script:SetSearchResult.Text = (Get-LangText 'fld.st.searchHit') -f $hits.Count
+            }
+        } catch { Write-ErrLog ('Settings search: ' + $_.Exception.Message) }
+    })
 
     # ===========================================================================
     #  分页（第六轮，用户第 1 条）
@@ -1603,6 +1695,36 @@ function Show-SettingsWindow {
     $script:SetErr.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
     $script:SetErr.TextWrapping = 'Wrap'
     [void]$sp.Children.Add($script:SetErr)
+
+    # ---- 设置项搜索索引（第八轮第三十节第 5 条）----
+    # 字段 key -> 页签 的映射。搜索框按"字段 key 或当前语言文案是否包含输入词"
+    # 来匹配，命中即切到对应页签。索引必须**在建完所有字段之后**才建（此时各字段
+    # 的文案已由 Get-LangText 生成），并挂到 $script: 供 TextChanged 处理器读取。
+    $script:SetSearchIndex = @(
+        # 外观页
+        @{ Key = 'fld.st.scale';        Page = 'appear' },
+        @{ Key = 'fld.st.adaptive';     Page = 'appear' },
+        @{ Key = 'fld.st.theme';        Page = 'appear' },
+        @{ Key = 'fld.st.lang';         Page = 'appear' },
+        @{ Key = 'fld.st.density';      Page = 'appear' },
+        @{ Key = 'fld.st.densityMonth'; Page = 'appear' },
+        # 窗口页
+        @{ Key = 'fld.st.topmost';      Page = 'window' },
+        @{ Key = 'fld.st.tray';         Page = 'window' },
+        @{ Key = 'fld.st.weekRange';    Page = 'window' },
+        @{ Key = 'fld.st.pomo';         Page = 'window' },
+        @{ Key = 'fld.st.toastCorner';  Page = 'window' },
+        @{ Key = 'fld.st.toastSeconds'; Page = 'window' },
+        # 数据页
+        @{ Key = 'fld.st.dir';          Page = 'data' },
+        @{ Key = 'fld.st.reset';        Page = 'data' },
+        @{ Key = 'fld.st.openDir';      Page = 'data' },
+        @{ Key = 'fld.st.thisWeek';     Page = 'data' },
+        @{ Key = 'fld.st.totals';       Page = 'data' },
+        # 关于页
+        @{ Key = 'fld.st.version';      Page = 'about' },
+        @{ Key = 'fld.st.shortcuts';    Page = 'about' }
+    )
 
     # 默认停在外观页（用户最常改的那一页）
     & $script:SetTabsShow 'appear'
@@ -1978,6 +2100,12 @@ function Show-TaskEditorWindow {
             }
             $subtasks = @($newSubtasks.ToArray())
             if ($script:TkEditing) {
+                # 第八轮（第三十节第 1 条）：任务编辑也进撤销栈。
+                #   必须在**任何字段被改写之前**压栈。Copy-Record 而非 .Clone()。
+                try {
+                    Push-Undo -Kind 'edit-task' -Id ([string]$script:TkTask.id) `
+                        -Snapshot (Copy-Record $script:TkTask) -Label $txt
+                } catch { Write-ErrLog ('Push-Undo edit-task: ' + $_.Exception.Message) }
                 $script:TkTask.text = $txt
                 $script:TkTask.due = $due
                 $script:TkTask.dueTime = $dueTime
@@ -2000,6 +2128,10 @@ function Show-TaskEditorWindow {
             Save-Data
             Fill-Tasks
             Close-DialogWindow $script:TkWin $true
+            # 第八轮（第三十节第 1 条）：编辑后弹可撤销提示条。
+            if ($script:TkEditing) {
+                Show-UndoActionToast -Kind 'edit-task' -LabelText 'undo.editTask' -Title $txt
+            }
         } catch { Write-ErrLog ('Task save: ' + $_.Exception.Message) }
     })
     Bind-DialogChromeButtons $chrome $script:TkWin
@@ -2384,7 +2516,43 @@ function Show-Toast {
         $bd = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 12
         $bd.Padding = [System.Windows.Thickness]::new(20, 14, 20, 14)
         $sp = New-Object System.Windows.Controls.StackPanel
-        [void]$sp.Children.Add((New-Txt -Text $Title -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+
+        # ---- 停留时长（第七轮：ToastSeconds）提前算，好决定标题行要不要加关闭 × ----
+        $secs = [int]$Seconds
+        try {
+            if ($null -ne $script:Settings -and $script:Settings.Contains('ToastSeconds')) {
+                $secs = [int]$script:Settings['ToastSeconds']
+            }
+        } catch { }
+
+        # 标题行：左边标题，右边（手动关闭模式时）一个 × 按钮。
+        #   第八轮（第三十节第 3 条）：ToastSeconds=0 时不自动关，之前只能靠
+        #   动作按钮或关主窗口让它消失，等于"粘"在屏幕上。给它一个显式出口。
+        $head = New-Object System.Windows.Controls.StackPanel
+        $head.Orientation = 'Horizontal'
+        $tTitle = New-Txt -Text $Title -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'
+        $tTitle.VerticalAlignment = 'Center'
+        [void]$head.Children.Add($tTitle)
+        if ($secs -le 0) {
+            $bClose = New-PixBtn -Text '×' -Bg ([System.Windows.Media.BrushConverter]::new().ConvertFromString('#00000000')) `
+                                 -Fg (Get-Pal 'InkSoft') -H 22 -W 24 -FontSize 14 -Radius 6
+            $bClose.VerticalAlignment = 'Center'
+            $bClose.HorizontalAlignment = 'Right'
+            $bClose.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
+            $bClose.ToolTip = (Get-LangText 'toast.close')
+            $bClose.Add_Click({
+                param($s, $e)
+                try {
+                    if ($null -ne $script:ToastTimer) { $script:ToastTimer.Stop() }
+                    if ($null -ne $script:ToastWindow) {
+                        $script:ToastWindow.Close()
+                        $script:ToastWindow = $null
+                    }
+                } catch { }
+            })
+            [void]$head.Children.Add($bClose)
+        }
+        [void]$sp.Children.Add($head)
 
         if ($ActionText -and $null -ne $ActionScript) {
             # 两列：左边正文，右边动作按钮。正文用 StackPanel 包一层，
@@ -2455,17 +2623,13 @@ function Show-Toast {
         # StrictMode 下会直接抛"检索不到变量"，被 catch 吞掉后就表现为"Toast 永不关闭"。
         $script:ToastWindow = $w
         # ---- 停留时长（第七轮：ToastSeconds）----
-        # 调用方传的 $Seconds 只是"默认值"，设置里选了就覆盖它。
-        #   0 = 不挂定时器 —— 提示条留在屏幕上，直到用户点它（或关了主窗口）。
+        # $secs 已在标题行之前算好（那里要据此决定是否给标题加关闭 ×）。
+        #   0 = 不挂定时器 —— 提示条留在屏幕上，直到用户点标题行的 ×
+        #   （或动作按钮 / 关主窗口）。
         #   为什么不让"0 = 立刻关"：那等于把提示条删掉了，语义上说不通。
-        $secs = [int]$Seconds
-        try {
-            if ($null -ne $script:Settings -and $script:Settings.Contains('ToastSeconds')) {
-                $secs = [int]$script:Settings['ToastSeconds']
-            }
-        } catch { }
         if ($secs -le 0) {
-            # 手动关闭模式：仍然建一个指向该窗口的引用，方便别处（动作按钮 / 退出）收尾。
+            # 手动关闭模式：不挂定时器。出口是标题行的 ×（第八轮补上），
+            # 或带动作按钮的撤销条点动作按钮。
             $script:ToastTimer = $null
             return
         }
