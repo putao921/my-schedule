@@ -503,11 +503,19 @@ function Load-Data {
                 return
             }
         } catch {
-            # 第十轮（第 5 条）：主数据文件损坏时，自动回退到备份（schedule.json.backup）。
-            #   只有备份也读不出来才落到 Seed-Data（演示数据）—— 那是最坏情况下的兜底。
+            # 第十轮（第 5 条）：主数据文件损坏时，自动回退到备份。
+            #   第十三轮（第 3 条）：备份升级为三代轮换，回退时按新旧依次尝试
+            #   .backup.1 -> .backup.2 -> .backup.3 -> 旧单份 .backup，
+            #   取第一个能读出来的。全部失败才落到 Seed-Data（演示数据）。
             Write-ErrLog ('Load-Data: main file corrupt - ' + $_.Exception.Message)
-            $bak = $script:DataFile + '.backup'
-            if (Test-Path -LiteralPath $bak) {
+            $backups = @(
+                ($script:DataFile + '.backup.1'),
+                ($script:DataFile + '.backup.2'),
+                ($script:DataFile + '.backup.3'),
+                ($script:DataFile + '.backup')
+            )
+            foreach ($bak in $backups) {
+                if (-not (Test-Path -LiteralPath $bak)) { continue }
                 try {
                     $rawB = Get-Content -LiteralPath $bak -Raw -Encoding UTF8
                     $objB = ConvertFrom-Json $rawB
@@ -552,10 +560,10 @@ function Load-Data {
                             reminderMin = $(if ($t.PSObject.Properties.Name -contains 'reminderMin') { [int]$t.reminderMin } else { 0 })
                         })
                     }
-                    Write-ErrLog 'Load-Data: recovered from backup'
+                    Write-ErrLog ('Load-Data: recovered from backup ' + $bak)
                     return
                 } catch {
-                    Write-ErrLog ('Load-Data: backup also corrupt - ' + $_.Exception.Message)
+                    Write-ErrLog ('Load-Data: backup ' + $bak + ' corrupt - ' + $_.Exception.Message)
                 }
             }
         }
@@ -571,9 +579,15 @@ function Save-Data {
         #   为什么要备份而不是直接覆盖：schedule.json 一旦写坏（断电/进程被杀/磁盘满），
         #   下一轮 Load-Data 会失败，用户几十条日程直接蒸发。留一份上一版本，
         #   哪怕数据丢了也只丢"最近一次改动"，而不是全部。
-        #   只留一份（schedule.backup.json），不搞轮转 —— 避免备份文件越积越多。
+        # 第十三轮（第 3 条）：单份备份升级为三代轮换（.backup.1/.2/.3），
+        #   写坏两次也不至于连备份都没了。链式位移：.2 -> .3、.1 -> .2、当前 -> .1。
         if (Test-Path -LiteralPath $script:DataFile) {
-            try { Copy-Item -LiteralPath $script:DataFile -Destination ($script:DataFile + '.backup') -Force } catch { }
+            $b3 = $script:DataFile + '.backup.3'
+            $b2 = $script:DataFile + '.backup.2'
+            $b1 = $script:DataFile + '.backup.1'
+            try { if (Test-Path -LiteralPath $b2) { Copy-Item -LiteralPath $b2 -Destination $b3 -Force } } catch { }
+            try { if (Test-Path -LiteralPath $b1) { Copy-Item -LiteralPath $b1 -Destination $b2 -Force } } catch { }
+            try { Copy-Item -LiteralPath $script:DataFile -Destination $b1 -Force } catch { }
         }
         $payload = [pscustomobject]@{
             events = @($script:Events)
@@ -642,6 +656,7 @@ $script:LangEn = [ordered]@{
     'nav.tasks' = 'Tasks'; 'nav.focus' = 'Focus'; 'nav.settings' = 'Settings'
     'nav.profile' = 'Profile'
     'nav.newEvent' = 'New event'
+    'btn.addEvent'  = '+ New event'
     'view.month' = 'Month view'; 'view.week' = 'Week view'; 'view.list' = 'List view'
     'view.tasks' = 'Tasks view'
     'sched' = 'My Schedule'
@@ -901,6 +916,8 @@ $script:LangEn = [ordered]@{
     'pomo.taskPrefix'  = 'Task: '
     'pomo.session'     = 'Focus session'
     'pomo.noTask'      = 'No task selected'
+    'pomo.endStat'     = 'End & log'
+    'pomo.exit'        = 'Exit'
     'tray.name'        = 'Schedule'
     # ---- 桌面通知 / Toast（第十轮语言收尾）----
     'ntf.breakDone'   = 'Break finished'
@@ -930,6 +947,7 @@ $script:LangZh = [ordered]@{
     'nav.tasks' = '任务'; 'nav.focus' = '专注'; 'nav.settings' = '设置'
     'nav.profile' = '我的'
     'nav.newEvent' = '新建日程'
+    'btn.addEvent'  = '+ 新建日程'
     'view.month' = '月视图'; 'view.week' = '周视图'; 'view.list' = '列表视图'
     'view.tasks' = '任务视图'
     'sched' = '我的日程'
@@ -1185,6 +1203,8 @@ $script:LangZh = [ordered]@{
     'pomo.taskPrefix'  = '任务：'
     'pomo.session'     = '专注时段'
     'pomo.noTask'      = '未选择任务'
+    'pomo.endStat'     = '结束并统计'
+    'pomo.exit'        = '退出'
     'tray.name'        = '我的日程'
     # ---- 桌面通知 / Toast ----
     'ntf.breakDone'   = '休息结束'

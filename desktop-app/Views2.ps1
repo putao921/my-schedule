@@ -2011,7 +2011,7 @@ function Show-DayAgendaWindow {
             [void]$sp.Children.Add($btn)
         }
     }
-    $add = New-PixBtn -Text '+ New event' -Bg (Get-Pal 'AccentEvent') -Fg '#FFFFFF' -W 360 -H 36 -FontSize 12
+    $add = New-PixBtn -Text (Get-LangText 'btn.addEvent') -Bg (Get-Pal 'AccentEvent') -Fg '#FFFFFF' -W 360 -H 36 -FontSize 12
     $add.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
     $add.Add_Click({ try { $script:DayAgendaWin.Close(); Open-EventEditor -PrefillDate (Fmt-Date $script:DayAgendaDate) } catch { } })
     [void]$sp.Children.Add($add)

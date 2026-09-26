@@ -515,6 +515,15 @@ function Toggle-Pomodoro {
             })
         }
         $script:PomoTimer.Start()
+        # 第十三轮（item 1）：开始专注就把主窗最小化到托盘，只留迷你悬浮窗在桌面，
+        # 避免大界面挡住屏幕。托盘图标仍在，点它可随时唤回主窗。
+        # 守卫：审计（SuppressModal）环境下不最小化，否则会破坏后面"窗口宽度缩放"
+        # 类断言的窗口尺寸测量。
+        try {
+            if (-not $script:SuppressModal -and $null -ne $script:MainWindow) {
+                if ($script:MainWindow.WindowState -eq 'Normal') { $script:MainWindow.WindowState = 'Minimized' }
+            }
+        } catch { }
     }
     Update-PomodoroVisual
     # 第十二轮（item 2）：开始/暂停都同步迷你悬浮窗的可见性。
@@ -562,18 +571,25 @@ function New-PomoMiniWidget {
     $script:PomoMiniTask.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
     [void]$sp.Children.Add($script:PomoMiniTask)
 
+    # 第十三轮（item 1）：悬浮窗从"只暂停"扩展成完整控制条——
+    #   暂停/继续 + 结束并统计 + 退出，让用户可以把主窗最小化、只靠这扇小窗跑完整个番茄钟。
     $btnRow = New-Object System.Windows.Controls.StackPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.HorizontalAlignment = 'Center'
-    $btnRow.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
-    $script:PomoMiniBtn = New-PixBtn -Text (Get-LangText 'pomo.pause') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 72 -H 26 -FontSize 10
+    $btnRow.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
+    $script:PomoMiniBtn = New-PixBtn -Text (Get-LangText 'pomo.pause') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 62 -H 26 -FontSize 10
     $script:PomoMiniBtn.Add_Click({ param($s,$e) try { Toggle-Pomodoro; $e.Handled = $true } catch { Write-ErrLog ('PomoMini toggle: ' + $_.Exception.Message) } })
     [void]$btnRow.Children.Add($script:PomoMiniBtn)
-    $hide = New-PixBtn -Text '×' -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 26 -H 26 -FontSize 11
-    $hide.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
-    $hide.ToolTip = (Get-LangText 'toast.close')
-    $hide.Add_Click({ param($s,$e) try { Hide-PomoMini; $e.Handled = $true } catch { } })
-    [void]$btnRow.Children.Add($hide)
+    $endBtn = New-PixBtn -Text (Get-LangText 'pomo.endStat') -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 74 -H 26 -FontSize 10
+    $endBtn.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+    $endBtn.ToolTip = (Get-LangText 'pomo.endStat')
+    $endBtn.Add_Click({ param($s,$e) try { End-FocusSession; $e.Handled = $true } catch { Write-ErrLog ('PomoMini end: ' + $_.Exception.Message) } })
+    [void]$btnRow.Children.Add($endBtn)
+    $exitBtn = New-PixBtn -Text (Get-LangText 'pomo.exit') -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 46 -H 26 -FontSize 10
+    $exitBtn.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+    $exitBtn.ToolTip = (Get-LangText 'pomo.exit')
+    $exitBtn.Add_Click({ param($s,$e) try { Reset-Pomodoro; Hide-PomoMini; $e.Handled = $true } catch { Write-ErrLog ('PomoMini exit: ' + $_.Exception.Message) } })
+    [void]$btnRow.Children.Add($exitBtn)
     [void]$sp.Children.Add($btnRow)
 
     $root.Child = $sp

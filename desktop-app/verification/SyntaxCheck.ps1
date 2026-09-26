@@ -477,6 +477,46 @@ if (@($cloneBad).Count -eq 0) {
 }
 
 W ''
+
+# --------------------------------------------------------------------------
+#  禁止新增硬编码英文 UI 文案（第十三轮 item 9）
+#  语言清理做了三轮才收干净，第四轮靠规则管住：任何 `-Text '...'` /
+#  `.Text = '...'` / `Text = '...'` 后跟"纯英文字面量"（2+ 连续英文字母、不含中文）
+#  的写法，一律视为疑似漏翻译，除非命中了下面的白名单（审计测试桩 + 已知合法处）。
+#  新文案应走 Get-LangText，并把键加进 zh/en 两张语言表。
+# --------------------------------------------------------------------------
+$uiBad = @()
+foreach ($name in @('ScheduleWidget.ps1', 'Ui.ps1', 'Views.ps1', 'Views2.ps1', 'Care.ps1')) {
+    $p = Join-Path $Root $name
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $txt = [System.IO.File]::ReadAllText($p)
+    $n = 0
+    foreach ($ln in ($txt -split "`r?`n")) {
+        $n++
+        if ($ln -match '^\s*#') { continue }
+        # 只认这三个写法的字符串字面量；字面量里必须 2+ 英文字母、且不含任何中文字符
+        $m2 = [regex]::Match($ln, "(?:-Text|\.Text\s*=|Text\s*=)\s*'([^']*)'")
+        if (-not $m2.Success) { continue }
+        $lit = $m2.Groups[1].Value
+        if ($lit -notmatch '[A-Za-z]{2}') { continue }
+        if ($lit -match '[\u4e00-\u9fff]') { continue }   # 含中文 -> 已本地化，跳过
+        # 白名单：审计/测试专用桩（非用户可见）、占位符、纯符号/数字、内置标签键（用户数据）
+        if ($lit -match 'Audit|probe|zzz|toastpos|hold mode|timed mode|Focus setup|first subtask') { continue }
+        if ($lit -match '^(×|\+1|\.\.\.|[0-9:\./,\- ]+)$') { continue }
+        if ($lit -match '^(focus|work|life|task)$') { continue }
+        # 语言表定义本身（'xxx' = 'English'）不在 -Text/.Text 里，天然不命中；此处兜底跳过
+        $uiBad += ($name + ':' + $n + '  ' + $ln.Trim())
+    }
+}
+if (@($uiBad).Count -eq 0) {
+    W '[OK  ] 无新增硬编码英文 UI 文案（-Text/.Text 后都是本地化或白名单）'
+} else {
+    W ('[BAD ] 疑似硬编码英文 UI 文案 ' + @($uiBad).Count + ' 处（应走 Get-LangText + 语言表）:')
+    foreach ($l in $uiBad) { W ('      ' + $l) }
+    $errTotal++
+}
+
+W ''
 W '--- 汇总 ---'
 W ("  语法错误总数: " + $errTotal)
 W ("  结论: " + $(if ($errTotal -eq 0) { 'PASS' } else { 'FAIL' }))

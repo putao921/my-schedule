@@ -2253,8 +2253,9 @@ function Fill-Tasks {
         # 上面留 2px 对齐标题；窄栏（list）仍独立成行、上留 5px。
         if ($wide) { $actRow.Margin = [System.Windows.Thickness]::new(8, 2, 0, 0) }
         else       { $actRow.Margin = [System.Windows.Thickness]::new(0, 5, 0, 0) }
-        $bFocus = New-PixBtn -Text (Get-LangText 'btn.focus') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 48 -H 23 -FontSize 8
-        $bPost = New-PixBtn -Text '+1' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 38 -H 23 -FontSize 8
+        # 第十三轮（item 4）：按钮字号与任务正文标题一致（13），不再比正文小一截。
+        $bFocus = New-PixBtn -Text (Get-LangText 'btn.focus') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 52 -H 24 -FontSize 13
+        $bPost = New-PixBtn -Text '+1' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 42 -H 24 -FontSize 13
         $bFocus.Tag = @{ kind = 'task-focus'; id = $tId }
         $bPost.Tag = @{ kind = 'task-postpone'; id = $tId }
         $bFocus.Margin = [System.Windows.Thickness]::new(0, 0, 4, 0)
@@ -2269,7 +2270,7 @@ function Fill-Tasks {
         # 行内详情面板必须另有一个显式入口，否则这个能力就变成"没人知道怎么用"。
         # 用 New-PixBtn 而不是 TextBlock：需要一个真正的可点命中区（8px 高的文字
         # 命中区太小，在卡片右边缘几乎点不到），而且按钮能自带 hover/按下反馈。
-        $caret = New-PixBtn -Text $expCaret -Bg (Get-Pal 'Card') -Fg (Get-Pal 'InkFaint') -W 24 -H 23 -FontSize 9
+        $caret = New-PixBtn -Text $expCaret -Bg (Get-Pal 'Card') -Fg (Get-Pal 'InkFaint') -W 26 -H 24 -FontSize 13
         $caret.Tag = @{ kind = 'task-expand'; id = $tId }
         $caret.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
         $caret.ToolTip = $(if ($expanded) { Get-LangText 'tip.hide' } else { Get-LangText 'tip.show' })

@@ -618,7 +618,7 @@ function Set-AvatarElement {
     $Image.Visibility = 'Collapsed'
     $Canvas.Visibility = 'Visible'
     if ($null -ne $HintBox) { $HintBox.Visibility = 'Visible' }
-    if ($null -ne $Hint) { $Hint.Text = 'Change' }
+    if ($null -ne $Hint) { $Hint.Text = (Get-LangText 'av.change') }
     return $false
 }
 
