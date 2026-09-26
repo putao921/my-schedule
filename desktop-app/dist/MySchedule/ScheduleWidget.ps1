@@ -682,7 +682,7 @@ $script:LangEn = [ordered]@{
     'sc.undo'         = 'Ctrl+Z  Undo delete'
     'sc.tabs'         = 'Ctrl+1..4  Switch settings tab'
     'opt.scale.small' = 'Small'; 'opt.scale.normal' = 'Normal'
-    'opt.scale.large' = 'Large'; 'opt.scale.huge' = 'Huge'
+    'opt.scale.medium'= 'Medium'; 'opt.scale.large' = 'Large'; 'opt.scale.huge' = 'Huge'
     'opt.theme.light' = 'Light'; 'opt.theme.night' = 'Night'
     'opt.dens.compact'= 'Compact'; 'opt.dens.normal' = 'Normal'; 'opt.dens.roomy' = 'Roomy'
     # 语言名**不翻译**：中文用户也要能一眼找到 "English" 这一项来切回去。
@@ -807,7 +807,7 @@ $script:LangZh = [ordered]@{
     'sc.undo'         = 'Ctrl+Z  撤销'
     'sc.tabs'         = 'Ctrl+1..4  切换设置页签'
     'opt.scale.small' = '小'; 'opt.scale.normal' = '标准'
-    'opt.scale.large' = '大'; 'opt.scale.huge' = '特大'
+    'opt.scale.medium'= '中'; 'opt.scale.large' = '大'; 'opt.scale.huge' = '特大'
     'opt.theme.light' = '浅色'; 'opt.theme.night' = '夜间'
     'opt.dens.compact'= '紧凑'; 'opt.dens.normal' = '标准'; 'opt.dens.roomy' = '宽松'
     # 语言名**不翻译**（与英文表同值）：切到英文界面后仍要点得到"中文"切回来。
@@ -3333,8 +3333,8 @@ function Invoke-HandlerAudit {
             $hugeBtn = New-PixBtn -Text 'probe' -W 100 -H 34 -FontSize 12
             $hugeBtnH = [double]$hugeBtn.Height
 
-            $okSave = ([math]::Abs($saved - 1.30) -lt 0.001) -and ([math]::Abs($user - 1.30) -lt 0.001)
-            # 字号与按钮高度都必须真的变大（且不是"变了一点点"，1.30/1.00 应看得见）
+            $okSave = ([math]::Abs($saved - 1.35) -lt 0.001) -and ([math]::Abs($user - 1.35) -lt 0.001)
+            # 字号与按钮高度都必须真的变大（且不是"变了一点点"，1.35/1.00 应看得见）
             $okTxt = ($hugeFs -gt $baseFs + 1.0)
             $okBtn = ($hugeBtnH -gt $baseBtnH + 1.0)
             $okClosed = ($script:DlgClosed -eq 'scale-applied')
@@ -3808,7 +3808,7 @@ function Invoke-HandlerAudit {
             } else {
                 $bodyTxt = $null
                 foreach ($tb in @(Find-AllOfType $target ([System.Windows.Controls.TextBlock]))) {
-                    if ([double]$tb.FontSize -eq 12.0) { $bodyTxt = $tb; break }
+                    if ($null -ne $tb.Tag -and [string]$tb.Tag['kind'] -eq 'task-title') { $bodyTxt = $tb; break }
                 }
                 $bodyW = 0.0
                 if ($null -ne $bodyTxt) { $bodyW = [double]$bodyTxt.ActualWidth }

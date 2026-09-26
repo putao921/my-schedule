@@ -185,6 +185,8 @@ function New-DigitWheelField {
         $tb.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
         $tb.HorizontalAlignment = 'Center'
         $tb.VerticalAlignment = 'Center'
+        # 第九轮（混排基线）：Consolas 行高偏大，收紧到略小于字号，数字在格子里才真正居中。
+        $tb.LineHeight = (Scale-Ui 26)
         $tb.IsHitTestVisible = $false     # 点击/滚轮都归外层 Border 收，避免子元素吃掉事件
         $cell.Child = $tb
         $cell.Tag = @{ kind = 'digit-wheel'; idx = $i }
@@ -498,6 +500,7 @@ function New-ToggleRow {
         $h = New-Txt -Text $Hint -Size 10 -Color (Get-Pal 'InkFaint')
         $h.Margin = [System.Windows.Thickness]::new(24, 0, 0, 6)
         $h.TextWrapping = 'Wrap'
+        Set-LineHeight $h 10
         [void]$Parent.Children.Add($h)
     }
     return $cb
@@ -841,7 +844,7 @@ function Get-EditorChrome {
         $barGrid.ColumnDefinitions.Add($cd)
     }
 
-    $barTxt = New-Txt -Text $Title -Size 12 -Color (Get-Pal 'Ink') -Weight 'Semi'
+    $barTxt = New-Txt -Text $Title -Size 13 -Color (Get-Pal 'Ink') -Weight 'Semi'
     $barTxt.VerticalAlignment = 'Center'
     $barTxt.Margin = [System.Windows.Thickness]::new(12, 0, 0, 0)
     [System.Windows.Controls.Grid]::SetColumn($barTxt, 0)
@@ -1533,8 +1536,9 @@ function Show-SettingsWindow {
     $script:SetScaleChoices = [ordered]@{
         'small'  = 0.85
         'normal' = 1.00
+        'medium' = 1.08
         'large'  = 1.15
-        'huge'   = 1.30
+        'huge'   = 1.35
     }
     # 反查当前档位：存的是倍率，配置被手改成一个"不在档位表里"的值时回落到 normal。
     $curScale = [double]$script:Settings['UiScale']
@@ -1544,6 +1548,7 @@ function Show-SettingsWindow {
     }
     $script:SetUiScale = New-ChoiceField $pa 'fld.st.scale' $curScaleName @(
         @{ V = 'small'; K = 'opt.scale.small' }, @{ V = 'normal'; K = 'opt.scale.normal' },
+        @{ V = 'medium'; K = 'opt.scale.medium' },
         @{ V = 'large'; K = 'opt.scale.large' }, @{ V = 'huge'; K = 'opt.scale.huge' })
 
     $script:SetUiAdaptive = New-ToggleRow $pa (Get-LangText 'fld.st.adaptive') `
@@ -1679,7 +1684,7 @@ function Show-SettingsWindow {
     # ================= 关于页 =================
     [void]$pb.Children.Add((New-Txt -Text 'My Schedule' -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
     [void]$pb.Children.Add((New-Txt -Text 'PowerShell 5.1 + WPF · 单文件·零依赖·纯本地' -Size 10 -Color (Get-Pal 'InkSoft')))
-    $verTxt = 'v0.7'
+    $verTxt = 'v0.8'
     try { if ($null -ne $script:AppVersion) { $verTxt = [string]$script:AppVersion } } catch { }
     [void]$pb.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.version') + $verTxt) -Size 11 -Color (Get-Pal 'Ink')))
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'fld.st.shortcuts') -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
@@ -1694,6 +1699,7 @@ function Show-SettingsWindow {
     $script:SetErr.Visibility = 'Collapsed'
     $script:SetErr.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
     $script:SetErr.TextWrapping = 'Wrap'
+    Set-LineHeight $script:SetErr 10
     [void]$sp.Children.Add($script:SetErr)
 
     # ---- 设置项搜索索引（第八轮第三十节第 5 条）----
@@ -2247,6 +2253,10 @@ function Show-FocusWindow {
     $script:FoTimeText = New-Txt -Text '25:00' -Size 46 -Color (Get-Pal 'Ink') -Weight 'Bold'
     $script:FoTimeText.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
     $script:FoTimeText.HorizontalAlignment = 'Center'
+    # 第九轮（第三十二节第 4 条）：等宽 Consolas 的默认行高比微软雅黑大，
+    #   46px 数字在盒子里会显得"顶格下沉"，跟下面那行中文状态标签的间距看着不齐。
+    #   收紧行高（略小于字号本身），让数字基线贴紧、与中文标签的视觉间距更均匀。
+    $script:FoTimeText.LineHeight = (Scale-Ui 44)
     $script:FoStatusText = New-Txt -Text 'Ready' -Size 12 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
     $script:FoStatusText.HorizontalAlignment = 'Center'
     $script:FoTaskText = New-Txt -Text 'Task: No task selected' -Size 11 -Color (Get-Pal 'InkSoft')

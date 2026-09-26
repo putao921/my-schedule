@@ -31,6 +31,16 @@ function New-Txt {
     return $t
 }
 
+# 给一段文本统一设置 1.4 倍行高（第九轮第三十二节第 5 条）。
+#   为什么单独抽一个函数而不是改 New-Txt：行高是"排版诉求"，不是所有 TextBlock 都要
+#   （标题、单行 chip、计时数字都不该用 1.4 倍，会显得松垮）。只对会折行的正文/长文本调用。
+#   行高走 Scale-Ui，跟字号一起缩放，放大字号后行距不会显得挤。
+function Set-LineHeight {
+    param($TextBlock, [double]$FontSize)
+    if ($null -eq $TextBlock) { return }
+    $TextBlock.LineHeight = (Scale-Ui ([double]$FontSize * 1.4))
+}
+
 # 带硬阴影的按钮（像素风）
 function New-PixBtn {
     # W / H / FontSize 三个尺寸参数都走全局倍率：按钮的宽高必须跟文字一起长，
@@ -229,7 +239,7 @@ function New-MonthCell {
     $num = New-Txt -Text ([string]$Date.Day) -Size 13 -Color $numCol -Weight 'Bold'
     [void]$numRow.Children.Add($num)
     if ($evts.Count -gt 0) {
-        $cnt = New-Txt -Text ([string]$evts.Count) -Size 10 -Color (Get-Pal 'InkFaint') -Weight 'Semi'
+        $cnt = New-Txt -Text ([string]$evts.Count) -Size 10 -Color (Get-Pal 'InkFaint') -Weight 'Normal'
         $cnt.HorizontalAlignment = 'Right'
         $cnt.VerticalAlignment = 'Top'
         [void]$numRow.Children.Add($cnt)
@@ -941,7 +951,7 @@ function Draw-WeekEvents {
             $tm.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
             $tm.Opacity = 0.88
             [void]$sp.Children.Add($tm)
-            $tt = New-Txt -Text ([string]$e.title) -Size 12 -Color $fg -Weight 'Semi'
+            $tt = New-Txt -Text ([string]$e.title) -Size 13 -Color $fg -Weight 'Semi'
             if ([bool]$e.done) { $tt.TextDecorations = [System.Windows.TextDecorations]::Strikethrough }
             [void]$sp.Children.Add($tt)
             [void]$cardGrid.Children.Add($sp)
@@ -1563,7 +1573,7 @@ function New-ListRow {
         $row.ColumnDefinitions.Add($cd)
     }
     $tm = New-Txt -Text (('{0}-{1}' -f (Min-To-HHMM ([int]$E.start)), (Min-To-HHMM ([int]$E.end)))) `
-                  -Size 11 -Color (Get-Pal 'InkSoft') -Weight 'Semi'
+                  -Size 11 -Color (Get-Pal 'InkSoft') -Weight 'Normal'
     $tm.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
     $tm.VerticalAlignment = 'Center'
     $tm.Margin = [System.Windows.Thickness]::new(11, 0, 0, 0)
@@ -1783,7 +1793,7 @@ function New-TaskChip {
     $b = New-Bd -Bg $Bg -Border $Border -Radius 4 -Bw 1
     $b.Padding = [System.Windows.Thickness]::new(5, 1, 5, 2)
     $b.Margin = [System.Windows.Thickness]::new(0, 0, 4, 3)
-    $b.Child = (New-Txt -Text $Text -Size 9 -Color $Fg -Weight 'Semi')
+    $b.Child = (New-Txt -Text $Text -Size 9 -Color $Fg -Weight 'Normal')
     return $b
 }
 
@@ -2155,9 +2165,10 @@ function Fill-Tasks {
         })
         [void]$head.Children.Add($box)
 
-        $tt = New-Txt -Text $tText -Size 12 -Color (Get-Pal 'Ink')
+        $tt = New-Txt -Text $tText -Size 13 -Color (Get-Pal 'Ink')
         $tt.TextWrapping = 'Wrap'
         $tt.VerticalAlignment = 'Center'
+        Set-LineHeight $tt 13
         $tt.Tag = @{ kind = 'task-title'; id = $tId }
         if ($tDone) { $tt.TextDecorations = [System.Windows.TextDecorations]::Strikethrough; $tt.Opacity = 0.55 }
         [System.Windows.Controls.Grid]::SetColumn($tt, 1)
@@ -2310,6 +2321,7 @@ function Fill-Tasks {
                 $v = New-Txt -Text ([string]$Value) -Size 10 -Color (Get-Pal 'Ink')
                 $v.TextWrapping = 'Wrap'
                 $v.MaxWidth = 240
+                Set-LineHeight $v 10
                 [void]$ln.Children.Add($v)
                 [void]$detail.Children.Add($ln)
             }
@@ -2347,6 +2359,7 @@ function Fill-Tasks {
                     $sx.Margin = [System.Windows.Thickness]::new(5, 0, 0, 0)
                     $sx.TextWrapping = 'Wrap'
                     $sx.MaxWidth = 226
+                    Set-LineHeight $sx 10
                     if ($stDone) { $sx.TextDecorations = [System.Windows.TextDecorations]::Strikethrough; $sx.Opacity = 0.6 }
                     [void]$sr.Children.Add($sx)
                     [void]$detail.Children.Add($sr)
