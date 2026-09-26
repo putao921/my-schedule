@@ -2425,6 +2425,29 @@ function Fill-Tasks {
             $wrap.Background = Brush (Get-Pal 'Card')
             $wrap.BorderBrush = Brush (Get-Pal 'Border')
         }
+        # 第十四轮：任务卡 hover 反馈。指针进来 -> 白底 + 底线变强调色（橙）；
+        # 移开 -> 还原（展开中的卡片保持它原本的白底 + 常规边线）。
+        # 为什么不做位移/阴影：卡片在纵向列表里挤得近，一动就"整列在跳"。
+        $wrap.Add_MouseEnter({
+            param($s, $e)
+            try {
+                $s.Background = Brush (Get-Pal 'Card')
+                $s.BorderBrush = Brush (Get-Pal 'AccentFocus')
+            } catch { }
+        })
+        $wrap.Add_MouseLeave({
+            param($s, $e)
+            try {
+                $id2 = [string]$s.Tag['id']
+                if ($script:TaskExpandedId -eq $id2) {
+                    $s.Background = Brush (Get-Pal 'Card')
+                    $s.BorderBrush = Brush (Get-Pal 'Border')
+                } else {
+                    $s.Background = $null
+                    $s.BorderBrush = Brush (Get-Pal 'BorderSoft')
+                }
+            } catch { }
+        })
         # 双击卡片 = 打开任务编辑窗口（第四轮改版）。
         #
         # 历史：
@@ -2804,21 +2827,37 @@ function Update-Chrome {
         }
     }
 
-    # 信息头
+    # 信息头（第十四轮：三个胶囊 —— 日期+时钟 / 已完成+进度条 / 今日专注）
     $now = [datetime]::Now
     if ($null -ne $script:HeroDate) {
-        $script:HeroDate.Text = ('{0}, {1} {2} {3}  {4:00}:{5:00}' -f `
-            $script:DowShort[([int]$now.DayOfWeek + 6) % 7],
-            $script:MonShort[$now.Month - 1], $now.Day, $now.Year, $now.Hour, $now.Minute)
+        # 日期用 yyyy-mm-dd：两种语言下都是数字对齐，不再出现"9月 26 2026"的拼贴感
+        $script:HeroDate.Text = ('{0}  {1}-{2:00}-{3:00}' -f `
+            $script:DowShort[([int]$now.DayOfWeek + 6) % 7], $now.Year, $now.Month, $now.Day)
     }
-    if ($null -ne $script:HeroStats) {
+    if ($null -ne $script:HeroClock) {
+        $script:HeroClock.Text = ('{0:00}:{1:00}' -f $now.Hour, $now.Minute)
+    }
+    if ($null -ne $script:HeroDone) {
         $done = @($script:Events | Where-Object { [bool]$_.done }).Count
         $tot = @($script:Events).Count
         $pct = 0
         if ($tot -gt 0) { $pct = [int][math]::Round(($done / [double]$tot) * 100.0) }
+        $script:HeroDone.Text = ((Get-LangText 'hero.done') -f $done, $tot)
+        # 迷你进度条：宽度按"轨道实际宽度-2px 内边线"算，首次刷新可能还没布局
+        # （ActualWidth=0），退回 70 设计宽。填充色每次现取色板 -> 换肤即变。
+        if ($null -ne $script:HeroBarFill) {
+            $trackW = 70.0
+            try {
+                $aw = [double]$script:HeroBarTrack.ActualWidth
+                if ($aw -gt 4.0) { $trackW = $aw - 2.0 }
+            } catch { }
+            $script:HeroBarFill.Width = [math]::Max(0.0, $trackW * ($pct / 100.0))
+            $script:HeroBarFill.Background = Brush (Get-Pal 'AccentTask')
+        }
+    }
+    if ($null -ne $script:HeroFocus) {
         $fmin = [int]$script:Settings['FocusTodayMin']
-        $script:HeroStats.Text = ((Get-LangText 'hero.stats') -f `
-            $done, $tot, $pct, [math]::Floor($fmin / 60), ($fmin % 60))
+        $script:HeroFocus.Text = ((Get-LangText 'hero.focus') -f [math]::Floor($fmin / 60), ($fmin % 60))
     }
 
     # 日历导航条

@@ -436,13 +436,42 @@ $windowXaml = @"
          <RowDefinition Height="*"/>
        </Grid.RowDefinitions>
 
-       <!-- 信息头（番茄钟已整体挪到左侧栏，这里只留日期与统计） -->
-       <StackPanel Grid.Row="0" Margin="14,6,14,8" VerticalAlignment="Top">
-         <TextBlock x:Name="HeroDate" Text="" FontSize="15"
-                    Foreground="__InkFaint__"/>
-         <TextBlock x:Name="HeroStats" Text="" FontSize="14" Margin="0,2,0,0"
-                    Foreground="__InkSoft__"/>
-       </StackPanel>
+       <!-- 信息头（第十四轮重构：三个像素风"胶囊"替代原来的两行灰字）
+            左：日期 + 时钟（时钟用等宽字体、强调色，一眼看到"现在"）
+            中：已完成 n/m + 迷你进度条（条色由代码按色板刷，跟随主题）
+            右：今日专注时长
+            HeroStats 名字给中间+右侧这组：窄窗口 (<820px) 整组收起，日期胶囊保留 -->
+       <DockPanel Grid.Row="0" Margin="14,8,14,4" VerticalAlignment="Top" LastChildFill="False">
+         <Border DockPanel.Dock="Left" Background="__CardAlt__" BorderBrush="__Border__"
+                 BorderThickness="2" CornerRadius="8" Padding="12,4,12,4" VerticalAlignment="Center">
+           <StackPanel Orientation="Horizontal">
+             <TextBlock x:Name="HeroDate" Text="" FontSize="13" FontWeight="SemiBold"
+                        Foreground="__Ink__" VerticalAlignment="Center"/>
+             <TextBlock x:Name="HeroClock" Text="" FontSize="13" FontFamily="Consolas" FontWeight="Bold"
+                        Foreground="__AccentEvent__" VerticalAlignment="Center" Margin="10,0,0,0"/>
+           </StackPanel>
+         </Border>
+         <StackPanel x:Name="HeroStats" DockPanel.Dock="Left" Orientation="Horizontal"
+                     Margin="8,0,0,0" VerticalAlignment="Center">
+           <Border Background="__CardAlt__" BorderBrush="__Border__" BorderThickness="2"
+                   CornerRadius="8" Padding="12,4,12,4">
+             <StackPanel Orientation="Horizontal">
+               <TextBlock x:Name="HeroDone" Text="" FontSize="12"
+                          Foreground="__InkSoft__" VerticalAlignment="Center"/>
+               <Border x:Name="HeroBarTrack" Width="72" Height="9" Background="__Card__"
+                       BorderBrush="__Border__" BorderThickness="1" CornerRadius="4"
+                       VerticalAlignment="Center" Margin="10,0,0,0">
+                 <Border x:Name="HeroBarFill" HorizontalAlignment="Left" CornerRadius="3"/>
+               </Border>
+             </StackPanel>
+           </Border>
+           <Border Background="__CardAlt__" BorderBrush="__Border__" BorderThickness="2"
+                   CornerRadius="8" Padding="12,4,12,4" Margin="8,0,0,0">
+             <TextBlock x:Name="HeroFocus" Text="" FontSize="12"
+                        Foreground="__InkSoft__" VerticalAlignment="Center"/>
+           </Border>
+         </StackPanel>
+       </DockPanel>
 
        <!-- 日历导航条 -->
        <DockPanel Grid.Row="1" Margin="14,0,14,0" VerticalAlignment="Top"
@@ -530,6 +559,9 @@ function Rebuild-Window {
         $script:Rebuilding = $true
         Build-Window
         Refresh-All
+        # 第十四轮（item 4）：主题跟随 —— 换肤后悬浮窗整窗按新色板重建。
+        # 放在 finally 之前：重建主窗无论成败，悬浮窗都要跟上（它自己有兜底）。
+        try { Refresh-PomoMiniTheme } catch { }
     } catch { Write-ErrLog ('Rebuild-Window: ' + $_.Exception.Message) }
     finally { $script:Rebuilding = $false }
 }

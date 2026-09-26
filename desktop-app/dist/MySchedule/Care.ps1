@@ -227,6 +227,51 @@ function Attach-TaskClick {
 # 提醒：界面元素在 Build-Window 之前还不存在（FoTimeText 等），
 # 所有会被提前调用的函数都必须用"先算数据、后刷界面"的写法。
 #
+function Set-RingArc {
+    # 番茄钟进度环的**唯一**画法（第十四轮）。
+    #   以前只有侧栏环用（后来侧栏删了只剩死代码），第十四轮悬浮窗加进度环，
+    #   把这段几何抄过去就是第二份 —— 所以先收口成函数，两处都调它。
+    #
+    # 环的几何必须跟"构建时约定的尺寸"走，不去读 ActualWidth ——
+    # 刷新可能发生在首次布局之前，那时 ActualWidth 还是 0。
+    # $Size 是构建时的环外径，$Path.StrokeThickness 必须已经设好。
+    param($Path, [double]$Size, [double]$Frac)
+    if ($null -eq $Path) { return }
+    if ($Frac -lt 0.0) { $Frac = 0.0 }
+    if ($Frac -gt 1.0) { $Frac = 1.0 }
+    $size = [double]$Size
+    if ($size -le 8.0) { $size = 86.0 }
+    $stroke = [double]$Path.StrokeThickness
+    if ($stroke -le 0.0) { $stroke = 6.0 }
+    $r = ($size / 2.0) - ($stroke / 2.0) - 3.0
+    if ($r -le 2.0) { $r = 2.0 }
+    $cx = $size / 2.0
+    $cy = $size / 2.0
+    $fig = New-Object System.Windows.Media.PathFigure
+    $fig.StartPoint = [System.Windows.Point]::new([double]$cx, [double]($cy - $r))
+    $fig.IsClosed = $false
+    if ($Frac -le 0.0) {
+        # 空环：只用极短一段，视觉上等于没有
+        $seg0 = New-Object System.Windows.Media.LineSegment
+        $seg0.Point = [System.Windows.Point]::new([double]($cx + 0.01), [double]($cy - $r))
+        $fig.Segments.Add($seg0)
+    } else {
+        $sweep = $Frac * 360.0
+        $rad = ($sweep - 90.0) * [math]::PI / 180.0
+        $seg = New-Object System.Windows.Media.ArcSegment
+        $seg.Point = [System.Windows.Point]::new(
+            [double]($cx + $r * [math]::Cos($rad)),
+            [double]($cy + $r * [math]::Sin($rad)))
+        $seg.Size = [System.Windows.Size]::new([double]$r, [double]$r)
+        $seg.SweepDirection = [System.Windows.Media.SweepDirection]::Clockwise
+        $seg.IsLargeArc = ($sweep -gt 180.0)
+        $fig.Segments.Add($seg)
+    }
+    $geo = New-Object System.Windows.Media.PathGeometry
+    $geo.Figures.Add($fig)
+    $Path.Data = $geo
+}
+
 # 第三轮改动：侧栏那块番茄钟（圆环 + 倒计时 + Start/Setup + Ready）整块删掉了，
 # 于是本函数里 PomoArc / PomoText / PomoHint / PomoBox / PomoBtnText 这些
 # $script: 变量永远是 $null。所有对它们的写入都必须先判空 —— 这里不是"防御性编程"，
@@ -246,44 +291,9 @@ function Update-PomodoroVisual {
     # 只在圆环存在时才需要算 —— 侧栏圆环已删，这段默认不执行。
     if ($null -ne $script:PomoArc) {
         $frac = 1.0 - ($rem / [double]$total)
-        if ($frac -lt 0.0) { $frac = 0.0 }
-        if ($frac -gt 1.0) { $frac = 1.0 }
-
-        # 环的几何必须跟着控件实际尺寸走：番茄钟从右上角（88px）搬到左侧栏（76px）后，
-        # 写死的 86/33 会画出一圈超出容器的弧。$script:PomoRingSize 在构建时与 XAML 同源，
-        # 不去读 ActualWidth —— 刷新可能发生在首次布局之前，那时 ActualWidth 还是 0。
-        $size = [double]$script:PomoRingSize
-        $stroke = 6.0
-        $stroke = [double]$script:PomoArc.StrokeThickness
-        if ($stroke -le 0.0) { $stroke = 6.0 }
-        if ($size -le 8.0) { $size = 86.0 }
-        $r = ($size / 2.0) - ($stroke / 2.0) - 3.0
-        if ($r -le 2.0) { $r = 2.0 }
-        $cx = $size / 2.0
-        $cy = $size / 2.0
-        $fig = New-Object System.Windows.Media.PathFigure
-        $fig.StartPoint = [System.Windows.Point]::new([double]$cx, [double]($cy - $r))
-        $fig.IsClosed = $false
-        if ($frac -le 0.0) {
-            # 空环：只用极短一段，视觉上等于没有
-            $seg0 = New-Object System.Windows.Media.LineSegment
-            $seg0.Point = [System.Windows.Point]::new([double]($cx + 0.01), [double]($cy - $r))
-            $fig.Segments.Add($seg0)
-        } else {
-            $sweep = $frac * 360.0
-            $rad = ($sweep - 90.0) * [math]::PI / 180.0
-            $seg = New-Object System.Windows.Media.ArcSegment
-            $seg.Point = [System.Windows.Point]::new(
-                [double]($cx + $r * [math]::Cos($rad)),
-                [double]($cy + $r * [math]::Sin($rad)))
-            $seg.Size = [System.Windows.Size]::new([double]$r, [double]$r)
-            $seg.SweepDirection = [System.Windows.Media.SweepDirection]::Clockwise
-            $seg.IsLargeArc = ($sweep -gt 180.0)
-            $fig.Segments.Add($seg)
-        }
-        $geo = New-Object System.Windows.Media.PathGeometry
-        $geo.Figures.Add($fig)
-        $script:PomoArc.Data = $geo
+        # 第十四轮：几何画法收口到 Set-RingArc（悬浮窗也用环了，一份画法两处用）。
+        # 原来这里的"环的几何必须跟控件实际尺寸走"说明移进 Set-RingArc 头注释。
+        Set-RingArc -Path $script:PomoArc -Size ([double]$script:PomoRingSize) -Frac $frac
     }
 
     $enabled = [bool]$script:Settings['PomodoroEnabled']
@@ -391,6 +401,9 @@ if ([int]$script:Pomo.Remaining -le 0) {
             Hide-PomoMini
         }
         $script:Selected = [datetime]::Today
+        # 第十四轮（item 2）：任务队列轮换 —— 专注段**自然走完**才算"消耗"一个名额，
+        # 队头任务顶上来变成下一段专注的目标（暂停/提前收工不消耗，用户可能还想继续）。
+        Advance-PomoQueue
         Refresh-All
     }
 }
@@ -488,7 +501,11 @@ function Reset-Pomodoro {
     if ($taskMatch.Count -gt 0) { $script:Pomo.TaskId = [string]$taskMatch[0].id } else { $script:Pomo.TaskId = '' }
     if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
     Update-PomodoroVisual
-    Hide-PomoMini
+    # 第十四轮：常驻开着时归零**不收窗** —— 悬浮窗切回空闲小组件（时钟+待办数）；
+    # 没常驻才按老行为整个藏起来。
+    $pinnedNow = $false
+    if ($script:Settings.Contains('MiniPinned')) { $pinnedNow = [bool]$script:Settings['MiniPinned'] }
+    if ($pinnedNow) { Update-PomoMini } else { Hide-PomoMini }
 }
 
 function Toggle-Pomodoro {
@@ -530,12 +547,56 @@ function Toggle-Pomodoro {
     if ([bool]$script:Pomo.Running) { Show-PomoMini } else { Update-PomoMini }
 }
 
+function Advance-PomoQueue {
+    # 任务队列轮换（第十四轮 item 2）。
+    #   队列存的是任务 id（Settings['PomoQueue']，逗号分隔、有序）。
+    #   专注段**自然走完**后调用：队头任务顶上来变成当前专注任务，原队头挪到队尾，
+    #   下一段"开始"就落在下一个任务上。队列为空 = 一切照旧（单任务老行为）。
+    #   只保留仍存在的 id：任务可能在中途被删，坏 id 留在队列里会让轮换卡死。
+    try {
+        $raw = ''
+        if ($script:Settings.Contains('PomoQueue')) { $raw = [string]$script:Settings['PomoQueue'] }
+        $ids = @($raw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $alive = @($script:Tasks | ForEach-Object { [string]$_.id })
+        $ids = @($ids | Where-Object { $alive -contains $_ })
+        if ($ids.Count -eq 0) {
+            if ($raw) { $script:Settings['PomoQueue'] = ''; Save-Settings }
+            return
+        }
+        $head = [string]$ids[0]
+        $hit = @($script:Tasks | Where-Object { [string]$_.id -eq $head })
+        if ($hit.Count -gt 0) {
+            $script:Pomo.Task = [string]$hit[0].text
+            $script:Pomo.TaskId = $head
+            $script:Settings['PomodoroTask'] = [string]$hit[0].text
+        }
+        $rot = @()
+        for ($i = 1; $i -lt $ids.Count; $i++) { $rot += $ids[$i] }
+        $rot += $head
+        $script:Settings['PomoQueue'] = ($rot -join ',')
+        Save-Settings
+    } catch { Write-ErrLog ('Advance-PomoQueue: ' + $_.Exception.Message) }
+}
+
 # ---------------------------------------------------------------------------
-#  番茄钟迷你悬浮窗（第十二轮 item 2）
+#  番茄钟迷你悬浮窗（第十二轮 item 2 创建；第十四轮大改）
 #
 #  为什么要有它：专注浮窗（Show-FocusWindow）是完整的设置窗，字段多、占地方；
 #  用户跑番茄钟时只想看到"还剩几分钟"，并且能最小化主窗、把计时留在桌面角落。
-#  这个迷你窗只放倒计时 + 状态 + 任务名 + 暂停/继续 + ×，始终置顶、可拖动。
+#
+#  第十四轮改了四件事：
+#    ① 常驻开关（MiniPinned）：不跑番茄钟也钉在角落当桌面小组件 ——
+#       空闲时显示当前时钟 + 今日待办数，跑起来自动变回倒计时。
+#    ② 倒计时进度环：时间数字嵌在环心，一眼看出"这一段走了多少"。
+#    ③ 主题跟随：换肤时整窗按新色板重建（Refresh-PomoMiniTheme），
+#       环色每个 tick 现取 Get-Pal，换肤立刻生效不等下一轮。
+#    ④ 滚轮调透明度 + 位置记忆 + 崩溃自愈（构建失败重建一次并弹系统通知）。
+#
+#  ⚠ 修复过的 bug（就是用户报的"点击开始后按键不跟着变"）：
+#    以前对 $script:PomoMiniBtn（Button）写 .Text —— Button 没有 Text 属性
+#    （文字是包在 Content 里的 TextBlock），每秒抛"找不到属性"异常，
+#    被 Update-PomoMini 的静默 catch 整个吞掉：按钮永远停在构建时的"暂停"，
+#    暂停后不变"继续"，任务名也刷不出来。现在改持 Content 里的 TextBlock。
 # ---------------------------------------------------------------------------
 function New-PomoMiniWidget {
     if ($null -ne $script:PomoMiniWin) { return }
@@ -548,21 +609,56 @@ function New-PomoMiniWidget {
     $w.ShowInTaskbar = $false
     $w.Topmost = $true
     $w.FontFamily = New-Object System.Windows.Media.FontFamily('Microsoft YaHei')
+    # 透明度记忆（第十四轮 ④）：滚轮调节，重启保持。夹在 [0.35, 1]。
+    $op = 1.0
+    if ($script:Settings.Contains('MiniOpacity')) {
+        $opTry = 0.0
+        if ([double]::TryParse(([string]$script:Settings['MiniOpacity']).Trim(), [ref]$opTry)) { $op = $opTry }
+    }
+    if ($op -lt 0.35) { $op = 0.35 }
+    if ($op -gt 1.0) { $op = 1.0 }
+    $w.Opacity = $op
     $script:PomoMiniWin = $w
 
     $root = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 12
-    $root.Padding = [System.Windows.Thickness]::new(18, 12, 18, 12)
+    $root.Padding = [System.Windows.Thickness]::new(16, 12, 16, 12)
+    # 滚轮调透明度就发生在"滚轮悬在窗上"这个动作里，提示写进 ToolTip。
+    $root.ToolTip = (Get-LangText 'tip.miniWheel')
     $sp = New-Object System.Windows.Controls.StackPanel
 
-    $script:PomoMiniTime = New-Txt -Text '25:00' -Size 32 -Color (Get-Pal 'Ink') -Weight 'Bold'
+    # ---- 进度环 + 居中倒计时（第十四轮 ②）----
+    $ringSize = 118.0
+    $script:PomoMiniRingSize = $ringSize
+    $ringHost = New-Object System.Windows.Controls.Grid
+    $ringHost.Width = $ringSize
+    $ringHost.Height = $ringSize
+    $ringHost.HorizontalAlignment = 'Center'
+    $track = New-Object System.Windows.Shapes.Path
+    # 轨道色用 BorderSoft：CardAlt 和卡片底色太接近，环会"看不见"（第十四轮截图实测）
+    $track.Stroke = Brush (Get-Pal 'BorderSoft')
+    $track.StrokeThickness = 7
+    $track.StrokeStartLineCap = 'Round'
+    $track.StrokeEndLineCap = 'Round'
+    $trackR = ($ringSize / 2.0) - (7.0 / 2.0) - 3.0
+    $track.Data = [System.Windows.Media.EllipseGeometry]::new(
+        [System.Windows.Point]::new($ringSize / 2.0, $ringSize / 2.0), $trackR, $trackR)
+    [void]$ringHost.Children.Add($track)
+    $script:PomoMiniArc = New-Object System.Windows.Shapes.Path
+    $script:PomoMiniArc.Stroke = Brush (Get-Pal 'AccentFocus')
+    $script:PomoMiniArc.StrokeThickness = 7
+    $script:PomoMiniArc.StrokeStartLineCap = 'Round'
+    $script:PomoMiniArc.StrokeEndLineCap = 'Round'
+    [void]$ringHost.Children.Add($script:PomoMiniArc)
+    $script:PomoMiniTime = New-Txt -Text '25:00' -Size 26 -Color (Get-Pal 'Ink') -Weight 'Bold'
     $script:PomoMiniTime.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
     $script:PomoMiniTime.HorizontalAlignment = 'Center'
-    $script:PomoMiniTime.LineHeight = 30
-    [void]$sp.Children.Add($script:PomoMiniTime)
+    $script:PomoMiniTime.VerticalAlignment = 'Center'
+    [void]$ringHost.Children.Add($script:PomoMiniTime)
+    [void]$sp.Children.Add($ringHost)
 
     $script:PomoMiniStatus = New-Txt -Text (Get-LangText 'pomo.focusing') -Size 11 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
     $script:PomoMiniStatus.HorizontalAlignment = 'Center'
-    $script:PomoMiniStatus.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
+    $script:PomoMiniStatus.Margin = [System.Windows.Thickness]::new(0, 4, 0, 0)
     [void]$sp.Children.Add($script:PomoMiniStatus)
 
     $script:PomoMiniTask = New-Txt -Text '' -Size 10 -Color (Get-Pal 'InkSoft')
@@ -571,72 +667,215 @@ function New-PomoMiniWidget {
     $script:PomoMiniTask.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
     [void]$sp.Children.Add($script:PomoMiniTask)
 
-    # 第十三轮（item 1）：悬浮窗从"只暂停"扩展成完整控制条——
-    #   暂停/继续 + 结束并统计 + 退出，让用户可以把主窗最小化、只靠这扇小窗跑完整个番茄钟。
+    # 按钮行：暂停/继续 + 结束并统计 + 退出（第十三轮三键制）。
+    # 常驻空闲态时"结束并统计"没有意义（没在计时），Update-PomoMini 会把它藏起来。
     $btnRow = New-Object System.Windows.Controls.StackPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.HorizontalAlignment = 'Center'
     $btnRow.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
     $script:PomoMiniBtn = New-PixBtn -Text (Get-LangText 'pomo.pause') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 62 -H 26 -FontSize 10
+    # 修复"按钮文字不跟状态走"：持 Content 里的 TextBlock（Button 本身没有 .Text）。
+    $script:PomoMiniBtnText = $script:PomoMiniBtn.Content
     $script:PomoMiniBtn.Add_Click({ param($s,$e) try { Toggle-Pomodoro; $e.Handled = $true } catch { Write-ErrLog ('PomoMini toggle: ' + $_.Exception.Message) } })
     [void]$btnRow.Children.Add($script:PomoMiniBtn)
-    $endBtn = New-PixBtn -Text (Get-LangText 'pomo.endStat') -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 74 -H 26 -FontSize 10
-    $endBtn.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
-    $endBtn.ToolTip = (Get-LangText 'pomo.endStat')
-    $endBtn.Add_Click({ param($s,$e) try { End-FocusSession; $e.Handled = $true } catch { Write-ErrLog ('PomoMini end: ' + $_.Exception.Message) } })
-    [void]$btnRow.Children.Add($endBtn)
+    $script:PomoMiniEndBtn = New-PixBtn -Text (Get-LangText 'pomo.endStat') -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 74 -H 26 -FontSize 10
+    $script:PomoMiniEndBtn.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+    $script:PomoMiniEndBtn.ToolTip = (Get-LangText 'pomo.endStat')
+    $script:PomoMiniEndBtn.Add_Click({ param($s,$e) try { End-FocusSession; $e.Handled = $true } catch { Write-ErrLog ('PomoMini end: ' + $_.Exception.Message) } })
+    [void]$btnRow.Children.Add($script:PomoMiniEndBtn)
     $exitBtn = New-PixBtn -Text (Get-LangText 'pomo.exit') -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 46 -H 26 -FontSize 10
     $exitBtn.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
     $exitBtn.ToolTip = (Get-LangText 'pomo.exit')
-    $exitBtn.Add_Click({ param($s,$e) try { Reset-Pomodoro; Hide-PomoMini; $e.Handled = $true } catch { Write-ErrLog ('PomoMini exit: ' + $_.Exception.Message) } })
+    # 退出按钮的语义跟状态走（第十四轮 ①）：
+    #   在计时/暂停中 -> 结束本次（Reset）并收窗；常驻空闲态 -> 取消常驻并收窗。
+    $exitBtn.Add_Click({
+        param($s,$e)
+        try {
+            $pinned = $false
+            if ($script:Settings.Contains('MiniPinned')) { $pinned = [bool]$script:Settings['MiniPinned'] }
+            $idle = ((-not [bool]$script:Pomo.Running) -and ([int]$script:Pomo.Remaining -ge [int]$script:Pomo.Total))
+            if ($pinned -and $idle) {
+                $script:Settings['MiniPinned'] = $false
+                Save-Settings
+            } else {
+                Reset-Pomodoro
+            }
+            Hide-PomoMini
+            $e.Handled = $true
+        } catch { Write-ErrLog ('PomoMini exit: ' + $_.Exception.Message) }
+    })
     [void]$btnRow.Children.Add($exitBtn)
     [void]$sp.Children.Add($btnRow)
 
     $root.Child = $sp
     $w.Content = $root
-    # 拖动：整块都能拖（点在按钮上时不拖）
+    # 拖动：整块都能拖（点在按钮上时不拖）；松手即记位置（第十四轮 ④ 位置记忆，
+    # 常驻小组件重启后回原位，换肤重建也不跳回右下角）。
     $root.Add_MouseLeftButtonDown({
         param($s, $e)
         if (Test-ClickOnButton $e) { return }
-        try { $script:PomoMiniWin.DragMove() } catch { }
+        try {
+            $script:PomoMiniWin.DragMove()
+            Save-MiniPos
+        } catch { }
+    })
+    # 滚轮调透明度（第十四轮 ④）：只改内存里的设置值，落盘交给 Hide/退出等节点，
+    # 避免一秒几十次的滚轮事件各写一次 settings.json。
+    $root.Add_MouseWheel({
+        param($s, $e)
+        try {
+            $cur = [double]$script:PomoMiniWin.Opacity
+            if ($e.Delta -gt 0) { $cur = $cur + 0.05 } else { $cur = $cur - 0.05 }
+            if ($cur -lt 0.35) { $cur = 0.35 }
+            if ($cur -gt 1.0) { $cur = 1.0 }
+            $script:PomoMiniWin.Opacity = $cur
+            $script:Settings['MiniOpacity'] = $cur
+            $e.Handled = $true
+        } catch { Write-ErrLog ('PomoMini wheel: ' + $_.Exception.Message) }
     })
 }
 
+function Save-MiniPos {
+    # 记悬浮窗位置（第十四轮 ④）。读 Left/Top 在窗口最小化/关闭时可能抛，包住。
+    if ($null -eq $script:PomoMiniWin) { return }
+    try {
+        $script:Settings['MiniLeft'] = [double]$script:PomoMiniWin.Left
+        $script:Settings['MiniTop'] = [double]$script:PomoMiniWin.Top
+        Save-Settings
+    } catch { }
+}
+
 function Show-PomoMini {
-    New-PomoMiniWidget
+    try { New-PomoMiniWidget } catch {
+        # 崩溃兜底（第十四轮 ④）：构建失败就清掉半成品对象让下轮重试，
+        # 并用系统通知告诉用户一声（只通知一次，别轰炸）。
+        $script:PomoMiniWin = $null
+        Write-ErrLog ('PomoMini build: ' + $_.Exception.Message)
+        if (-not $script:PomoMiniFailNotified) {
+            $script:PomoMiniFailNotified = $true
+            try { Show-DesktopNotification (Get-LangText 'ntf.miniFail') '' } catch { }
+        }
+        return
+    }
     if ($null -eq $script:PomoMiniWin) { return }
     try {
         if (-not $script:PomoMiniWin.IsVisible) { $script:PomoMiniWin.Show() }
         $script:PomoMiniWin.UpdateLayout()
+        # 位置：优先用上次记住的（且还在屏幕工作区内），没有才贴右下角。
         $wa = [System.Windows.SystemParameters]::WorkArea
-        $script:PomoMiniWin.Left = [double]$wa.Right - [double]$script:PomoMiniWin.ActualWidth - 20.0
-        $script:PomoMiniWin.Top  = [double]$wa.Bottom - [double]$script:PomoMiniWin.ActualHeight - 20.0
+        $stL = -1.0; $stT = -1.0
+        if ($script:Settings.Contains('MiniLeft')) { $stL = [double]$script:Settings['MiniLeft'] }
+        if ($script:Settings.Contains('MiniTop'))  { $stT = [double]$script:Settings['MiniTop'] }
+        if (($stL -gt -1000) -and ($stT -gt -1000) -and
+            ($stL -lt $wa.Right - 40) -and ($stT -lt $wa.Bottom - 40)) {
+            $script:PomoMiniWin.Left = $stL
+            $script:PomoMiniWin.Top = $stT
+        } else {
+            $script:PomoMiniWin.Left = [double]$wa.Right - [double]$script:PomoMiniWin.ActualWidth - 20.0
+            $script:PomoMiniWin.Top  = [double]$wa.Bottom - [double]$script:PomoMiniWin.ActualHeight - 20.0
+        }
     } catch { }
     Update-PomoMini
 }
 
 function Hide-PomoMini {
+    if ($null -eq $script:PomoMiniWin) { return }
+    try {
+        Save-MiniPos
+        $script:PomoMiniWin.Hide()
+    } catch { }
+}
+
+function Refresh-PomoMiniTheme {
+    # 主题跟随（第十四轮 ③）：换肤后整窗按新色板重建。
+    # 颜色都是构建时烘进控件的，逐元素回放容易漏（主窗当年就是因此走整树重建）；
+    # 悬浮窗又小，重建成本可以忽略。没显示也没常驻就直接跳过。
+    $wasVisible = ($null -ne $script:PomoMiniWin -and $script:PomoMiniWin.IsVisible)
+    $pinned = $false
+    if ($script:Settings.Contains('MiniPinned')) { $pinned = [bool]$script:Settings['MiniPinned'] }
+    if (-not $wasVisible -and -not $pinned) { return }
     if ($null -ne $script:PomoMiniWin) { try { $script:PomoMiniWin.Hide() } catch { } }
+    $script:PomoMiniWin = $null
+    Show-PomoMini
+}
+
+function Toggle-MiniPinned {
+    # 常驻开关（第十四轮 ①）：主菜单「…」里切换。开着 = 不跑番茄钟也钉在角落，
+    # 空闲时显示时钟 + 待办数；跑起来自动变回倒计时。
+    if ($script:Settings.Contains('MiniPinned') -and [bool]$script:Settings['MiniPinned']) {
+        $script:Settings['MiniPinned'] = $false
+        Save-Settings
+        Hide-PomoMini
+    } else {
+        $script:Settings['MiniPinned'] = $true
+        Save-Settings
+        Show-PomoMini
+    }
 }
 
 function Update-PomoMini {
-    if ($null -eq $script:PomoMiniWin -or -not $script:PomoMiniWin.IsVisible) { return }
+    # 崩溃自愈（第十四轮 ④）：窗口对象被兜底清空了但番茄钟还在跑 -> 尝试重建。
+    if ($null -eq $script:PomoMiniWin) {
+        if ([bool]$script:Pomo.Running -and -not $script:SuppressModal) { Show-PomoMini }
+        return
+    }
+    if (-not $script:PomoMiniWin.IsVisible) { return }
     try {
         $rem = [int]$script:Pomo.Remaining
         if ($rem -lt 0) { $rem = 0 }
-        $script:PomoMiniTime.Text = ('{0:00}:{1:00}' -f [math]::Floor($rem / 60), ($rem % 60))
-        $mode = [string]$script:Pomo.Mode
-        if ([bool]$script:Pomo.Running) {
-            $script:PomoMiniStatus.Text = $(if ($mode -eq 'break') { Get-LangText 'pomo.break' } else { Get-LangText 'pomo.focusing' })
-            $script:PomoMiniBtn.Text = Get-LangText 'pomo.pause'
+        $total = [int]$script:Pomo.Total
+        if ($total -le 0) { $total = 1 }
+        # 空闲 = 没在跑且没走过（Ready）。常驻时空闲态就是"桌面小组件"。
+        $pinned = $false
+        if ($script:Settings.Contains('MiniPinned')) { $pinned = [bool]$script:Settings['MiniPinned'] }
+        $idle = ((-not [bool]$script:Pomo.Running) -and ($rem -ge $total))
+        if ($idle -and $pinned) {
+            # ---- 常驻空闲模式（第十四轮 ①）：时钟 + 待办数 + 日期 ----
+            $now = [datetime]::Now
+            $script:PomoMiniTime.Text = ('{0:00}:{1:00}' -f $now.Hour, $now.Minute)
+            $openN = @($script:Tasks | Where-Object { -not [bool](Get-TaskField $_ 'done' $false) }).Count
+            $script:PomoMiniStatus.Text = ((Get-LangText 'hud.tasks') -f [string]$openN)
+            $script:PomoMiniTask.Text = ('{0} {1}-{2:00}-{3:00}' -f `
+                $script:DowShort[([int]$now.DayOfWeek + 6) % 7], $now.Year, $now.Month, $now.Day)
+            $script:PomoMiniBtnText.Text = Get-LangText 'btn.start'
+            if ($null -ne $script:PomoMiniEndBtn) { $script:PomoMiniEndBtn.Visibility = 'Collapsed' }
+            if ($null -ne $script:PomoMiniArc) {
+                # 空闲态环上那个"接近 0 的弧"看着像个 bug（实测截图里是个小橙点），
+                # 直接把弧藏起来，只留一圈轨道。
+                $script:PomoMiniArc.Opacity = 0
+                Set-RingArc -Path $script:PomoMiniArc -Size ([double]$script:PomoMiniRingSize) -Frac 0.0
+            }
         } else {
-            $script:PomoMiniStatus.Text = Get-LangText 'pomo.paused'
-            $script:PomoMiniBtn.Text = Get-LangText 'pomo.resume'
+            $mode = [string]$script:Pomo.Mode
+            if ([string]::IsNullOrWhiteSpace($mode)) { $mode = 'focus' }
+            # ⚠ 倒计时赋值在 else 分支里：空闲分支写的是时钟，两态各写各的，
+            #   不写这行的话从空闲切回计时时数字会停在时钟上（首轮截图抓到过）。
+            $script:PomoMiniTime.Text = ('{0:00}:{1:00}' -f [math]::Floor($rem / 60), ($rem % 60))
+            if ([bool]$script:Pomo.Running) {
+                $script:PomoMiniStatus.Text = $(if ($mode -eq 'break') { Get-LangText 'pomo.break' } else { Get-LangText 'pomo.focusing' })
+                $script:PomoMiniBtnText.Text = Get-LangText 'pomo.pause'
+            } else {
+                $script:PomoMiniStatus.Text = Get-LangText 'pomo.paused'
+                $script:PomoMiniBtnText.Text = Get-LangText 'pomo.resume'
+            }
+            if ($null -ne $script:PomoMiniEndBtn) { $script:PomoMiniEndBtn.Visibility = 'Visible' }
+            $task = [string]$script:Pomo.Task
+            if ([string]::IsNullOrWhiteSpace($task)) { $task = Get-LangText 'pomo.noTask' }
+            $script:PomoMiniTask.Text = $task
+            if ($null -ne $script:PomoMiniArc) {
+                $frac = 1.0 - ($rem / [double]$total)
+                # 休息阶段换绿色环，跟"专注中"一眼区分开；空闲态藏掉的弧在这里恢复
+                if ($mode -eq 'break') { $script:PomoMiniArc.Stroke = Brush (Get-Pal 'AccentTask') }
+                else { $script:PomoMiniArc.Stroke = Brush (Get-Pal 'AccentFocus') }
+                $script:PomoMiniArc.Opacity = 1
+                Set-RingArc -Path $script:PomoMiniArc -Size ([double]$script:PomoMiniRingSize) -Frac $frac
+            }
         }
-        $task = [string]$script:Pomo.Task
-        if ([string]::IsNullOrWhiteSpace($task)) { $task = Get-LangText 'pomo.noTask' }
-        $script:PomoMiniTask.Text = $task
-    } catch { }
+    } catch {
+        # 第十四轮兜底：以前这里是静默 catch，"对 Button 写 .Text"这类属性异常
+        # 每秒抛一次没人知道。现在至少进 errors.log，构建期的自愈在 Show 里做。
+        Write-ErrLog ('PomoMini update: ' + $_.Exception.Message)
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -784,7 +1023,13 @@ function Start-ReminderTimer {
     if ($null -ne $script:ReminderTimer) { return }
     $script:ReminderTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:ReminderTimer.Interval = [timespan]::FromSeconds(30)
-    $script:ReminderTimer.Add_Tick({ try { Check-Reminders } catch { Write-ErrLog ('Reminder tick: ' + $_.Exception.Message) } })
+    $script:ReminderTimer.Add_Tick({
+        try { Check-Reminders } catch { Write-ErrLog ('Reminder tick: ' + $_.Exception.Message) }
+        # 第十四轮：常驻空闲模式的悬浮窗靠这个 30s 节拍刷时钟/待办数。
+        # 番茄钟在跑时有自己的 1s PomoTimer；这里只补"没在跑也常驻"的空档。
+        # Update-PomoMini 开头就会对"窗口没显示"直接 return，空转成本可以忽略。
+        try { Update-PomoMini } catch { }
+    })
     $script:ReminderTimer.Start()
 }
 
@@ -1062,6 +1307,14 @@ function Show-MainMenu {
         $miFocus.Add_Click({ Open-FocusPanel })
         [void]$menu.Items.Add($miFocus)
 
+        # 第十四轮（item 1）：悬浮窗常驻开关 —— 开着就不跑番茄钟也钉在桌面角落。
+        $miMini = New-Object System.Windows.Controls.MenuItem
+        $miniPinned = $false
+        if ($script:Settings.Contains('MiniPinned')) { $miniPinned = [bool]$script:Settings['MiniPinned'] }
+        $miMini.Header = $(if ($miniPinned) { 'Unpin widget' } else { 'Pin widget' })
+        $miMini.Add_Click({ Toggle-MiniPinned })
+        [void]$menu.Items.Add($miMini)
+
         $miAvatar = New-Object System.Windows.Controls.MenuItem
         $miAvatar.Header = 'Change avatar'
         $miAvatar.Add_Click({ Open-AvatarPanel })
@@ -1106,6 +1359,7 @@ function Build-Window {
         'BtnViewMonth','BtnViewWeek','BtnViewList','BtnAdd','BtnFocusMenu',
         'BtnMore',
         'HeroTitle','HeroDate','HeroStats','CalBar','BtnPrev','BtnNext','BtnThis',
+        'HeroClock','HeroDone','HeroFocus','HeroBarTrack','HeroBarFill',
         'CalLabel','CalNote','CalPeriod','ViewHost','UiOverlay',
         'IcNavMonth','IcNavWeek','IcNavList','IcNavTask','IcNavFocus','IcNavSettings','IcNavProfile',
         'IcViewMonth','IcViewWeek','IcViewList','IcAdd','IcFocusMenu','IcPin','IcTheme','IcCollapse','IcMore',
@@ -1166,6 +1420,12 @@ function Build-Window {
     $script:HeroTitle    = $n['HeroTitle']
     $script:HeroDate     = $n['HeroDate']
     $script:HeroStats    = $n['HeroStats']
+    # 第十四轮：Hero 统计胶囊（日期/时钟/已完成/进度条/今日专注拆成三个 pill）
+    $script:HeroClock    = $n['HeroClock']
+    $script:HeroDone     = $n['HeroDone']
+    $script:HeroFocus    = $n['HeroFocus']
+    $script:HeroBarTrack = $n['HeroBarTrack']
+    $script:HeroBarFill  = $n['HeroBarFill']
     # 侧栏番茄钟整块已删（第三轮）：PomoBox/PomoBg/PomoArc/PomoInner/PomoText/
     # PomoHint/BtnPomo/PomoBtnText/BtnPomoReset 这些 x:Name 在 XAML 里已经不存在，
     # TryFindName 会返回 $null —— 这里显式置 $null，让 Update-PomodoroVisual 的判空路径成立。

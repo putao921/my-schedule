@@ -2376,6 +2376,20 @@ function Save-FocusWindowSettings {
     $script:Settings['BreakMin'] = $breakMin
     $script:Settings['PomodoroTask'] = ([string]$script:FoTbTask.Text).Trim()
     $script:Pomo.Task = [string]$script:Settings['PomodoroTask']
+    # 第十四轮：任务队列 -> 设置。顺序 = 勾选顺序；只保留仍存在的任务 id，
+    # 否则删掉的任务会把轮换卡死（Advance-PomoQueue 也有一层过滤，双保险）。
+    if ($null -ne $script:FoQueueList) {
+        $aliveIds = @($script:Tasks | ForEach-Object { [string]$_.id })
+        $qIds = @()
+        foreach ($cb in $script:FoQueueList) {
+            if ($null -eq $cb) { continue }
+            if ([bool]$cb.IsChecked) {
+                $cid = [string]$cb.Tag
+                if ($aliveIds -contains $cid) { $qIds += $cid }
+            }
+        }
+        $script:Settings['PomoQueue'] = ($qIds -join ',')
+    }
     $script:FoErr.Visibility = 'Collapsed'
     if (-not [bool]$script:Settings['PomodoroEnabled'] -and [bool]$script:Pomo.Running) {
         $script:Pomo.Running = $false
@@ -2444,6 +2458,42 @@ function Show-FocusWindow {
     $taskChoices = @($script:Tasks | ForEach-Object { [string]$_.text } | Sort-Object -Unique)
     $script:FoTbTask = New-ComboField $sp (Get-LangText 'fld.fo.task') `
         ([string]$script:Settings['PomodoroTask']) $taskChoices
+
+    # ---- 第十四轮（item 2）：任务队列 ----
+    # 勾选多个任务 = 按顺序自动轮换：一段专注**自然走完**后，队头的任务自动成为
+    # 下一段专注的目标（见 Care.ps1 的 Advance-PomoQueue）。队列为空 = 老行为。
+    # 顺序 = 勾选顺序（Save-FocusWindowSettings 按列表顺序收集）。
+    $qLabel = New-Txt -Text (Get-LangText 'pomo.queue') -Size 11 -Color (Get-Pal 'InkSoft')
+    $qLabel.Margin = [System.Windows.Thickness]::new(0, 10, 0, 2)
+    [void]$sp.Children.Add($qLabel)
+    $script:FoQueueList = New-Object System.Collections.ArrayList
+    $qPanel = New-Object System.Windows.Controls.StackPanel
+    $queueIds = @()
+    $queueRaw = ''
+    if ($script:Settings.Contains('PomoQueue')) { $queueRaw = [string]$script:Settings['PomoQueue'] }
+    if ($queueRaw) { $queueIds = @($queueRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    $openTasks = @($script:Tasks | Where-Object { -not [bool](Get-TaskField $_ 'done' $false) })
+    foreach ($qt in $openTasks) {
+        $qtId = [string](Get-TaskField $qt 'id' '')
+        $qtText = [string](Get-TaskField $qt 'text' '')
+        $cb = New-Object System.Windows.Controls.CheckBox
+        $cb.Content = $qtText
+        $cb.FontSize = (Scale-Ui 12)
+        $cb.Foreground = Brush (Get-Pal 'Ink')
+        $cb.Margin = [System.Windows.Thickness]::new(0, 2, 0, 2)
+        $cb.Tag = $qtId
+        $cb.IsChecked = ($queueIds -contains $qtId)
+        [void]$qPanel.Children.Add($cb)
+        [void]$script:FoQueueList.Add($cb)
+    }
+    if ($openTasks.Count -eq 0) {
+        [void]$qPanel.Children.Add((New-Txt -Text (Get-LangText 'pomo.noTask') -Size 10 -Color (Get-Pal 'InkFaint')))
+    }
+    $qHost = New-Object System.Windows.Controls.ScrollViewer
+    $qHost.MaxHeight = 92
+    $qHost.VerticalScrollBarVisibility = 'Auto'
+    $qHost.Content = $qPanel
+    [void]$sp.Children.Add($qHost)
 
     $card = New-Bd -Bg (Get-Pal 'CardAlt') -Border (Get-Pal 'Border') -Radius 10
     $card.Padding = [System.Windows.Thickness]::new(18, 14, 18, 14)

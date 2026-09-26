@@ -351,6 +351,16 @@ $script:Settings = [ordered]@{
     #   手慢的人 5 秒内点不到"撤销"，删错的东西就永远找不回来了（只能靠 Ctrl+Z 碰运气）。
     #   默认 5 秒，与第六轮写死的值一致，不动老用户的手感。
     ToastSeconds   = 5
+    # ---- 第十四轮新增：悬浮窗常驻 / 透明度 / 番茄钟任务队列 ----
+    # MiniPinned：悬浮窗"常驻"开关。开了之后不管番茄钟跑不跑都钉在桌面角落；
+    #   空闲时显示当前时钟 + 今日待办数，跑起来变回倒计时（桌面小组件心智）。
+    MiniPinned      = $false
+    # MiniOpacity：悬浮窗整体透明度（滚轮在窗上滚动即可调，0.35~1.0）。
+    #   存下来是为了重启后保持用户调好的"若隐若现"程度。
+    MiniOpacity     = 1.0
+    # PomoQueue：任务队列（逗号分隔的任务 id，有序）。专注阶段自然走完时
+    #   自动把队列头部的任务顶上来当下一段专注的目标，然后把它的 id 挪到队尾轮换。
+    PomoQueue       = ''
     # ---- 第十轮新增：可自定义标签 ----
     # TagColors：标签名 -> 色板键 的有序映射。编辑器里的标签按钮组、任务分类下拉
     #   都从它动态生成；增删改标签 = 改这张表（见设置窗"数据"页的标签管理区）。
@@ -888,7 +898,14 @@ $script:LangEn = [ordered]@{
     'chip.overdue'    = 'Overdue · {0}'
     'chip.time'       = 'Time {0}/{1}m'
     'chip.sub'        = 'Sub {0}/{1}'
-    'hero.stats'      = 'Done {0}/{1} ({2}%) · Focus today {3}h{4:00}m'
+    'hero.done'       = 'Done {0}/{1}'
+    'hero.focus'      = 'Focus today {0}h{1:00}m'
+    'hud.tasks'       = '{0} to-dos'
+    'pomo.pin'        = 'Pin widget'
+    'pomo.unpin'      = 'Unpin widget'
+    'pomo.queue'      = 'Task queue (auto-advance after each focus)'
+    'tip.miniWheel'   = 'Scroll to adjust opacity'
+    'ntf.miniFail'    = 'Focus widget hit an error and was rebuilt.'
     'cal.holiday1'    = '{0} holiday this month'
     'cal.holidayN'    = '{0} holidays this month'
     # ---- 编辑器/设置校验错误（第十轮语言收尾）----
@@ -1175,7 +1192,14 @@ $script:LangZh = [ordered]@{
     'chip.overdue'    = '已逾期 · {0}'
     'chip.time'       = '用时 {0}/{1}m'
     'chip.sub'        = '子任务 {0}/{1}'
-    'hero.stats'      = '已完成 {0}/{1}（{2}%）· 今日专注 {3} 小时 {4:00} 分'
+    'hero.done'       = '已完成 {0}/{1}'
+    'hero.focus'      = '今日专注 {0} 小时 {1:00} 分'
+    'hud.tasks'       = '待办 {0}'
+    'pomo.pin'        = '常驻桌面'
+    'pomo.unpin'      = '取消常驻'
+    'pomo.queue'      = '任务队列（专注结束自动换下一个）'
+    'tip.miniWheel'   = '滚轮调节透明度'
+    'ntf.miniFail'    = '悬浮窗异常，已自动重建。'
     'cal.holiday1'    = '本月 {0} 个节假日'
     'cal.holidayN'    = '本月 {0} 个节假日'
     # ---- 编辑器/设置校验错误 ----
@@ -1445,6 +1469,12 @@ $script:CloseToTray = $false
 $script:TrayIcon   = $null
 $script:PomoTimer  = $null
 $script:PomoMiniWin = $null  # 第十二轮：番茄钟迷你悬浮窗（惰性创建）
+# 第十四轮：悬浮窗内部件（环/按钮文字/结束按钮）与自愈状态标记
+$script:PomoMiniArc = $null
+$script:PomoMiniBtnText = $null
+$script:PomoMiniEndBtn = $null
+$script:PomoMiniRingSize = 118.0
+$script:PomoMiniFailNotified = $false
 $script:AppUpdated = '2026-09-26'   # 工具最新更新时间（侧栏底部显示）
 $script:WindowClosed = $false
 $script:App        = $null      # Application 实例（消息循环那段才创建）
@@ -1542,6 +1572,7 @@ $script:FoErr        = $null
 $script:FoTimeText   = $null
 $script:FoStatusText = $null
 $script:FoStartText  = $null
+$script:FoQueueList  = $null   # 第十四轮：专注窗"任务队列"复选框列表（Show-FocusWindow 里建）
 $script:FoTaskText   = $null
 $script:DragWin      = $null   # 可拖动浮窗的句柄（处理器里只能读 $script:）
 $script:DragPosKey   = ''      # 它的位置记忆键
@@ -2602,6 +2633,78 @@ function Invoke-HandlerAudit {
                     ($null -eq $script:BtnPomoReset)
         Write-AuditRow 'sidebar pomodoro fully removed' $pomoNull `
             ("btn=$($null -ne $script:BtnPomo) box=$($null -ne $script:PomoBox) arc=$($null -ne $script:PomoArc)")
+
+        # ---- 7b. 悬浮窗按钮状态三态（第十四轮修复 + 断言）----
+        # 修复过的 bug：以前对 Button 写 .Text（属性不存在），异常被静默吞掉，
+        # 按钮文字永远停在构建时的"暂停"。这里按真实状态机走一遍：
+        # Running -> 暂停文案；暂停(已走过) -> 继续文案；Ready+常驻 -> 开始文案。
+        $pauseTxt = Get-LangText 'pomo.pause'
+        $resumeTxt = Get-LangText 'pomo.resume'
+        $startTxt = Get-LangText 'btn.start'
+        try { Hide-PomoMini } catch { }
+        if ([bool]$script:Pomo.Running) { Toggle-Pomodoro }
+        if ([int]$script:Pomo.Remaining -le 0) { Reset-Pomodoro }
+        Toggle-Pomodoro
+        Show-PomoMini
+        $miniOk1 = ($null -ne $script:PomoMiniBtnText) -and ([string]$script:PomoMiniBtnText.Text -eq $pauseTxt)
+        Toggle-Pomodoro
+        $miniOk2 = ($null -ne $script:PomoMiniBtnText) -and ([string]$script:PomoMiniBtnText.Text -eq $resumeTxt)
+        Write-AuditRow 'mini widget button follows state' ($miniOk1 -and $miniOk2) `
+            ("pause=$miniOk1 resume=$miniOk2")
+
+        # ---- 7c. 常驻空闲模式（第十四轮 item 1）----
+        # Ready + MiniPinned -> 悬浮窗显示时钟(##:##) + 待办数 + 开始按钮，结束按钮隐藏。
+        $script:Settings['MiniPinned'] = $true
+        Reset-Pomodoro
+        $idleTime = [string]$script:PomoMiniTime.Text
+        $idleStat = [string]$script:PomoMiniStatus.Text
+        $idleBtn = [string]$script:PomoMiniBtnText.Text
+        $endVis = [string]$script:PomoMiniEndBtn.Visibility
+        $idleOk = (($idleTime -match '^\d{2}:\d{2}$') -and ($idleBtn -eq $startTxt) -and ($endVis -eq 'Collapsed'))
+        $script:Settings['MiniPinned'] = $false
+        $script:Settings['MiniOpacity'] = 1.0
+        Hide-PomoMini
+        Write-AuditRow 'mini widget idle pinned mode' $idleOk `
+            ('time=' + $idleTime + ' btn=' + $idleBtn + ' endVis=' + $endVis + ' stat=' + $idleStat)
+
+        # ---- 7d. 任务队列轮换（第十四轮 item 2）----
+        # 两个临时任务入队：第一次 Advance 应让队头 alpha 顶上、队列轮转；
+        # 第二次应轮到 beta。结束后把队列/任务/列表全部还原，不影响后续用例。
+        $keepQ = [string]$script:Settings['PomoQueue']
+        $keepTaskTxt = [string]$script:Pomo.Task
+        $q1 = [pscustomobject]@{ id = (New-Id); text = 'queue alpha'; done = $false }
+        $q2 = [pscustomobject]@{ id = (New-Id); text = 'queue beta'; done = $false }
+        [void]$script:Tasks.Add($q1)
+        [void]$script:Tasks.Add($q2)
+        $script:Settings['PomoQueue'] = ($q1.id + ',' + $q2.id)
+        Advance-PomoQueue
+        $qOk1 = ([string]$script:Pomo.Task -eq 'queue alpha') -and
+                ([string]$script:Settings['PomoQueue'] -eq ($q2.id + ',' + $q1.id))
+        Advance-PomoQueue
+        $qOk2 = ([string]$script:Pomo.Task -eq 'queue beta')
+        Write-AuditRow 'focus queue advances' ($qOk1 -and $qOk2) `
+            ('step1=' + $qOk1 + ' step2=' + $qOk2 + ' task=' + [string]$script:Pomo.Task)
+        [void]$script:Tasks.Remove($q1)
+        [void]$script:Tasks.Remove($q2)
+        $script:Settings['PomoQueue'] = $keepQ
+        $script:Pomo.Task = $keepTaskTxt
+        $script:Pomo.TaskId = ''
+        Fill-Tasks
+
+        # ---- 7e. Hero 统计胶囊（第十四轮 item 3）----
+        # Update-Chrome 跑过之后三个 pill 的文字都不该为空，进度条宽度必须落在 [0, track]。
+        $heroFillOk = $true
+        try {
+            $fw2 = [double]$script:HeroBarFill.Width
+            $tw2 = [double]$script:HeroBarTrack.ActualWidth
+            if ($tw2 -gt 2.0) { $heroFillOk = ($fw2 -ge 0.0) -and ($fw2 -le $tw2) }
+        } catch { $heroFillOk = $false }
+        $heroOk = ($null -ne $script:HeroDone) -and ($null -ne $script:HeroFocus) -and
+                  ($null -ne $script:HeroClock) -and ($null -ne $script:HeroBarFill) -and
+                  (([string]$script:HeroDone.Text).Length -gt 0) -and
+                  (([string]$script:HeroFocus.Text).Length -gt 0) -and $heroFillOk
+        Write-AuditRow 'hero stat pills present' $heroOk `
+            ('done=' + [string]$script:HeroDone.Text + ' focus=' + [string]$script:HeroFocus.Text + ' fillOk=' + $heroFillOk)
 
         # Focus 浮窗必须是唯一的显示面。这里**不能**调 Open-FocusPanel：
         #   它内部是 $win.ShowDialog()，在无头审计里会挂住整个消息泵，
@@ -5928,12 +6031,16 @@ function Invoke-TestActions {
                 'minishot' {
                     # 第十二轮（item 2）：拍番茄钟迷你悬浮窗。先造一个运行中的番茄钟，
                     # 再 Show-PomoMini 弹出来拍，最后复位隐藏（别影响后续用例）。
+                    # 第十四轮：把剩余时间设成半程再拍 —— 刚开始时进度环是空的，
+                    # 截图看不出"环在走"；半程正好展示环 + 倒计时的组合。
                     try {
                         if (-not [bool]$script:Settings['PomodoroEnabled']) { $script:Settings['PomodoroEnabled'] = $true }
                         if (-not [bool]$script:Pomo.Running) {
                             if ([int]$script:Pomo.Remaining -le 0) { Reset-Pomodoro }
                             Toggle-Pomodoro
                         }
+                        $script:Pomo.Remaining = [int]([int]$script:Pomo.Total / 2)
+                        Update-PomodoroVisual
                         Show-PomoMini
                         try { $script:PomoMiniWin.UpdateLayout() } catch { }
                         if ($AllowShot -and $ScreenshotPath -and $null -ne $script:PomoMiniWin) {
@@ -5943,6 +6050,26 @@ function Invoke-TestActions {
                             Save-Shot -Path $p -Window $script:PomoMiniWin
                         }
                         if ([bool]$script:Pomo.Running) { Toggle-Pomodoro }
+                        Hide-PomoMini
+                    } catch { }
+                }
+                'miniidle' {
+                    # 第十四轮（item 1）：拍"常驻空闲"模式 —— 不跑番茄钟也钉在角落，
+                    # 显示当前时钟 + 今日待办数 + 日期。拍完还原（取消常驻并收窗）。
+                    try {
+                        if ([bool]$script:Pomo.Running) { Toggle-Pomodoro }
+                        Reset-Pomodoro
+                        $script:Settings['MiniPinned'] = $true
+                        Show-PomoMini
+                        try { $script:PomoMiniWin.UpdateLayout() } catch { }
+                        if ($AllowShot -and $ScreenshotPath -and $null -ne $script:PomoMiniWin) {
+                            $fn = 'mini-idle.png'
+                            if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
+                            $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
+                            Save-Shot -Path $p -Window $script:PomoMiniWin
+                        }
+                        $script:Settings['MiniPinned'] = $false
+                        Save-Settings
                         Hide-PomoMini
                     } catch { }
                 }
@@ -6024,6 +6151,10 @@ try {
             Write-Trace 'before Refresh-All'
             Refresh-All
             Start-ReminderTimer
+            # 第十四轮（item 1）：常驻开关开着 -> 启动就把悬浮窗钉回桌面角落
+            if ($script:Settings.Contains('MiniPinned') -and [bool]$script:Settings['MiniPinned']) {
+                try { Show-PomoMini } catch { Write-ErrLog ('Boot mini pin: ' + $_.Exception.Message) }
+            }
             Write-Trace 'after Refresh-All'
             if ($Script) { Invoke-TestScript -Spec $Script }
             if ($AutoCloseSeconds -gt 0) {
