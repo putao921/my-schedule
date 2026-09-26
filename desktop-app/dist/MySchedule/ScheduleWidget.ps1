@@ -59,6 +59,36 @@ $script:SettingsFile = Join-Path $script:DataDir 'settings.json'
 $script:ErrorLog     = Join-Path $script:DataDir 'errors.log'
 
 # ---------------------------------------------------------------------------
+#  1.2 启动失败弹窗（第十五轮，分享 PC 前的兜底）
+#      以前启动失败只写 errors.log——普通用户不会去看，得到的现象就是
+#      "双击后一闪而过"。现在把原因直接弹出来，并附日志路径。
+#      TestMode（审计/回归）下绝不弹：会卡住无头环境的消息泵。
+# ---------------------------------------------------------------------------
+function Show-FatalError {
+    param([string]$Msg)
+    if ($TestMode) { return }
+    try {
+        [System.Windows.MessageBox]::Show(
+            ('启动失败：' + $Msg + [Environment]::NewLine + [Environment]::NewLine +
+             '详细日志：' + $script:ErrorLog),
+            'My Schedule',
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Error) | Out-Null
+    } catch { }
+}
+
+# 顶层兜底：任何"没有被 try/catch 接住"的启动异常（最典型 = 分片文件缺失、
+# XAML 解析失败）都会走到这里——弹窗 + 记日志 + 终止启动。
+# 正常路径与审计里的局部 try/catch 不受影响（被捕获的异常不会进 trap）。
+trap {
+    $tMsg = ''
+    try { $tMsg = [string]$_.Exception.Message } catch { $tMsg = 'unknown error' }
+    Show-FatalError $tMsg
+    try { Write-ErrLog ('FATAL: ' + $tMsg) } catch { }
+    break
+}
+
+# ---------------------------------------------------------------------------
 #  1.5 单实例
 #      同一个 Windows 账户同时只开一个。不同账户各自有各自的实例和
 #      各自的 %APPDATA% 数据目录，互不影响（这正是"多用户可用"的含义）。
@@ -903,6 +933,15 @@ $script:LangEn = [ordered]@{
     'hud.tasks'       = '{0} to-dos'
     'pomo.pin'        = 'Pin widget'
     'pomo.unpin'      = 'Unpin widget'
+    'menu.export'     = 'Export data'
+    'menu.import'     = 'Import data'
+    'exp.title'       = 'Export schedule data'
+    'exp.done'        = 'Exported to {0}'
+    'exp.fail'        = 'Export failed'
+    'imp.title'       = 'Import schedule data'
+    'imp.badfile'     = 'Invalid file: a JSON with "events" and "tasks" is expected.'
+    'imp.done'        = 'Imported. Previous data was saved as schedule.json.import-bak'
+    'imp.fail'        = 'Import failed'
     'pomo.queue'      = 'Task queue (auto-advance after each focus)'
     'tip.miniWheel'   = 'Scroll to adjust opacity'
     'ntf.miniFail'    = 'Focus widget hit an error and was rebuilt.'
@@ -1197,6 +1236,15 @@ $script:LangZh = [ordered]@{
     'hud.tasks'       = '待办 {0}'
     'pomo.pin'        = '常驻桌面'
     'pomo.unpin'      = '取消常驻'
+    'menu.export'     = '导出数据'
+    'menu.import'     = '导入数据'
+    'exp.title'       = '导出日程数据'
+    'exp.done'        = '已导出到 {0}'
+    'exp.fail'        = '导出失败'
+    'imp.title'       = '导入日程数据'
+    'imp.badfile'     = '文件格式不对：需要包含 events 和 tasks 的 JSON。'
+    'imp.done'        = '导入完成。原数据已备份为 schedule.json.import-bak'
+    'imp.fail'        = '导入失败'
     'pomo.queue'      = '任务队列（专注结束自动换下一个）'
     'tip.miniWheel'   = '滚轮调节透明度'
     'ntf.miniFail'    = '悬浮窗异常，已自动重建。'
@@ -6181,11 +6229,15 @@ try {
             Write-Trace 'dispatch exit'
         } catch {
             Write-ErrLog ('Boot-dispatch: ' + $_.Exception.Message + ' | ' + $_.Exception.StackTrace)
+            # 启动后期（窗口已建、数据还没刷出来）的失败也弹窗：用户看到的是空窗，
+            # 不告诉他原因他会以为"软件坏了"。
+            Show-FatalError $_.Exception.Message
             try { $script:AllowClose = $true; $script:MainWindow.Close() } catch { }
         }
     }) | Out-Null
 } catch {
     Write-ErrLog ('Boot: ' + $_.Exception.Message)
+    Show-FatalError $_.Exception.Message
 }
 
 # ---- 消息循环 ----

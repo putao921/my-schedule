@@ -881,11 +881,34 @@ function Update-PomoMini {
 # ---------------------------------------------------------------------------
 #  F. 托盘图标
 # ---------------------------------------------------------------------------
+function New-AppIcon {
+    # 托盘图标（第十四轮）：从内嵌默认头像生成 32x32 Icon。
+    # 之前用 SystemIcons.Application（灰色通用图标）辨识度差，换成小女孩。
+    try {
+        $bytes = [System.Convert]::FromBase64String($script:DefaultAvatarB64)
+        $ms = New-Object System.IO.MemoryStream -ArgumentList (, $bytes)
+        $src = New-Object System.Drawing.Bitmap($ms)
+        $bmp = New-Object System.Drawing.Bitmap($src, 32, 32)
+        # 保活：HICON 依赖 bitmap，别让 GC 提前回收导致托盘图标变白。
+        $script:AppIconBitmap = $bmp
+        $script:AppIcon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+        $src.Dispose()
+        $ms.Dispose()
+        return $script:AppIcon
+    } catch {
+        Write-ErrLog ('New-AppIcon: ' + $_.Exception.Message)
+        return $null
+    }
+}
+
 function New-TrayIcon {
     $ni = New-Object System.Windows.Forms.NotifyIcon
     try {
+        $ni.Icon = New-AppIcon
+        if ($null -eq $ni.Icon) { $ni.Icon = [System.Drawing.SystemIcons]::Application }
+    } catch {
         $ni.Icon = [System.Drawing.SystemIcons]::Application
-    } catch { }
+    }
     $ni.Text = (Get-LangText 'tray.name')
     $ni.Visible = $true
 
@@ -1282,6 +1305,52 @@ function Toggle-Sidebar {
     Set-NavCollapsed $script:NavUserCollapsed
 }
 
+function Export-Data {
+    # 导出日程/任务数据（第十五轮，分享 PC）。
+    # 只导 schedule.json（纯数据）：settings 里存着窗口位置这类本机信息，
+    # 带到别的电脑反而是负担。未来跨端（Web 版）也直接认这份 JSON。
+    try {
+        Save-Data   # 先落盘，导出的是"此刻"的数据
+        $dlg = New-Object Microsoft.Win32.SaveFileDialog
+        $dlg.FileName = ('myschedule-data-' + (Get-Date).ToString('yyyyMMdd') + '.json')
+        $dlg.Filter = 'JSON (*.json)|*.json'
+        $dlg.Title = (Get-LangText 'exp.title')
+        if ($dlg.ShowDialog() -ne $true) { return }
+        Copy-Item -LiteralPath $script:DataFile -Destination $dlg.FileName -Force
+        Show-Toast -Title ((Get-LangText 'exp.done') -f $dlg.FileName)
+    } catch {
+        Write-ErrLog ('Export-Data: ' + $_.Exception.Message)
+        Show-Toast -Title (Get-LangText 'exp.fail') -Text $_.Exception.Message
+    }
+}
+
+function Import-Data {
+    # 导入日程/任务数据（第十五轮，分享 PC / 换电脑）。
+    # 覆盖前先把当前数据备份成 .import-bak：导错了还能找回来。
+    try {
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Filter = 'JSON (*.json)|*.json'
+        $dlg.Title = (Get-LangText 'imp.title')
+        if ($dlg.ShowDialog() -ne $true) { return }
+        $raw = [System.IO.File]::ReadAllText($dlg.FileName, [System.Text.Encoding]::UTF8)
+        $obj = $raw | ConvertFrom-Json
+        if ($null -eq $obj -or $null -eq $obj.events -or $null -eq $obj.tasks) {
+            Show-Toast -Title (Get-LangText 'imp.badfile')
+            return
+        }
+        if (Test-Path -LiteralPath $script:DataFile) {
+            Copy-Item -LiteralPath $script:DataFile -Destination ($script:DataFile + '.import-bak') -Force
+        }
+        Copy-Item -LiteralPath $dlg.FileName -Destination $script:DataFile -Force
+        Load-Data
+        Refresh-All
+        Show-Toast -Title (Get-LangText 'imp.done')
+    } catch {
+        Write-ErrLog ('Import-Data: ' + $_.Exception.Message)
+        Show-Toast -Title (Get-LangText 'imp.fail') -Text $_.Exception.Message
+    }
+}
+
 function Show-MainMenu {
     try {
         $menu = New-Object System.Windows.Controls.ContextMenu
@@ -1319,6 +1388,16 @@ function Show-MainMenu {
         $miAvatar.Header = 'Change avatar'
         $miAvatar.Add_Click({ Open-AvatarPanel })
         [void]$menu.Items.Add($miAvatar)
+
+        # 第十五轮（分享 PC）：导出/导入数据 —— 换电脑不再需要手动拷 %APPDATA%
+        $miExport = New-Object System.Windows.Controls.MenuItem
+        $miExport.Header = (Get-LangText 'menu.export')
+        $miExport.Add_Click({ Export-Data })
+        [void]$menu.Items.Add($miExport)
+        $miImport = New-Object System.Windows.Controls.MenuItem
+        $miImport.Header = (Get-LangText 'menu.import')
+        $miImport.Add_Click({ Import-Data })
+        [void]$menu.Items.Add($miImport)
 
         $miSidebar = New-Object System.Windows.Controls.MenuItem
         $miSidebar.Header = $(if ($script:NavCol.Width.Value -gt 0) { 'Hide sidebar' } else { 'Show sidebar' })
