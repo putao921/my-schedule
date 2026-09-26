@@ -644,7 +644,6 @@ $script:LangEn = [ordered]@{
     'nav.newEvent' = 'New event'
     'view.month' = 'Month view'; 'view.week' = 'Week view'; 'view.list' = 'List view'
     'view.tasks' = 'Tasks view'
-    'daily.note' = 'DAILY NOTE'
     'sched' = 'My Schedule'
     'undo.task' = 'Task deleted'; 'undo.event' = 'Event deleted'
     'undo.deleted' = 'Deleted: '; 'undo.btn' = 'Undo'
@@ -844,6 +843,8 @@ $script:LangEn = [ordered]@{
     # ---- 关于页 ----
     'about.appName'   = 'My Schedule'
     'about.tech'      = 'PowerShell 5.1 + WPF · single file · zero dependency · offline'
+    'about.author'    = 'Author · Putao'
+    'about.updated'   = 'Updated {0}'
     # ---- 当日议程空态 ----
     'fld.day.emptyDetail' = 'No events on this day.'
     # ---- 筛选选项（第十轮语言收尾：列表/任务视图的下拉与按钮）----
@@ -931,7 +932,6 @@ $script:LangZh = [ordered]@{
     'nav.newEvent' = '新建日程'
     'view.month' = '月视图'; 'view.week' = '周视图'; 'view.list' = '列表视图'
     'view.tasks' = '任务视图'
-    'daily.note' = '每日一句'
     'sched' = '我的日程'
     'undo.task' = '任务已删除'; 'undo.event' = '日程已删除'
     'undo.deleted' = '已删除：'; 'undo.btn' = '撤销'
@@ -1127,6 +1127,8 @@ $script:LangZh = [ordered]@{
     # ---- 关于页 ----
     'about.appName'   = '我的日程'
     'about.tech'      = 'PowerShell 5.1 + WPF · 单文件 · 零依赖 · 纯本地'
+    'about.author'    = '作者 · 蒲桃'
+    'about.updated'   = '更新于 {0}'
     # ---- 当日议程空态 ----
     'fld.day.emptyDetail' = '这一天没有日程。'
     # ---- 筛选选项 ----
@@ -1422,6 +1424,8 @@ $script:AllowClose = $false
 $script:CloseToTray = $false
 $script:TrayIcon   = $null
 $script:PomoTimer  = $null
+$script:PomoMiniWin = $null  # 第十二轮：番茄钟迷你悬浮窗（惰性创建）
+$script:AppUpdated = '2026-09-26'   # 工具最新更新时间（侧栏底部显示）
 $script:WindowClosed = $false
 $script:App        = $null      # Application 实例（消息循环那段才创建）
 $script:TraceOn    = [bool]$Trace
@@ -5900,6 +5904,27 @@ function Invoke-TestActions {
                         Save-Shot -Path $p -Window $w
                     }
                     $w.Close()
+                }
+                'minishot' {
+                    # 第十二轮（item 2）：拍番茄钟迷你悬浮窗。先造一个运行中的番茄钟，
+                    # 再 Show-PomoMini 弹出来拍，最后复位隐藏（别影响后续用例）。
+                    try {
+                        if (-not [bool]$script:Settings['PomodoroEnabled']) { $script:Settings['PomodoroEnabled'] = $true }
+                        if (-not [bool]$script:Pomo.Running) {
+                            if ([int]$script:Pomo.Remaining -le 0) { Reset-Pomodoro }
+                            Toggle-Pomodoro
+                        }
+                        Show-PomoMini
+                        try { $script:PomoMiniWin.UpdateLayout() } catch { }
+                        if ($AllowShot -and $ScreenshotPath -and $null -ne $script:PomoMiniWin) {
+                            $fn = 'pomo-mini.png'
+                            if (-not [string]::IsNullOrWhiteSpace($arg)) { $fn = $arg + '.png' }
+                            $p = Join-Path ([System.IO.Path]::GetDirectoryName($ScreenshotPath)) $fn
+                            Save-Shot -Path $p -Window $script:PomoMiniWin
+                        }
+                        if ([bool]$script:Pomo.Running) { Toggle-Pomodoro }
+                        Hide-PomoMini
+                    } catch { }
                 }
                 'taskshot' {
                     $w = Show-TaskEditorWindow

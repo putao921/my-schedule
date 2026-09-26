@@ -418,11 +418,12 @@ $windowXaml = @"
                      HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
                      Margin="0,0,0,6"/>
           <Border Height="2" Background="__BorderSoft__" Margin="0,0,0,8" Opacity="0.6"/>
-          <TextBlock x:Name="DailyNoteTitle" Text="DAILY NOTE" FontSize="9" Foreground="__InkFaint__"
-                     HorizontalAlignment="Center" FontFamily="Consolas"/>
-          <Border Height="4" Background="__Border__" CornerRadius="2" Margin="0,5,0,0"/>
-          <Border Height="4" Background="__Shadow__" CornerRadius="2"
-                  Margin="0,3,14,0" HorizontalAlignment="Left" Width="70"/>
+          <!-- 第十二轮（item 3）：原"每日一句 + 两条横线"改为工具作者 + 最新更新时间。
+               文字在 Apply-Lang 里按语言表刷（about.author / about.updated）。 -->
+          <TextBlock x:Name="AuthorLabel" Text="" FontSize="10" Foreground="__InkSoft__"
+                     HorizontalAlignment="Center" FontWeight="SemiBold"/>
+          <TextBlock x:Name="UpdateLabel" Text="" FontSize="9" Foreground="__InkFaint__"
+                     HorizontalAlignment="Center" Margin="0,3,0,0"/>
         </StackPanel>
        </Grid>
       </Border>

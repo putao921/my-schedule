@@ -324,6 +324,8 @@ function Update-PomodoroVisual {
         if ([string]::IsNullOrWhiteSpace($task)) { $task = (Get-LangText 'pomo.noTask') }
         $script:FoTaskText.Text = (Get-LangText 'pomo.taskPrefix') + $task
     }
+    # 第十二轮（item 2）：迷你悬浮窗跟着同一条刷新走（每个 tick 都到这里）。
+    Update-PomoMini
 }
 
 function Complete-PomodoroPhase {
@@ -344,6 +346,7 @@ if ([int]$script:Pomo.Remaining -le 0) {
         if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
         try { [System.Media.SystemSounds]::Asterisk.Play() } catch { }
         Show-DesktopNotification (Get-LangText 'ntf.breakDone') (Get-LangText 'ntf.breakReady')
+        Hide-PomoMini
     } else {
         $script:Settings['FocusTodayMin'] = [int]$script:Settings['FocusTodayMin'] + [int]$script:Pomo.Total
         if (-not [string]::IsNullOrWhiteSpace([string]$script:Pomo.TaskId)) {
@@ -378,12 +381,14 @@ if ([int]$script:Pomo.Remaining -le 0) {
                 $script:Pomo.Running = $false
                 $script:Pomo.Remaining = 0
                 if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
+                Hide-PomoMini
             }
         } else {
             $script:Pomo.Running = $false
             $script:Pomo.Remaining = 0
             if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
             Show-DesktopNotification (Get-LangText 'ntf.focusDone') ((Get-LangText 'ntf.focusAdd') -f $taskText, [string]$script:Pomo.Total)
+            Hide-PomoMini
         }
         $script:Selected = [datetime]::Today
         Refresh-All
@@ -483,6 +488,7 @@ function Reset-Pomodoro {
     if ($taskMatch.Count -gt 0) { $script:Pomo.TaskId = [string]$taskMatch[0].id } else { $script:Pomo.TaskId = '' }
     if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
     Update-PomodoroVisual
+    Hide-PomoMini
 }
 
 function Toggle-Pomodoro {
@@ -511,6 +517,110 @@ function Toggle-Pomodoro {
         $script:PomoTimer.Start()
     }
     Update-PomodoroVisual
+    # 第十二轮（item 2）：开始/暂停都同步迷你悬浮窗的可见性。
+    if ([bool]$script:Pomo.Running) { Show-PomoMini } else { Update-PomoMini }
+}
+
+# ---------------------------------------------------------------------------
+#  番茄钟迷你悬浮窗（第十二轮 item 2）
+#
+#  为什么要有它：专注浮窗（Show-FocusWindow）是完整的设置窗，字段多、占地方；
+#  用户跑番茄钟时只想看到"还剩几分钟"，并且能最小化主窗、把计时留在桌面角落。
+#  这个迷你窗只放倒计时 + 状态 + 任务名 + 暂停/继续 + ×，始终置顶、可拖动。
+# ---------------------------------------------------------------------------
+function New-PomoMiniWidget {
+    if ($null -ne $script:PomoMiniWin) { return }
+    $w = New-Object System.Windows.Window
+    $w.WindowStyle = 'None'
+    $w.AllowsTransparency = $true
+    $w.Background = $null
+    $w.ResizeMode = 'NoResize'
+    $w.SizeToContent = 'WidthAndHeight'
+    $w.ShowInTaskbar = $false
+    $w.Topmost = $true
+    $w.FontFamily = New-Object System.Windows.Media.FontFamily('Microsoft YaHei')
+    $script:PomoMiniWin = $w
+
+    $root = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 12
+    $root.Padding = [System.Windows.Thickness]::new(18, 12, 18, 12)
+    $sp = New-Object System.Windows.Controls.StackPanel
+
+    $script:PomoMiniTime = New-Txt -Text '25:00' -Size 32 -Color (Get-Pal 'Ink') -Weight 'Bold'
+    $script:PomoMiniTime.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
+    $script:PomoMiniTime.HorizontalAlignment = 'Center'
+    $script:PomoMiniTime.LineHeight = 30
+    [void]$sp.Children.Add($script:PomoMiniTime)
+
+    $script:PomoMiniStatus = New-Txt -Text (Get-LangText 'pomo.focusing') -Size 11 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
+    $script:PomoMiniStatus.HorizontalAlignment = 'Center'
+    $script:PomoMiniStatus.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
+    [void]$sp.Children.Add($script:PomoMiniStatus)
+
+    $script:PomoMiniTask = New-Txt -Text '' -Size 10 -Color (Get-Pal 'InkSoft')
+    $script:PomoMiniTask.HorizontalAlignment = 'Center'
+    $script:PomoMiniTask.MaxWidth = 210
+    $script:PomoMiniTask.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
+    [void]$sp.Children.Add($script:PomoMiniTask)
+
+    $btnRow = New-Object System.Windows.Controls.StackPanel
+    $btnRow.Orientation = 'Horizontal'
+    $btnRow.HorizontalAlignment = 'Center'
+    $btnRow.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+    $script:PomoMiniBtn = New-PixBtn -Text (Get-LangText 'pomo.pause') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 72 -H 26 -FontSize 10
+    $script:PomoMiniBtn.Add_Click({ param($s,$e) try { Toggle-Pomodoro; $e.Handled = $true } catch { Write-ErrLog ('PomoMini toggle: ' + $_.Exception.Message) } })
+    [void]$btnRow.Children.Add($script:PomoMiniBtn)
+    $hide = New-PixBtn -Text '×' -Bg (Get-Pal 'CardAlt') -Fg (Get-Pal 'Ink') -W 26 -H 26 -FontSize 11
+    $hide.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+    $hide.ToolTip = (Get-LangText 'toast.close')
+    $hide.Add_Click({ param($s,$e) try { Hide-PomoMini; $e.Handled = $true } catch { } })
+    [void]$btnRow.Children.Add($hide)
+    [void]$sp.Children.Add($btnRow)
+
+    $root.Child = $sp
+    $w.Content = $root
+    # 拖动：整块都能拖（点在按钮上时不拖）
+    $root.Add_MouseLeftButtonDown({
+        param($s, $e)
+        if (Test-ClickOnButton $e) { return }
+        try { $script:PomoMiniWin.DragMove() } catch { }
+    })
+}
+
+function Show-PomoMini {
+    New-PomoMiniWidget
+    if ($null -eq $script:PomoMiniWin) { return }
+    try {
+        if (-not $script:PomoMiniWin.IsVisible) { $script:PomoMiniWin.Show() }
+        $script:PomoMiniWin.UpdateLayout()
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $script:PomoMiniWin.Left = [double]$wa.Right - [double]$script:PomoMiniWin.ActualWidth - 20.0
+        $script:PomoMiniWin.Top  = [double]$wa.Bottom - [double]$script:PomoMiniWin.ActualHeight - 20.0
+    } catch { }
+    Update-PomoMini
+}
+
+function Hide-PomoMini {
+    if ($null -ne $script:PomoMiniWin) { try { $script:PomoMiniWin.Hide() } catch { } }
+}
+
+function Update-PomoMini {
+    if ($null -eq $script:PomoMiniWin -or -not $script:PomoMiniWin.IsVisible) { return }
+    try {
+        $rem = [int]$script:Pomo.Remaining
+        if ($rem -lt 0) { $rem = 0 }
+        $script:PomoMiniTime.Text = ('{0:00}:{1:00}' -f [math]::Floor($rem / 60), ($rem % 60))
+        $mode = [string]$script:Pomo.Mode
+        if ([bool]$script:Pomo.Running) {
+            $script:PomoMiniStatus.Text = $(if ($mode -eq 'break') { Get-LangText 'pomo.break' } else { Get-LangText 'pomo.focusing' })
+            $script:PomoMiniBtn.Text = Get-LangText 'pomo.pause'
+        } else {
+            $script:PomoMiniStatus.Text = Get-LangText 'pomo.paused'
+            $script:PomoMiniBtn.Text = Get-LangText 'pomo.resume'
+        }
+        $task = [string]$script:Pomo.Task
+        if ([string]::IsNullOrWhiteSpace($task)) { $task = Get-LangText 'pomo.noTask' }
+        $script:PomoMiniTask.Text = $task
+    } catch { }
 }
 
 # ---------------------------------------------------------------------------
@@ -779,7 +889,9 @@ function Apply-Lang {
     Set-NavLabel $script:NavFocus    (Get-LangText 'nav.focus')
     Set-NavLabel $script:NavSettings (Get-LangText 'nav.settings')
     Set-NavLabel $script:NavProfile  (Get-LangText 'nav.profile')
-    if ($null -ne $script:DailyNoteTitle) { $script:DailyNoteTitle.Text = (Get-LangText 'daily.note') }
+    # 第十二轮（item 3）：侧栏底部"每日一句"改成 作者 + 最新更新时间。
+    if ($null -ne $script:AuthorLabel) { $script:AuthorLabel.Text = (Get-LangText 'about.author') }
+    if ($null -ne $script:UpdateLabel) { $script:UpdateLabel.Text = ((Get-LangText 'about.updated') -f $script:AppUpdated) }
     # 第十一轮：侧栏「+ New event」按钮、头像「Change」文字与头像 ToolTip
     #   也是 XAML 里写死的英文，一并收口。
     if ($null -ne $script:BtnAdd)      { Set-NavLabel $script:BtnAdd (Get-LangText 'nav.newEvent') }
@@ -981,7 +1093,7 @@ function Build-Window {
         'CalLabel','CalNote','CalPeriod','ViewHost','UiOverlay',
         'IcNavMonth','IcNavWeek','IcNavList','IcNavTask','IcNavFocus','IcNavSettings','IcNavProfile',
         'IcViewMonth','IcViewWeek','IcViewList','IcAdd','IcFocusMenu','IcPin','IcTheme','IcCollapse','IcMore',
-        'IcPrev','IcNext','IcMin','IcMax','IcClose','DailyNoteTitle','UndoHint')) {
+        'IcPrev','IcNext','IcMin','IcMax','IcClose','AuthorLabel','UpdateLabel','UndoHint')) {
         $n[$name] = $w.FindName($name)
     }
     $script:WinTitle     = $n['WinTitle']
@@ -1007,7 +1119,8 @@ function Build-Window {
     $script:NavFocus     = $n['NavFocus']
     $script:NavSettings  = $n['NavSettings']
     $script:NavProfile   = $n['NavProfile']
-    $script:DailyNoteTitle = $n['DailyNoteTitle']
+    $script:AuthorLabel  = $n['AuthorLabel']
+    $script:UpdateLabel  = $n['UpdateLabel']
     # 撤销反馈条（第六轮）：Apply-UndoHintText 往它上面写，切主题重建后必须重新绑定，
     #   否则 Ctrl+Z 的"还剩几次"提示会在换肤之后彻底消失（旧控件已随旧树一起丢掉）。
     $script:UndoHint     = $n['UndoHint']

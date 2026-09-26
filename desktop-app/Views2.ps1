@@ -1863,7 +1863,7 @@ function Show-SettingsWindow {
     # ================= 关于页 =================
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'about.appName') -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'about.tech') -Size 10 -Color (Get-Pal 'InkSoft')))
-    $verTxt = 'v0.9'
+    $verTxt = 'v0.10'
     try { if ($null -ne $script:AppVersion) { $verTxt = [string]$script:AppVersion } } catch { }
     [void]$pb.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.version') + $verTxt) -Size 11 -Color (Get-Pal 'Ink')))
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'fld.st.shortcuts') -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
@@ -2254,6 +2254,13 @@ function Show-TaskEditorWindow {
         try {
             $txt = ([string]$script:TkText.Text).Trim()
             if ([string]::IsNullOrWhiteSpace($txt)) {
+                # 第十二轮（item 1）：新建任务没填内容时，点 × / 保存直接放弃关闭，
+                # 不再被"内容不能为空"拦住 —— 用户"不小心点进 + 新建任务"就能直接退。
+                # 编辑既有任务时标题仍必填（不能把任务标题清空）。
+                if (-not $script:TkEditing) {
+                    Close-DialogWindow $script:TkWin $false
+                    return
+                }
                 $script:TkErr.Text = (Get-LangText 'err.taskRequired')
                 $script:TkErr.Visibility = 'Visible'
                 return
