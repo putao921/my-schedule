@@ -351,6 +351,13 @@ $script:Settings = [ordered]@{
     #   手慢的人 5 秒内点不到"撤销"，删错的东西就永远找不回来了（只能靠 Ctrl+Z 碰运气）。
     #   默认 5 秒，与第六轮写死的值一致，不动老用户的手感。
     ToastSeconds   = 5
+    # ---- 第十轮新增：可自定义标签 ----
+    # TagColors：标签名 -> 色板键 的有序映射。编辑器里的标签按钮组、任务分类下拉
+    #   都从它动态生成；增删改标签 = 改这张表（见设置窗"数据"页的标签管理区）。
+    #   为什么存"色板键"而不是十六进制色值：色板随主题切换（浅色/夜间两套），
+    #   存键才能在切主题后自动跟着换，存死色值会让标签在夜间模式下突兀。
+    #   默认四键沿用历史语义：work/focus/life 是事件标签，task 是任务的默认分类。
+    TagColors      = [ordered]@{ work = 'AccentEvent'; focus = 'AccentFocus'; life = 'AccentTask'; task = 'AccentTask' }
 }
 
 function Load-Settings {
@@ -495,7 +502,63 @@ function Load-Data {
                 }
                 return
             }
-        } catch { Write-ErrLog ('Load-Data: ' + $_.Exception.Message) }
+        } catch {
+            # 第十轮（第 5 条）：主数据文件损坏时，自动回退到备份（schedule.json.backup）。
+            #   只有备份也读不出来才落到 Seed-Data（演示数据）—— 那是最坏情况下的兜底。
+            Write-ErrLog ('Load-Data: main file corrupt - ' + $_.Exception.Message)
+            $bak = $script:DataFile + '.backup'
+            if (Test-Path -LiteralPath $bak) {
+                try {
+                    $rawB = Get-Content -LiteralPath $bak -Raw -Encoding UTF8
+                    $objB = ConvertFrom-Json $rawB
+                    foreach ($e in @($objB.events)) {
+                        if ($null -eq $e) { continue }
+                        [void]$script:Events.Add([pscustomobject]@{
+                            id = [string]$e.id; date = [string]$e.date
+                            start = [int]$e.start; end = [int]$e.end
+                            title = [string]$e.title; tag = [string]$e.tag
+                            note = [string]$e.note; done = [bool]$e.done
+                            repeat = $(if ($e.PSObject.Properties.Name -contains 'repeat') { [string]$e.repeat } else { 'none' })
+                            repeatEvery = $(if ($e.PSObject.Properties.Name -contains 'repeatEvery') { [int]$e.repeatEvery } else { 1 })
+                            repeatUntil = $(if ($e.PSObject.Properties.Name -contains 'repeatUntil') { [string]$e.repeatUntil } else { '' })
+                            repeatMonthMode = $(if ($e.PSObject.Properties.Name -contains 'repeatMonthMode') { [string]$e.repeatMonthMode } else { 'day' })
+                            reminderMin = $(if ($e.PSObject.Properties.Name -contains 'reminderMin') { [int]$e.reminderMin } else { 0 })
+                            reminderKey = $(if ($e.PSObject.Properties.Name -contains 'reminderKey') { [string]$e.reminderKey } else { '' })
+                        })
+                    }
+                    foreach ($t in @($objB.tasks)) {
+                        if ($null -eq $t) { continue }
+                        $due = $null
+                        if ($t.PSObject.Properties.Name -contains 'due' -and -not [string]::IsNullOrWhiteSpace([string]$t.due)) { $due = [string]$t.due }
+                        $subtasks = @()
+                        if ($t.PSObject.Properties.Name -contains 'subtasks' -and $null -ne $t.subtasks) {
+                            foreach ($st in @($t.subtasks)) {
+                                $subtasks += [pscustomobject]@{
+                                    id = $(if ($st.PSObject.Properties.Name -contains 'id') { [string]$st.id } else { New-Id })
+                                    text = [string]$st.text
+                                    done = $(if ($st.PSObject.Properties.Name -contains 'done') { [bool]$st.done } else { $false })
+                                }
+                            }
+                        }
+                        [void]$script:Tasks.Add([pscustomobject]@{
+                            id = [string]$t.id; text = [string]$t.text
+                            done = [bool]$t.done; due = $due; tag = [string]$t.tag
+                            priority = $(if ($t.PSObject.Properties.Name -contains 'priority') { [string]$t.priority } else { 'medium' })
+                            project = $(if ($t.PSObject.Properties.Name -contains 'project') { [string]$t.project } else { '' })
+                            subtasks = $subtasks
+                            estimatedMin = $(if ($t.PSObject.Properties.Name -contains 'estimatedMin') { [int]$t.estimatedMin } else { 0 })
+                            actualMin = $(if ($t.PSObject.Properties.Name -contains 'actualMin') { [int]$t.actualMin } else { 0 })
+                            dueTime = $(if ($t.PSObject.Properties.Name -contains 'dueTime') { [string]$t.dueTime } else { '09:00' })
+                            reminderMin = $(if ($t.PSObject.Properties.Name -contains 'reminderMin') { [int]$t.reminderMin } else { 0 })
+                        })
+                    }
+                    Write-ErrLog 'Load-Data: recovered from backup'
+                    return
+                } catch {
+                    Write-ErrLog ('Load-Data: backup also corrupt - ' + $_.Exception.Message)
+                }
+            }
+        }
     }
     Seed-Data
     Save-Data
@@ -504,6 +567,14 @@ function Load-Data {
 function Save-Data {
     if ($script:SuppressSave) { return }
     try {
+        # 第十轮（第 5 条）：写盘前先把"上一次的完好数据"复制成备份。
+        #   为什么要备份而不是直接覆盖：schedule.json 一旦写坏（断电/进程被杀/磁盘满），
+        #   下一轮 Load-Data 会失败，用户几十条日程直接蒸发。留一份上一版本，
+        #   哪怕数据丢了也只丢"最近一次改动"，而不是全部。
+        #   只留一份（schedule.backup.json），不搞轮转 —— 避免备份文件越积越多。
+        if (Test-Path -LiteralPath $script:DataFile) {
+            try { Copy-Item -LiteralPath $script:DataFile -Destination ($script:DataFile + '.backup') -Force } catch { }
+        }
         $payload = [pscustomobject]@{
             events = @($script:Events)
             tasks  = @($script:Tasks)
@@ -584,8 +655,9 @@ $script:LangEn = [ordered]@{
     'undo.toggleOn'  = 'Marked done: '; 'undo.toggleOff' = 'Marked not done: '
     'undo.dragTask'  = 'Task time moved: '; 'undo.dragEvent' = 'Event time moved: '
     'undo.editTask'  = 'Task edited: '; 'undo.editEvent' = 'Event edited: '
+    'undo.clickTip'  = 'Click to undo the last action'
     'empty.list' = 'Nothing scheduled for this week yet'
-    'empty.cta' = 'Add an event'
+    'empty.cta' = '+ New event — click here'
     'empty.filtered' = 'No matching events'
     'empty.clear' = 'Clear filter'
     'tpl.save' = 'Save and close'
@@ -694,6 +766,155 @@ $script:LangEn = [ordered]@{
     # ---- 当日议程 ----
     'fld.day.title'   = 'Agenda'
     'fld.day.empty'   = 'Nothing scheduled for this day'
+    # ===== 第十轮：清理硬编码英文 UI 文案（全部收口到语言表）=====
+    # ---- 期间选择窗 ----
+    'pick.title'      = 'Jump to date'
+    'pick.hint'       = 'Pick any day. Week view jumps to that week; Month and List jump to that month.'
+    'pick.calTip'     = 'Pick a date'
+    'btn.today'       = 'Today'
+    'pick.prevMonth'  = 'Previous month'
+    'pick.nextMonth'  = 'Next month'
+    # ---- 任务视图 ----
+    'empty.task'      = 'No tasks match this filter.'
+    'task.searchTip'  = 'Search task titles'
+    'task.searchHint' = 'Search task titles…'
+    'btn.focus'       = 'Focus'
+    'btn.edit'        = 'Edit'
+    'btn.delete'      = 'Delete'
+    'btn.start'       = 'Start'
+    'btn.endLog'      = 'End & log'
+    'btn.reset'       = 'Reset'
+    'btn.chooseImg'   = 'Choose image'
+    'btn.restoreDef'  = 'Restore default'
+    'btn.planToday'   = 'Plan today'
+    'plan.empty'      = 'No open tasks to plan.'
+    'plan.done'       = 'Planned {0} task(s) into time blocks today.'
+    'plan.title'      = 'Plan for today'
+    'plan.untitled'   = '(untitled task)'
+    # ---- 周视图 ----
+    'week.timeRange'  = 'Time range'
+    'week.hoursTip'   = 'Pick how many hours the week grid shows'
+    # ---- 任务卡动作 ToolTip ----
+    'tip.focus'       = 'Start focus for this task'
+    'tip.postpone'    = 'Postpone one day'
+    'tip.editTask'    = 'Edit task'
+    'tip.deleteTask'  = 'Delete task'
+    'tip.filterProj'  = 'Filter by this project'
+    # ---- 任务详情面板行标签（第十轮收口）----
+    'det.title'       = 'Title'
+    'det.due'         = 'Due'
+    'det.priority'    = 'Priority'
+    'det.project'     = 'Project'
+    'det.estimate'    = 'Estimate'
+    'det.logged'      = 'Logged'
+    'det.reminder'    = 'Reminder'
+    'det.tag'         = 'Tag'
+    'det.subtasks'    = 'Subtasks'
+    'unit.min'        = ' min'
+    'unit.minBefore'  = ' min before'
+    # ---- 专注状态 ----
+    'fo.ready'        = 'Ready'
+    'fo.noTask'       = 'Task: No task selected'
+    'fo.last7'        = 'Focus last 7 days: {0} min'
+    'fo.dragTip'      = 'Drag here to move this window'
+    'fo.disabledTip'  = 'Focus is disabled - click to open settings'
+    'fo.runningTip'   = 'Focus timer is running - click to pause'
+    'fo.startTip'     = 'Click to start focus timer'
+    # ---- 头像弹窗 ----
+    'av.title2'       = 'Your avatar'
+    'av.hint'         = 'Choose a PNG, JPG, BMP or GIF image. It is copied into the app data folder.'
+    'av.default'      = 'Default'
+    # ---- 设置-数据页 ----
+    'fld.st.focus7'   = 'Focus last 7 days (minutes)'
+    # ---- 标签管理（第十轮）----
+    'fld.st.tags'     = 'Tags (custom)'
+    'fld.st.tagsHint' = 'Add or remove tags. Tags set the colour strip on task cards and the tag buttons in the event editor.'
+    'fld.st.tagName'  = 'New tag name'
+    'fld.st.tagColor' = 'Colour'
+    'btn.tagAdd'      = '+ Add tag'
+    'tip.tagRemove'   = 'Remove this tag'
+    # ---- 关于页 ----
+    'about.appName'   = 'My Schedule'
+    'about.tech'      = 'PowerShell 5.1 + WPF · single file · zero dependency · offline'
+    # ---- 当日议程空态 ----
+    'fld.day.emptyDetail' = 'No events on this day.'
+    # ---- 筛选选项（第十轮语言收尾：列表/任务视图的下拉与按钮）----
+    'flt.allTags'     = 'All tags'
+    'flt.allTasks'    = 'All tasks'
+    'flt.allProjects' = 'All projects'
+    'flt.allStatus'   = 'All status'
+    'flt.allDates'    = 'All dates'
+    'flt.open'        = 'Open'
+    'flt.done'        = 'Done'
+    'flt.today'       = 'Today'
+    'flt.thisWeek'    = 'This week'
+    'flt.overdue'     = 'Overdue'
+    'flt.noDate'      = 'No date'
+    'flt.sortDue'     = 'Sort: Due date'
+    'flt.sortPriority' = 'Sort: Priority'
+    'flt.sortTitle'   = 'Sort: Title'
+    'lbl.thisMonth'   = 'This month'
+    'lbl.all'         = 'All'
+    'btn.newTask'     = '+New task'
+    'btn.save'        = 'Save'
+    'ui.search'       = 'Search…'
+    # ---- 计数行与任务卡芯片 ----
+    'cnt.openDone'    = '{0} open · {1} done'
+    'cnt.showing'     = '  ·  showing {0}/{1}'
+    'chip.overdue'    = 'Overdue · {0}'
+    'chip.time'       = 'Time {0}/{1}m'
+    'chip.sub'        = 'Sub {0}/{1}'
+    'hero.stats'      = 'Done {0}/{1} ({2}%) · Focus today {3}h{4:00}m'
+    'cal.holiday1'    = '{0} holiday this month'
+    'cal.holidayN'    = '{0} holidays this month'
+    # ---- 编辑器/设置校验错误（第十轮语言收尾）----
+    'err.titleRequired'  = 'Title is required.'
+    'err.dateFormat'     = 'Date must look like 2026-09-24.'
+    'err.timeFormat'     = 'Time must look like 09:30.'
+    'err.repeatInterval' = 'Repeat interval must be a positive number.'
+    'err.repeatUntil'    = 'Repeat until must look like 2026-12-31.'
+    'err.sessionLen'     = 'Session length must be a whole number from 0 to 99 minutes (0 = no countdown).'
+    'err.taskRequired'   = 'Task content is required.'
+    'err.dueDate'        = 'Due date must look like 2026-09-24.'
+    'err.dueTime'        = 'Due time must look like 09:30.'
+    'err.breakLen'       = 'Break length must be a whole number from 0 to 99 minutes (0 = skip the break).'
+    'err.focusDisabled'  = 'Enable the focus timer before starting.'
+    # ---- 番茄钟按钮/状态 + 托盘（第十轮语言收尾）----
+    'pomo.setup'       = 'Setup'
+    'pomo.pause'       = 'Pause'
+    'pomo.resume'      = 'Resume'
+    'pomo.disabled'    = 'Disabled'
+    'pomo.break'       = 'Break'
+    'pomo.breakPaused' = 'Break paused'
+    'pomo.focusing'    = 'Focusing'
+    'pomo.complete'    = 'Complete'
+    'pomo.paused'      = 'Paused'
+    'pomo.taskPrefix'  = 'Task: '
+    'pomo.session'     = 'Focus session'
+    'pomo.noTask'      = 'No task selected'
+    'tray.name'        = 'Schedule'
+    # ---- 桌面通知 / Toast（第十轮语言收尾）----
+    'ntf.breakDone'   = 'Break finished'
+    'ntf.breakReady'  = 'Ready for the next focus session.'
+    'ntf.focusDone'   = 'Focus finished'
+    'ntf.focusBreak'  = '{0} finished · break for {1} min'
+    'ntf.focusAdd'    = '{0} · +{1} min'
+    'ntf.focusLogged' = 'Focus logged'
+    'ntf.focus'       = 'Focus'
+    'ntf.noLog'       = 'No focus time to log yet'
+    'ntf.focusStarted' = 'Focus started'
+    'ntf.inMin'       = 'In {0} min'
+    'ntf.dueIn'       = 'Due in {0} min'
+    'ntf.taskDue'     = 'Task due'
+    # ---- 弹窗标题（任务栏 / Alt-Tab 可见，第十轮语言收尾）----
+    'win.event'       = 'Event'
+    'win.settings'    = 'Settings'
+    'win.task'        = 'Task'
+    'win.focus'       = 'Focus'
+    'win.avatar'      = 'Avatar'
+    'win.dayAgenda'   = 'Day agenda'
+    'win.pickDate'    = 'Pick a date'
+    'dlg.chooseAvatar' = 'Choose avatar image'
 }
 $script:LangZh = [ordered]@{
     'nav.month' = '月视图'; 'nav.week' = '周视图'; 'nav.list' = '列表'
@@ -711,8 +932,9 @@ $script:LangZh = [ordered]@{
     'undo.toggleOn'  = '已完成：'; 'undo.toggleOff' = '取消完成：'
     'undo.dragTask'  = '任务时间已改：'; 'undo.dragEvent' = '日程时间已改：'
     'undo.editTask'  = '任务已修改：'; 'undo.editEvent' = '日程已修改：'
+    'undo.clickTip'  = '点此撤销上一步操作'
     'empty.list' = '这一周还没有安排'
-    'empty.cta' = '新建日程'
+    'empty.cta' = '+ 新建日程 · 点这里'
     'empty.filtered' = '没有符合条件的日程'
     'empty.clear' = '清除筛选'
     'tpl.save' = '保存并关闭'
@@ -819,6 +1041,155 @@ $script:LangZh = [ordered]@{
     # ---- 当日议程 ----
     'fld.day.title'   = '当日议程'
     'fld.day.empty'   = '这一天还没有安排'
+    # ===== 第十轮：清理硬编码英文 UI 文案（全部收口到语言表）=====
+    # ---- 期间选择窗 ----
+    'pick.title'      = '跳转到日期'
+    'pick.hint'       = '选任意一天。周视图跳到那一周，月视图和列表跳到那个月。'
+    'pick.calTip'     = '选择日期'
+    'btn.today'       = '今天'
+    'pick.prevMonth'  = '上个月'
+    'pick.nextMonth'  = '下个月'
+    # ---- 任务视图 ----
+    'empty.task'      = '没有符合条件的任务'
+    'task.searchTip'  = '搜索任务标题'
+    'task.searchHint' = '搜索任务标题…'
+    'btn.focus'       = '专注'
+    'btn.edit'        = '编辑'
+    'btn.delete'      = '删除'
+    'btn.start'       = '开始'
+    'btn.endLog'      = '结束并统计'
+    'btn.reset'       = '归零'
+    'btn.chooseImg'   = '选择图片'
+    'btn.restoreDef'  = '恢复默认'
+    'btn.planToday'   = '今日计划'
+    'plan.empty'      = '没有可排期的未完成任务。'
+    'plan.done'       = '已把 {0} 个任务排成今天的时间块。'
+    'plan.title'      = '今日计划'
+    'plan.untitled'   = '（未命名任务）'
+    # ---- 周视图 ----
+    'week.timeRange'  = '时间范围'
+    'week.hoursTip'   = '选择周视图显示多少小时'
+    # ---- 任务卡动作 ToolTip ----
+    'tip.focus'       = '为这个任务开始专注'
+    'tip.postpone'    = '推迟一天'
+    'tip.editTask'    = '编辑任务'
+    'tip.deleteTask'  = '删除任务'
+    'tip.filterProj'  = '按这个项目筛选'
+    # ---- 任务详情面板行标签（第十轮收口）----
+    'det.title'       = '标题'
+    'det.due'         = '截止'
+    'det.priority'    = '优先级'
+    'det.project'     = '项目'
+    'det.estimate'    = '预估'
+    'det.logged'      = '已用'
+    'det.reminder'    = '提醒'
+    'det.tag'         = '标签'
+    'det.subtasks'    = '子任务'
+    'unit.min'        = ' 分钟'
+    'unit.minBefore'  = ' 分钟前提醒'
+    # ---- 专注状态 ----
+    'fo.ready'        = '就绪'
+    'fo.noTask'       = '任务：未选择'
+    'fo.last7'        = '近 7 天专注：{0} 分钟'
+    'fo.dragTip'      = '拖这里移动窗口'
+    'fo.disabledTip'  = '专注已禁用 - 点此打开设置'
+    'fo.runningTip'   = '专注计时中 - 点此暂停'
+    'fo.startTip'     = '点此开始专注计时'
+    # ---- 头像弹窗 ----
+    'av.title2'       = '你的头像'
+    'av.hint'         = '选择 PNG、JPG、BMP 或 GIF 图片，会复制到应用数据目录。'
+    'av.default'      = '默认'
+    # ---- 设置-数据页 ----
+    'fld.st.focus7'   = '近 7 天专注（分钟）'
+    # ---- 标签管理（第十轮）----
+    'fld.st.tags'     = '标签（可自定义）'
+    'fld.st.tagsHint' = '增删标签。标签决定任务卡上的色条、以及日程编辑器里的标签按钮。'
+    'fld.st.tagName'  = '新标签名'
+    'fld.st.tagColor' = '颜色'
+    'btn.tagAdd'      = '+ 添加标签'
+    'tip.tagRemove'   = '删除这个标签'
+    # ---- 关于页 ----
+    'about.appName'   = '我的日程'
+    'about.tech'      = 'PowerShell 5.1 + WPF · 单文件 · 零依赖 · 纯本地'
+    # ---- 当日议程空态 ----
+    'fld.day.emptyDetail' = '这一天没有日程。'
+    # ---- 筛选选项 ----
+    'flt.allTags'     = '全部标签'
+    'flt.allTasks'    = '全部任务'
+    'flt.allProjects' = '全部项目'
+    'flt.allStatus'   = '全部状态'
+    'flt.allDates'    = '全部日期'
+    'flt.open'        = '未完成'
+    'flt.done'        = '已完成'
+    'flt.today'       = '今天'
+    'flt.thisWeek'    = '本周'
+    'flt.overdue'     = '已逾期'
+    'flt.noDate'      = '无日期'
+    'flt.sortDue'     = '排序：截止日期'
+    'flt.sortPriority' = '排序：优先级'
+    'flt.sortTitle'   = '排序：标题'
+    'lbl.thisMonth'   = '本月'
+    'lbl.all'         = '全部'
+    'btn.newTask'     = '+ 新建任务'
+    'btn.save'        = '保存'
+    'ui.search'       = '搜索…'
+    # ---- 计数行与任务卡芯片 ----
+    'cnt.openDone'    = '{0} 未完成 · {1} 已完成'
+    'cnt.showing'     = '  ·  显示 {0}/{1}'
+    'chip.overdue'    = '已逾期 · {0}'
+    'chip.time'       = '用时 {0}/{1}m'
+    'chip.sub'        = '子任务 {0}/{1}'
+    'hero.stats'      = '已完成 {0}/{1}（{2}%）· 今日专注 {3} 小时 {4:00} 分'
+    'cal.holiday1'    = '本月 {0} 个节假日'
+    'cal.holidayN'    = '本月 {0} 个节假日'
+    # ---- 编辑器/设置校验错误 ----
+    'err.titleRequired'  = '标题不能为空。'
+    'err.dateFormat'     = '日期格式应为 2026-09-24。'
+    'err.timeFormat'     = '时间格式应为 09:30。'
+    'err.repeatInterval' = '重复间隔必须是正数。'
+    'err.repeatUntil'    = '重复截止格式应为 2026-12-31。'
+    'err.sessionLen'     = '专注时长必须是 0-99 的整数分钟（0 = 不倒计时）。'
+    'err.taskRequired'   = '任务内容不能为空。'
+    'err.dueDate'        = '截止日期格式应为 2026-09-24。'
+    'err.dueTime'        = '截止时间格式应为 09:30。'
+    'err.breakLen'       = '休息时长必须是 0-99 的整数分钟（0 = 跳过休息）。'
+    'err.focusDisabled'  = '请先启用专注计时器再开始。'
+    # ---- 番茄钟按钮/状态 + 托盘 ----
+    'pomo.setup'       = '去设置'
+    'pomo.pause'       = '暂停'
+    'pomo.resume'      = '继续'
+    'pomo.disabled'    = '未启用'
+    'pomo.break'       = '休息中'
+    'pomo.breakPaused' = '休息已暂停'
+    'pomo.focusing'    = '专注中'
+    'pomo.complete'    = '已完成'
+    'pomo.paused'      = '已暂停'
+    'pomo.taskPrefix'  = '任务：'
+    'pomo.session'     = '专注时段'
+    'pomo.noTask'      = '未选择任务'
+    'tray.name'        = '我的日程'
+    # ---- 桌面通知 / Toast ----
+    'ntf.breakDone'   = '休息结束'
+    'ntf.breakReady'  = '准备好进入下一个专注时段。'
+    'ntf.focusDone'   = '专注结束'
+    'ntf.focusBreak'  = '{0} 结束 · 休息 {1} 分钟'
+    'ntf.focusAdd'    = '{0} · +{1} 分钟'
+    'ntf.focusLogged' = '专注已记录'
+    'ntf.focus'       = '专注'
+    'ntf.noLog'       = '还没有可记录的专注时长'
+    'ntf.focusStarted' = '专注已开始'
+    'ntf.inMin'       = '{0} 分钟后'
+    'ntf.dueIn'       = '{0} 分钟后到期'
+    'ntf.taskDue'     = '任务到期'
+    # ---- 弹窗标题 ----
+    'win.event'       = '日程'
+    'win.settings'    = '设置'
+    'win.task'        = '任务'
+    'win.focus'       = '专注'
+    'win.avatar'      = '头像'
+    'win.dayAgenda'   = '当日议程'
+    'win.pickDate'    = '选择日期'
+    'dlg.chooseAvatar' = '选择头像图片'
 }
 
 function Get-LangText {
@@ -1008,6 +1379,10 @@ $script:InlineTaskBox = $null
 $script:InlineTaskText = $null
 $script:FocusWindowOpen = $false
 $script:AvatarWindowOpen = $false
+# 第十轮（第 3 条）：标签管理的控件引用（设置窗数据页）。
+$script:TagManagerStack = $null
+$script:TagNewName = $null
+$script:TagNewColor = $null
 # 字号倍率相关（第四轮）：XAML 硬编码字号的基线表 + 侧栏缩放后的宽度。
 # 必须在根作用域显式起个值 —— StrictMode 2.0 下读未赋值变量会直接抛。
 $script:XamlFontNodes = New-Object System.Collections.ArrayList
@@ -1697,7 +2072,7 @@ function Start-FocusForTask {
     Save-Settings
     Reset-Pomodoro
     Toggle-Pomodoro
-    Show-Toast -Title 'Focus started' -Text ([string]$hit[0].text)
+    Show-Toast -Title (Get-LangText 'ntf.focusStarted') -Text ([string]$hit[0].text)
 }
 
 function Postpone-Task {
@@ -2106,7 +2481,7 @@ function Invoke-HandlerAudit {
         #     ① 按钮文字确实变了（按旧文案找不到、按新文案找得到）；
         #     ② 按钮与计数文字不在同一行（比较两者的相对 Y 坐标）；
         #     ③ 视图里不再存在 'Tasks' 大标题（按文字找得到就算失败）。
-        $addTaskBtn = Find-ButtonByText $script:NodeHost '+New task'
+        $addTaskBtn = Find-ButtonByText $script:NodeHost (Get-LangText 'btn.newTask')
         $oldAddBtn  = Find-ButtonByText $script:NodeHost '+ Add task'
         $rowOk = $false
         if ($null -ne $addTaskBtn -and $null -ne $script:TaskOpenText) {
@@ -2666,13 +3041,13 @@ function Invoke-HandlerAudit {
             $script:LastNotification = ''
             Complete-PomodoroPhase
             $breakStartOk = ([string]$script:Pomo.Mode -eq 'break') -and ([int]$script:Pomo.Remaining -eq 300) -and
-                            ([string]$script:LastNotification -like 'Focus finished*')
+                            ([string]$script:LastNotification -like ((Get-LangText 'ntf.focusDone') + '*'))
             Write-AuditRow 'focus->break transition' $breakStartOk ('remaining=' + [int]$script:Pomo.Remaining)
             $script:Pomo.Mode = 'break'; $script:Pomo.Total = 300; $script:Pomo.Remaining = 0; $script:Pomo.Running = $true
             $script:LastNotification = ''
             Complete-PomodoroPhase
             $breakEndOk = ([string]$script:Pomo.Mode -eq 'focus') -and (-not [bool]$script:Pomo.Running) -and
-                          ([string]$script:LastNotification -like 'Break finished*')
+                          ([string]$script:LastNotification -like ((Get-LangText 'ntf.breakDone') + '*'))
             Write-AuditRow 'break->focus transition' $breakEndOk ([string]$script:LastNotification)
             $script:Settings['BreakEnabled'] = $oldBreak
             $script:Settings['BreakMin'] = $oldBreakMin
@@ -3220,12 +3595,14 @@ function Invoke-HandlerAudit {
                 # 宽度必须量到真实值，否则"贴右边"这条断言会变成空转
                 $wideOk = ($rw -ge 300.0)
                 $edgeOk = $wideOk -and ($okX.r -ge ($rw - 20.0))
-                $orderOk = ($okS.r -lt $okX.x)
-                $inBarOk = ($okX.y -le 38.0) -and ($okS.y -le 38.0)
-                # 两个按钮都得真的落在标题栏右半边，且宽度没被压扁（> 20px 才能显示文字）
-                $halfOk = $wideOk -and ($okS.x -ge ($rw * 0.5))
+                # 第十轮（item 6）：Save 从标题栏移到底部按钮行。
+                #   × 必须还在标题栏（y <= 38）；Save 必须落到内容下方（y > 38），
+                #   且贴右下（右对齐），与 × 不再同一行。
+                $xInBarOk = ($okX.y -le 38.0)
+                $saveInFootOk = ($okS.y -gt 38.0)
+                $saveRightOk = $wideOk -and ($okS.r -ge ($rw - 40.0))
                 $fitOk = ($okS.w -ge 40.0) -and ($okX.w -ge 18.0)
-                # 底部残留扫描：允许标题栏这两个（它们本来就叫这些名字）
+                # 底部残留扫描：允许这两个（它们本来就叫这些名字）
                 $leftover = 0
                 foreach ($b in @(Find-AllOfType $w ([System.Windows.Controls.Primitives.ButtonBase]))) {
                     if ($barNames -contains [string]$b.Name) { continue }
@@ -3233,7 +3610,7 @@ function Invoke-HandlerAudit {
                     if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                     if ($banned -contains [string]$c) { $leftover++ }
                 }
-                $ok = $edgeOk -and $orderOk -and $inBarOk -and $halfOk -and $fitOk -and
+                $ok = $edgeOk -and $xInBarOk -and $saveInFootOk -and $saveRightOk -and $fitOk -and
                       ($leftover -eq 0) -and $cancelGone
                 if (-not $ok) { $allOk = $false }
                 $notes.Add(('{0}: save={1} x={2}/{3} y={4} leftover={5} noCancel={6}' -f `
@@ -3817,7 +4194,8 @@ function Invoke-HandlerAudit {
                 foreach ($b in @(Find-AllOfType $target ([System.Windows.Controls.Primitives.ButtonBase]))) {
                     $c = $b.Content
                     if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
-                    if (@('Focus', '+1') -contains [string]$c) { [void]$acts.Add($b) }
+                    # 第十轮：按钮文本走语言表了，这里按当前语言的文案匹配（不再写死 'Focus'）。
+                    if (@((Get-LangText 'btn.focus'), '+1') -contains [string]$c) { [void]$acts.Add($b) }
                 }
                 $ys = New-Object System.Collections.ArrayList
                 $rightMost = 0.0
@@ -3889,7 +4267,7 @@ function Invoke-HandlerAudit {
                         $c = $b.Content
                         if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
                         [void]$btnNames.Add([string]$c)
-                        if (@('Edit', 'Delete', 'Del') -contains [string]$c) { $beforeEdit++ }
+                        if (@((Get-LangText 'btn.edit'), (Get-LangText 'btn.delete'), 'Del') -contains [string]$c) { $beforeEdit++ }
                         if ($null -ne $b.Tag -and ($b.Tag -is [hashtable]) -and
                             [string]$b.Tag['kind'] -eq 'task-expand') { $expBtn = $b }
                     }
@@ -3909,11 +4287,11 @@ function Invoke-HandlerAudit {
                     foreach ($b in @(Find-AllOfType $card4 ([System.Windows.Controls.Primitives.ButtonBase]))) {
                         $c = $b.Content
                         if ($c -is [System.Windows.Controls.TextBlock]) { $c = $c.Text }
-                        if (@('Edit', 'Delete') -contains [string]$c) { $afterEdit++ }
+                        if (@((Get-LangText 'btn.edit'), (Get-LangText 'btn.delete')) -contains [string]$c) { $afterEdit++ }
                     }
                     # 详情面板要有"标签 + 值"这种结构化行（Title / Due / Priority…）
                     foreach ($tb in @(Find-AllOfType $card4 ([System.Windows.Controls.TextBlock]))) {
-                        if (@('Title', 'Due', 'Priority') -contains [string]$tb.Text) { $hasTitleLine = $true; break }
+                        if (@((Get-LangText 'det.title'), (Get-LangText 'det.due'), (Get-LangText 'det.priority')) -contains [string]$tb.Text) { $hasTitleLine = $true; break }
                     }
                 }
                 $caretOk = ($null -ne $expBtn) -and ($expandedId -eq 'AUDIT-LAYOUT') -and
@@ -4074,7 +4452,7 @@ function Invoke-HandlerAudit {
                      ([math]::Abs([double]$fw.Top - 234.0) -lt 1.5)
             $grip = $null
             foreach ($b in @(Find-AllOfType $fw ([System.Windows.Controls.Border]))) {
-                if ($null -ne $b.ToolTip -and ([string]$b.ToolTip) -match 'Drag here') { $grip = $b; break }
+                if ($null -ne $b.ToolTip -and ([string]$b.ToolTip) -eq (Get-LangText 'fo.dragTip')) { $grip = $b; break }
             }
             $gripOk = ($null -ne $grip) -and ([string]$grip.Cursor -eq 'SizeAll')
             try { $fw.Close() } catch { }

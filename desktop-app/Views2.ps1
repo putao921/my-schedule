@@ -5,6 +5,103 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
+#  可自定义标签的单一真源（第十轮）
+#
+#  标签 -> 色板键 的映射存在 $script:Settings['TagColors'] 里。这个函数把它
+#  规范化成有序字典返回，屏蔽"来源是 hashtable 还是 JSON 反序列化的 PSCustomObject"
+#  这两种形态的差异，编辑器按钮组 / 任务分类下拉都从这里读，保证同一张表。
+# ---------------------------------------------------------------------------
+function Get-TagChoices {
+    $out = [ordered]@{}
+    try {
+        $src = $script:Settings['TagColors']
+        if ($null -eq $src) { return $out }
+        if ($src -is [System.Collections.IDictionary]) {
+            foreach ($k in @($src.Keys)) { $out[[string]$k] = [string]$src[$k] }
+        } else {
+            foreach ($p in @($src.PSObject.Properties)) { $out[[string]$p.Name] = [string]$p.Value }
+        }
+    } catch { Write-ErrLog ('Get-TagChoices: ' + $_.Exception.Message) }
+    # 兜底：配置坏了/空了至少给回默认四键，编辑器不能因为没标签而建不起来。
+    if ($out.Count -eq 0) {
+        $out['work'] = 'AccentEvent'; $out['focus'] = 'AccentFocus'
+        $out['life'] = 'AccentTask';  $out['task'] = 'AccentTask'
+    }
+    return $out
+}
+
+function Add-CustomTag {
+    # 把"新标签名 + 颜色"写进 Settings['TagColors']，再刷新标签管理区。
+    #   名字做 trim + 小写归一（避免 Study/study 两套），空名/重名直接忽略。
+    $name = ([string]$script:TagNewName.Text).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($name)) { return }
+    $color = 'AccentFocus'
+    if ($null -ne $script:TagNewColor -and $null -ne $script:TagNewColor.SelectedItem) {
+        $color = [string]$script:TagNewColor.SelectedItem
+    }
+    $cur = Get-TagChoices
+    if ($cur.Contains($name)) { $script:TagNewName.Text = ''; return }
+    $cur[$name] = $color
+    $script:Settings['TagColors'] = $cur
+    Save-Settings
+    $script:TagNewName.Text = ''
+    Render-TagManagerRows
+}
+
+function Remove-CustomTag {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return }
+    $cur = Get-TagChoices
+    if (-not $cur.Contains($Name)) { return }
+    $cur.Remove($Name)
+    $script:Settings['TagColors'] = $cur
+    Save-Settings
+    Render-TagManagerRows
+}
+
+function Render-TagManagerRows {
+    # 按 Settings['TagColors'] 重画标签管理区的 chips（色块 + 名字 + ×）。
+    #   增删标签后调用，保证看到的和存的一致。
+    if ($null -eq $script:TagManagerStack) { return }
+    $script:TagManagerStack.Children.Clear()
+    $allTags = Get-TagChoices
+    foreach ($k in @($allTags.Keys)) {
+        $col = [string]$allTags[$k]
+        $chip = New-Object System.Windows.Controls.Border
+        $chip.Background = Brush (Get-Pal 'CardAlt')
+        $chip.BorderBrush = Brush (Get-Pal 'BorderSoft')
+        $chip.BorderThickness = [System.Windows.Thickness]::new(1)
+        $chip.CornerRadius = [System.Windows.CornerRadius]::new(5)
+        $chip.Padding = [System.Windows.Thickness]::new(6, 3, 6, 3)
+        $chip.Margin = [System.Windows.Thickness]::new(0, 0, 6, 6)
+        $chipRow = New-Object System.Windows.Controls.StackPanel
+        $chipRow.Orientation = 'Horizontal'
+        $sw = New-Object System.Windows.Controls.Border
+        $sw.Width = 12; $sw.Height = 12
+        $sw.CornerRadius = [System.Windows.CornerRadius]::new(3)
+        $sw.Background = Brush (Get-Pal $col)
+        $sw.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
+        $sw.VerticalAlignment = 'Center'
+        [void]$chipRow.Children.Add($sw)
+        $lb = New-Txt -Text $k -Size 11 -Color (Get-Pal 'Ink')
+        $lb.VerticalAlignment = 'Center'
+        [void]$chipRow.Children.Add($lb)
+        $del = New-PixBtn -Text '×' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'AccentEvent') -W 22 -H 22 -FontSize 11 -Radius 4
+        $del.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+        $del.ToolTip = (Get-LangText 'tip.tagRemove')
+        $del.Tag = @{ kind = 'tag-remove'; name = $k }
+        $del.Add_Click({
+            param($s, $e)
+            try { if ($null -ne $s -and $null -ne $s.Tag) { Remove-CustomTag ([string]$s.Tag['name']) } }
+            catch { Write-ErrLog ('Tag remove: ' + $_.Exception.Message) }
+        })
+        [void]$chipRow.Children.Add($del)
+        $chip.Child = $chipRow
+        [void]$script:TagManagerStack.Children.Add($chip)
+    }
+}
+
+# ---------------------------------------------------------------------------
 #  标签芯片的选中态重绘
 #
 #  为什么不就地写个 $paintTags 脚本块：它会在按钮的 Click 处理器里被 & 调用，
@@ -698,7 +795,9 @@ function New-DialogBarButton {
 
 function New-DialogSaveButton {
     # 主按钮：用当前主题的强调色，视觉上明确区分"保存"与"放弃"。
-    param([string]$Text = 'Save')
+    # 第十轮语言收尾：按钮文字也走语言表（原来是硬编码 'Save'，中文界面下露英文）。
+    param([string]$Text = '')
+    if ([string]::IsNullOrWhiteSpace($Text)) { $Text = Get-LangText 'btn.save' }
     return (New-DialogBarButton -Text $Text -Name 'DlgSave' `
         -Bg (Get-Pal 'AccentEvent') -Fg (Get-Pal 'OnAccent') -W 64.0 `
         -Tip (Get-LangText 'tpl.save'))
@@ -806,10 +905,16 @@ function Get-EditorChrome {
     # "无法将 StackPanel 转换为 Control"，整个窗口都建不起来。
     param([string]$Title, [System.Windows.FrameworkElement]$Content, [switch]$NoSave)
     $wrap = New-Object System.Windows.Controls.Grid
-    for ($i = 0; $i -lt 2; $i++) {
+    # 第十轮（item 6）：Save 从标题栏**移到底部按钮行**，标题栏只留 [标题] + [×]。
+    #   行结构：0=标题栏(38) / 1=内容(*) / 2=底部按钮行(仅当有 Save 时，Auto)。
+    #   为什么标题栏不再放 Save：用户反馈"Save 放在 × 旁边容易误点 × 丢内容"，
+    #   而 Save 是"提交"动作，落在底部和输入区隔开、更符合表单直觉。
+    $rowDefs = 3
+    for ($i = 0; $i -lt $rowDefs; $i++) {
         $rd = New-Object System.Windows.Controls.RowDefinition
         if ($i -eq 0) { $rd.Height = [System.Windows.GridLength]::new(38, 'Pixel') }
-        else { $rd.Height = [System.Windows.GridLength]::new(1, 'Star') }
+        elseif ($i -eq 1) { $rd.Height = [System.Windows.GridLength]::new(1, 'Star') }
+        else { $rd.Height = [System.Windows.GridLength]::Auto }
         $wrap.RowDefinitions.Add($rd)
     }
     $bar = New-Object System.Windows.Controls.Border
@@ -817,32 +922,14 @@ function Get-EditorChrome {
     $bar.BorderBrush = Brush (Get-Pal 'Border')
     $bar.BorderThickness = [System.Windows.Thickness]::new(2, 2, 2, 0)
     $bar.CornerRadius = [System.Windows.CornerRadius]::new(10, 10, 0, 0)
-    # 标题栏 = [标题(占满)] + [Save] + [×]。用 Grid 而不是 DockPanel：
-    # DockPanel 要先加的被停靠项，写反了标题会被按钮挤到中间。
-    # 固定宽度列的尺寸必须在这里跟按钮的 Width + Margin 对齐，改一处要同步另一处，
-    # 否则 Save 会被裁掉一半（Grid 不会因为内容超宽就撑开）。
-    #
-    # 第五轮（用户第 3 条反馈）：**删掉了 Cancel**。
-    #   原因：× 的语义本来就是"不保存并关闭"（Esc 也是），和 Cancel 完全重合 ——
-    #   一行里放两个功能相同的按钮，用户会以为它们有区别而反复试。
-    #   现在标题栏只保留"Save（保存）+ ×（放弃关闭）"，是二选一，语义无歧义。
-    #   后果：Esc 与 × 仍然都等于"放弃"；审计里按 Name 找 'DlgCancel' 的地方
-    #   一并改掉了（否则会静默找到 $null，那条断言变成假绿）。
-    # 第七轮（item 2）：`-NoSave` 时不生成 Save 列，标题栏只剩 [标题] + [×]。
-    #   适用对象是"没有保存语义"的窗口（期间选择窗：只有"点某天 / Today"才落实跳转，
-    #   点 × 就是取消）。原来 Save 与 × 在这个窗口里功能完全一样，两个按钮做同一件事
-    #   只会让人反复试。保留列定义会让 × 左边空出一条 70px 的缝，所以列也要一起省。
+    # 标题栏 = [标题(占满)] + [×]。Save 不再放这行（移到底部按钮区，见下方 footer）。
     $barGrid = New-Object System.Windows.Controls.Grid
     $cdTitle = New-Object System.Windows.Controls.ColumnDefinition
     $cdTitle.Width = [System.Windows.GridLength]::new(1, 'Star')
     $barGrid.ColumnDefinitions.Add($cdTitle)
-    $pxCols = @(34.0)
-    if (-not $NoSave) { $pxCols = @(70.0, 34.0) }
-    foreach ($px in $pxCols) {
-        $cd = New-Object System.Windows.Controls.ColumnDefinition
-        $cd.Width = [System.Windows.GridLength]::new($px, 'Pixel')
-        $barGrid.ColumnDefinitions.Add($cd)
-    }
+    $cdClose = New-Object System.Windows.Controls.ColumnDefinition
+    $cdClose.Width = [System.Windows.GridLength]::new(34.0, 'Pixel')
+    $barGrid.ColumnDefinitions.Add($cdClose)
 
     $barTxt = New-Txt -Text $Title -Size 13 -Color (Get-Pal 'Ink') -Weight 'Semi'
     $barTxt.VerticalAlignment = 'Center'
@@ -850,21 +937,15 @@ function Get-EditorChrome {
     [System.Windows.Controls.Grid]::SetColumn($barTxt, 0)
     [void]$barGrid.Children.Add($barTxt)
 
-    # BtnSave 一并返回（哪怕没生成）：六个弹窗的调用点都写 `$chrome.BtnSave`，
-    # 返回 $null 让它们走"没有 Save 就跳过绑定"的分支，不必各自再判一次开关。
+    # BtnSave 一并返回（哪怕没生成）：六个弹窗的调用点都写 `$chrome.BtnSave`。
+    # 第十轮起 Save 按钮放在**底部按钮行**（footer），不再挂标题栏。
     $btnSave = $null
-    $closeCol = 1
-    if (-not $NoSave) {
-        $btnSave = New-DialogSaveButton
-        $btnSave.VerticalAlignment = 'Center'
-        [System.Windows.Controls.Grid]::SetColumn($btnSave, 1)
-        [void]$barGrid.Children.Add($btnSave)
-        $closeCol = 2
-    }
+    if (-not $NoSave) { $btnSave = New-DialogSaveButton }
 
     $btnClose = New-DialogCloseButton
     $btnClose.VerticalAlignment = 'Center'
-    [System.Windows.Controls.Grid]::SetColumn($btnClose, $closeCol)
+    $btnClose.HorizontalAlignment = 'Right'
+    [System.Windows.Controls.Grid]::SetColumn($btnClose, 1)
     [void]$barGrid.Children.Add($btnClose)
 
     $bar.Child = $barGrid
@@ -874,11 +955,28 @@ function Get-EditorChrome {
     $body = New-Object System.Windows.Controls.Border
     $body.Background = Brush (Get-Pal 'Card')
     $body.BorderBrush = Brush (Get-Pal 'Border')
-    $body.BorderThickness = [System.Windows.Thickness]::new(2, 0, 2, 2)
-    $body.CornerRadius = [System.Windows.CornerRadius]::new(0, 0, 10, 10)
+    $body.BorderThickness = [System.Windows.Thickness]::new(2, 0, 2, 0)
     $body.Child = $Content
     [System.Windows.Controls.Grid]::SetRow($body, 1)
     [void]$wrap.Children.Add($body)
+
+    # 底部按钮行：Save 放这（右对齐）。没有 Save 语义的窗口（-NoSave）不生成这一行。
+    if ($null -ne $btnSave) {
+        $footer = New-Object System.Windows.Controls.Border
+        $footer.Background = Brush (Get-Pal 'Card')
+        $footer.BorderBrush = Brush (Get-Pal 'Border')
+        $footer.BorderThickness = [System.Windows.Thickness]::new(2, 1, 2, 2)
+        $footer.CornerRadius = [System.Windows.CornerRadius]::new(0, 0, 10, 10)
+        $fp = New-Object System.Windows.Controls.StackPanel
+        $fp.Orientation = 'Horizontal'
+        $fp.HorizontalAlignment = 'Right'
+        $fp.Margin = [System.Windows.Thickness]::new(0, 10, 12, 10)
+        $btnSave.VerticalAlignment = 'Center'
+        [void]$fp.Children.Add($btnSave)
+        $footer.Child = $fp
+        [System.Windows.Controls.Grid]::SetRow($footer, 2)
+        [void]$wrap.Children.Add($footer)
+    }
 
     $root = New-Object System.Windows.Controls.Border
     $root.Background = Brush (Get-Pal 'Backdrop')
@@ -955,7 +1053,7 @@ function Show-EventEditorWindow {
     }
 
     $script:EdWin = New-Object System.Windows.Window
-    $script:EdWin.Title = 'Event'
+    $script:EdWin.Title = (Get-LangText 'win.event')
     $script:EdWin.WindowStyle = 'None'
     $script:EdWin.AllowsTransparency = $true
     $script:EdWin.Background = $null
@@ -1033,10 +1131,19 @@ function Show-EventEditorWindow {
     $tagRow.Orientation = 'Horizontal'
     $tagRow.Margin = [System.Windows.Thickness]::new(0, 2, 0, 12)
     $script:EdTag = $tagStr
-    $tagColors = [ordered]@{ work = 'AccentEvent'; focus = 'AccentFocus'; life = 'AccentTask' }
+    # 第十轮：标签从 Settings['TagColors'] 动态生成（用户可在设置里增删改）。
+    #   事件标签只展示 work/focus/life 三类（task 是任务的默认分类，不出现在事件里）。
+    $allTags = Get-TagChoices
+    $tagColors = [ordered]@{}
+    foreach ($k in @($allTags.Keys)) {
+        if ([string]$k -eq 'task') { continue }
+        $tagColors[$k] = [string]$allTags[$k]
+    }
     $tagBtns = @{}
     foreach ($k in $tagColors.Keys) {
-        $label = $k.Substring(0, 1).ToUpper() + $k.Substring(1)
+        # 标签名是用户数据（第十轮起可自定义），原文显示，不做首字母大写——
+        # 否则用户建的小写标签在编辑器里会变成另一个样子，跟设置页的标签管理对不上。
+        $label = [string]$k
         # 注意：按钮没有 TagColorKey 这种属性（写上去会抛"在此对象上找不到属性"，
         # 而且整个编辑窗口都建不起来）。配色表统一放 $script:EdTagColors。
         $b = New-PixBtn -Text $label -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 94 -H 26 -FontSize 11 -Tag $k
@@ -1071,7 +1178,7 @@ function Show-EventEditorWindow {
     $scroll.VerticalScrollBarVisibility = 'Auto'
     $scroll.HorizontalScrollBarVisibility = 'Disabled'
     $scroll.Content = $sp
-    $chrome = Get-EditorChrome 'Event' $scroll
+    $chrome = Get-EditorChrome (Get-LangText 'win.event') $scroll
     $script:EdWin.Content = $chrome.Root
     $chrome.Bar.Add_MouseLeftButtonDown({
         param($s, $e)
@@ -1133,21 +1240,21 @@ function Show-EventEditorWindow {
         }
         $title = ([string]$script:EdTbTitle.Text).Trim()
         if ([string]::IsNullOrWhiteSpace($title)) {
-            $script:EdErr.Text = 'Title is required.'
+            $script:EdErr.Text = (Get-LangText 'err.titleRequired')
             $script:EdErr.Visibility = 'Visible'
             return
         }
         $dt = $null
         try { $dt = [datetime]::ParseExact(([string]$script:EdTbDate.Text).Trim(), 'yyyy-MM-dd', $null) } catch { }
         if ($null -eq $dt) {
-            $script:EdErr.Text = 'Date must look like 2026-09-24.'
+            $script:EdErr.Text = (Get-LangText 'err.dateFormat')
             $script:EdErr.Visibility = 'Visible'
             return
         }
         $sMin = Parse-HHMM ([string]$script:EdTbStart.Text)
         $eMin = Parse-HHMM ([string]$script:EdTbEnd.Text)
         if ($sMin -lt 0 -or $eMin -lt 0) {
-            $script:EdErr.Text = 'Time must look like 09:30.'
+            $script:EdErr.Text = (Get-LangText 'err.timeFormat')
             $script:EdErr.Visibility = 'Visible'
             return
         }
@@ -1155,7 +1262,7 @@ function Show-EventEditorWindow {
 
         $every = 0
         if (-not [int]::TryParse(([string]$script:EdEvery.Text).Trim(), [ref]$every) -or $every -lt 1) {
-            $script:EdErr.Text = 'Repeat interval must be a positive number.'
+            $script:EdErr.Text = (Get-LangText 'err.repeatInterval')
             $script:EdErr.Visibility = 'Visible'
             return
         }
@@ -1164,7 +1271,7 @@ function Show-EventEditorWindow {
         if (-not [string]::IsNullOrWhiteSpace($untilRaw)) {
             try { $until = Fmt-Date ([datetime]::ParseExact($untilRaw, 'yyyy-MM-dd', $null)) }
             catch {
-                $script:EdErr.Text = 'Repeat until must look like 2026-12-31.'
+                $script:EdErr.Text = (Get-LangText 'err.repeatUntil')
                 $script:EdErr.Visibility = 'Visible'
                 return
             }
@@ -1244,7 +1351,7 @@ function Save-SettingsDialogValues {
     # ---- 番茄钟时长（第三轮就有） ----
     $m = 0
     if (-not [int]::TryParse(([string]$script:SetTbPomo.Text).Trim(), [ref]$m) -or $m -lt 0 -or $m -gt 99) {
-        $script:SetErr.Text = 'Session length must be a whole number from 0 to 99 minutes (0 = no countdown).'
+        $script:SetErr.Text = (Get-LangText 'err.sessionLen')
         $script:SetErr.Visibility = 'Visible'
         return $false
     }
@@ -1373,7 +1480,7 @@ function Save-SettingsDialogValues {
 
 function Show-SettingsWindow {
     $script:SetWin = New-Object System.Windows.Window
-    $script:SetWin.Title = 'Settings'
+    $script:SetWin.Title = (Get-LangText 'win.settings')
     $script:SetWin.WindowStyle = 'None'
     $script:SetWin.AllowsTransparency = $true
     $script:SetWin.Background = $null
@@ -1625,7 +1732,7 @@ function Show-SettingsWindow {
     [void]$pd.Children.Add($dirBox2)
 
     # 近 7 天专注柱状
-    [void]$pd.Children.Add((New-Txt -Text 'Focus last 7 days (minutes)' -Size 10 -Color (Get-Pal 'InkFaint')))
+    [void]$pd.Children.Add((New-Txt -Text (Get-LangText 'fld.st.focus7') -Size 10 -Color (Get-Pal 'InkFaint')))
     $vals = @(Get-FocusStats)
     $chart = New-Object System.Windows.Controls.Grid
     $chart.Height = 116
@@ -1681,10 +1788,50 @@ function Show-SettingsWindow {
     [void]$btnRow.Children.Add($bOpen)
     [void]$pd.Children.Add($btnRow)
 
+    # ================= 标签管理（第十轮第 3 条）=================
+    # 标签 -> 色板键 存 $script:Settings['TagColors']；这里提供增删改。
+    #   · 已有标签渲染成 chips（色块 + 名字 + ×），点 × 删除；
+    #   · 输入新名字 + 选颜色 + 点添加，即时写回 Settings 并刷新。
+    #   为什么放数据页：标签是"数据结构"层的东西（决定卡片色条），不是外观。
+    [void]$pd.Children.Add((New-Txt -Text (Get-LangText 'fld.st.tags') -Size 12 -Color (Get-Pal 'Ink') -Weight 'Semi'))
+    $tagHintTxt = New-Txt -Text (Get-LangText 'fld.st.tagsHint') -Size 10 -Color (Get-Pal 'InkFaint')
+    $tagHintTxt.TextWrapping = 'Wrap'
+    [void]$pd.Children.Add($tagHintTxt)
+
+    # 标签 chips 容器：增删后由 Render-TagManagerRows 重建
+    $script:TagManagerStack = New-Object System.Windows.Controls.WrapPanel
+    $script:TagManagerStack.Margin = [System.Windows.Thickness]::new(0, 6, 0, 8)
+
+    # 添加行：名字输入 + 颜色下拉 + 添加按钮
+    $addRow = New-Object System.Windows.Controls.StackPanel
+    $addRow.Orientation = 'Horizontal'
+    $script:TagNewName = New-Object System.Windows.Controls.TextBox
+    $script:TagNewName.Height = 30; $script:TagNewName.Width = 150
+    $script:TagNewName.FontSize = (Scale-Ui 12)
+    $script:TagNewName.Background = Brush (Get-Pal 'CardAlt'); $script:TagNewName.Foreground = Brush (Get-Pal 'Ink')
+    $script:TagNewName.BorderBrush = Brush (Get-Pal 'BorderSoft'); $script:TagNewName.BorderThickness = [System.Windows.Thickness]::new(1)
+    $script:TagNewName.ToolTip = (Get-LangText 'fld.st.tagName')
+    [void]$addRow.Children.Add($script:TagNewName)
+
+    $script:TagNewColor = New-Object System.Windows.Controls.ComboBox
+    $script:TagNewColor.Width = 96; $script:TagNewColor.Height = 30; $script:TagNewColor.FontSize = (Scale-Ui 12)
+    $script:TagNewColor.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    foreach ($c in @('AccentEvent','AccentFocus','AccentTask','Holiday')) { [void]$script:TagNewColor.Items.Add($c) }
+    $script:TagNewColor.SelectedIndex = 1
+    [void]$addRow.Children.Add($script:TagNewColor)
+
+    $bTagAdd = New-PixBtn -Text (Get-LangText 'btn.tagAdd') -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 104 -H 30 -FontSize 10
+    $bTagAdd.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    $bTagAdd.Add_Click({ try { Add-CustomTag } catch { Write-ErrLog ('Tag add: ' + $_.Exception.Message) } })
+    [void]$addRow.Children.Add($bTagAdd)
+    [void]$pd.Children.Add($script:TagManagerStack)
+    [void]$pd.Children.Add($addRow)
+    Render-TagManagerRows
+
     # ================= 关于页 =================
-    [void]$pb.Children.Add((New-Txt -Text 'My Schedule' -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
-    [void]$pb.Children.Add((New-Txt -Text 'PowerShell 5.1 + WPF · 单文件·零依赖·纯本地' -Size 10 -Color (Get-Pal 'InkSoft')))
-    $verTxt = 'v0.8'
+    [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'about.appName') -Size 14 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'about.tech') -Size 10 -Color (Get-Pal 'InkSoft')))
+    $verTxt = 'v0.9'
     try { if ($null -ne $script:AppVersion) { $verTxt = [string]$script:AppVersion } } catch { }
     [void]$pb.Children.Add((New-Txt -Text ((Get-LangText 'fld.st.version') + $verTxt) -Size 11 -Color (Get-Pal 'Ink')))
     [void]$pb.Children.Add((New-Txt -Text (Get-LangText 'fld.st.shortcuts') -Size 11 -Color (Get-Pal 'Ink') -Weight 'Semi'))
@@ -1735,7 +1882,7 @@ function Show-SettingsWindow {
     # 默认停在外观页（用户最常改的那一页）
     & $script:SetTabsShow 'appear'
 
-    $chrome = Get-EditorChrome 'Settings' $sp
+    $chrome = Get-EditorChrome (Get-LangText 'win.settings') $sp
     $script:SetWin.Content = $chrome.Root
     $chrome.Bar.Add_MouseLeftButtonDown({
         param($s, $e)
@@ -1803,7 +1950,7 @@ function Show-DayAgendaWindow {
     $win = New-Object System.Windows.Window
     $script:DayAgendaWin = $win
     $script:DayAgendaDate = $Date
-    $win.Title = 'Day agenda'
+    $win.Title = (Get-LangText 'win.dayAgenda')
     $win.WindowStyle = 'None'
     $win.AllowsTransparency = $true
     $win.Background = $null
@@ -1818,7 +1965,7 @@ function Show-DayAgendaWindow {
     [void]$sp.Children.Add((New-Txt -Text ($Date.ToString('yyyy-MM-dd') + ' agenda') -Size 18 -Color (Get-Pal 'Ink') -Weight 'Bold'))
     $events = @(Events-On $Date)
     if ($events.Count -eq 0) {
-        [void]$sp.Children.Add((New-Txt -Text 'No events on this day.' -Size 12 -Color (Get-Pal 'InkFaint')))
+        [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'fld.day.emptyDetail') -Size 12 -Color (Get-Pal 'InkFaint')))
     } else {
         foreach ($ev in $events) {
             $btn = New-PixBtn -Text (('{0}-{1}  {2}' -f (Min-To-HHMM ([int]$ev.start)), (Min-To-HHMM ([int]$ev.end)), [string]$ev.title)) `
@@ -1836,7 +1983,7 @@ function Show-DayAgendaWindow {
     $add.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
     $add.Add_Click({ try { $script:DayAgendaWin.Close(); Open-EventEditor -PrefillDate (Fmt-Date $script:DayAgendaDate) } catch { } })
     [void]$sp.Children.Add($add)
-    $chrome = Get-EditorChrome 'Day agenda' $sp
+    $chrome = Get-EditorChrome (Get-LangText 'win.dayAgenda') $sp
     $win.Content = $chrome.Root
     # 处理器里必须走 $script:DayAgendaWin：$win 是本函数的局部变量，回调触发时
     # 那个作用域早就销毁了（StrictMode 下硬抛，又被 catch 吞成"拖不动/Esc 没反应"）。
@@ -1934,7 +2081,7 @@ function Show-TaskEditorWindow {
     }
 
     $script:TkWin = New-Object System.Windows.Window
-    $script:TkWin.Title = 'Task'
+    $script:TkWin.Title = (Get-LangText 'win.task')
     $script:TkWin.WindowStyle = 'None'
     $script:TkWin.AllowsTransparency = $true
     $script:TkWin.Background = $null
@@ -1956,7 +2103,19 @@ function Show-TaskEditorWindow {
     $script:TkPriority = New-ChoiceField $sp 'fld.tk.priority' $priorityVal @(
         @{ V = 'high'; K = 'opt.pri.high' }, @{ V = 'medium'; K = 'opt.pri.mid' },
         @{ V = 'low'; K = 'opt.pri.low' })
-    $script:TkProject = New-EditorField $sp (Get-LangText 'fld.tk.project') $projectVal
+    # 第十轮（第 3 条）：项目从自由文本改成"可编辑下拉"，列出已有项目。
+    #   大小写不敏感去重：Study 与 study 视为同一个（保留先出现的大小写），
+    #   避免"手误多写一个大小写变体"就裂成两个项目。
+    $projList = New-Object System.Collections.ArrayList
+    $projSeen = @{}
+    foreach ($p in @($script:Tasks | ForEach-Object { [string]$_.project } |
+                     Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $key = $p.ToLowerInvariant()
+        if ($projSeen.ContainsKey($key)) { continue }
+        $projSeen[$key] = $true
+        [void]$projList.Add($p)
+    }
+    $script:TkProject = New-ComboField $sp (Get-LangText 'fld.tk.project') $projectVal @($projList)
 
     $metricRow = New-Object System.Windows.Controls.Grid
     for ($i = 0; $i -lt 3; $i++) {
@@ -2010,9 +2169,10 @@ function Show-TaskEditorWindow {
     [void]$subAddRow.Children.Add($bAddSub)
     [void]$sp.Children.Add($subAddRow)
 
-    # 分类的四个值是**数据键**（写进 task.tag，还决定卡片竖条颜色），不进语言表 ——
-    #   翻译它会连带改坏筛选逻辑（'work'/'focus'/'life' 是硬编码在各处的语义值）。
-    $script:TkTag = New-ComboField $sp (Get-LangText 'fld.tk.tag') $tagVal @('task','work','focus','life')
+    # 分类的值是**数据键**（写进 task.tag，还决定卡片竖条颜色），不进语言表。
+    # 第十轮：标签从 Settings['TagColors'] 动态生成（用户可在设置里增删改）。
+    $tagKeys = @((Get-TagChoices).Keys)
+    $script:TkTag = New-ComboField $sp (Get-LangText 'fld.tk.tag') $tagVal $tagKeys
     $script:TkTag.IsEditable = $false
     $script:TkTag.SelectedItem = $tagVal
 
@@ -2039,7 +2199,7 @@ function Show-TaskEditorWindow {
     $scroll.VerticalScrollBarVisibility = 'Auto'
     $scroll.HorizontalScrollBarVisibility = 'Disabled'
     $scroll.Content = $sp
-    $chrome = Get-EditorChrome 'Task' $scroll
+    $chrome = Get-EditorChrome (Get-LangText 'win.task') $scroll
     $script:TkWin.Content = $chrome.Root
     $chrome.Bar.Add_MouseLeftButtonDown({
         param($s, $e)
@@ -2058,7 +2218,7 @@ function Show-TaskEditorWindow {
         try {
             $txt = ([string]$script:TkText.Text).Trim()
             if ([string]::IsNullOrWhiteSpace($txt)) {
-                $script:TkErr.Text = 'Task content is required.'
+                $script:TkErr.Text = (Get-LangText 'err.taskRequired')
                 $script:TkErr.Visibility = 'Visible'
                 return
             }
@@ -2067,7 +2227,7 @@ function Show-TaskEditorWindow {
             if (-not [string]::IsNullOrWhiteSpace($dueRaw)) {
                 try { $due = Fmt-Date ([datetime]::ParseExact($dueRaw, 'yyyy-MM-dd', $null)) }
                 catch {
-                    $script:TkErr.Text = 'Due date must look like 2026-09-24.'
+                    $script:TkErr.Text = (Get-LangText 'err.dueDate')
                     $script:TkErr.Visibility = 'Visible'
                     return
                 }
@@ -2075,7 +2235,7 @@ function Show-TaskEditorWindow {
             $dueTime = ([string]$script:TkDueTime.Text).Trim()
             $dueMinCheck = Parse-HHMM $dueTime
             if ($dueMinCheck -lt 0) {
-                $script:TkErr.Text = 'Due time must look like 09:30.'
+                $script:TkErr.Text = (Get-LangText 'err.dueTime')
                 $script:TkErr.Visibility = 'Visible'
                 return
             }
@@ -2161,7 +2321,7 @@ function Save-FocusWindowSettings {
     # 休息时长上界同步收到 99，跟会话同一套心智模型（也是 mm:ss）
     $breakMin = 0
     if (-not [int]::TryParse(([string]$script:FoBreakMin.Text).Trim(), [ref]$breakMin) -or $breakMin -lt 0 -or $breakMin -gt 99) {
-        $script:FoErr.Text = 'Break length must be a whole number from 0 to 99 minutes (0 = skip the break).'
+        $script:FoErr.Text = (Get-LangText 'err.breakLen')
         $script:FoErr.Visibility = 'Visible'
         return $false
     }
@@ -2185,7 +2345,7 @@ function Save-FocusWindowSettings {
 
 function Show-FocusWindow {
     $script:FoWin = New-Object System.Windows.Window
-    $script:FoWin.Title = 'Focus'
+    $script:FoWin.Title = (Get-LangText 'win.focus')
     $script:FoWin.WindowStyle = 'None'
     $script:FoWin.AllowsTransparency = $true
     $script:FoWin.Background = $null
@@ -2248,7 +2408,7 @@ function Show-FocusWindow {
     # 只能从 38px 标题栏拖太别扭了（这正是"想要可拖动版本"的由来）。
     # 挑卡片而不是整块窗口：卡片里只有文字，不像表单区那样有输入框/下拉框，
     # 从这儿拖不会跟"选文字""开下拉"打架。
-    $card.ToolTip = 'Drag here to move this window'
+    $card.ToolTip = (Get-LangText 'fo.dragTip')
     $csp = New-Object System.Windows.Controls.StackPanel
     $script:FoTimeText = New-Txt -Text '25:00' -Size 46 -Color (Get-Pal 'Ink') -Weight 'Bold'
     $script:FoTimeText.FontFamily = New-Object System.Windows.Media.FontFamily('Consolas')
@@ -2257,9 +2417,9 @@ function Show-FocusWindow {
     #   46px 数字在盒子里会显得"顶格下沉"，跟下面那行中文状态标签的间距看着不齐。
     #   收紧行高（略小于字号本身），让数字基线贴紧、与中文标签的视觉间距更均匀。
     $script:FoTimeText.LineHeight = (Scale-Ui 44)
-    $script:FoStatusText = New-Txt -Text 'Ready' -Size 12 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
+    $script:FoStatusText = New-Txt -Text (Get-LangText 'fo.ready') -Size 12 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
     $script:FoStatusText.HorizontalAlignment = 'Center'
-    $script:FoTaskText = New-Txt -Text 'Task: No task selected' -Size 11 -Color (Get-Pal 'InkSoft')
+    $script:FoTaskText = New-Txt -Text (Get-LangText 'fo.noTask') -Size 11 -Color (Get-Pal 'InkSoft')
     $script:FoTaskText.HorizontalAlignment = 'Center'
     $script:FoTaskText.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
     $script:FoTaskText.MaxWidth = 360
@@ -2271,7 +2431,7 @@ function Show-FocusWindow {
 
     $vals = @(Get-FocusStats)
     $total = 0; foreach ($v in $vals) { $total += [int]$v }
-    [void]$sp.Children.Add((New-Txt -Text ("Focus last 7 days: {0} min" -f $total) `
+    [void]$sp.Children.Add((New-Txt -Text ((Get-LangText 'fo.last7') -f $total) `
         -Size 11 -Color (Get-Pal 'InkFaint')))
 
     $script:FoErr = New-Txt -Text '' -Size 10 -Color (Get-Pal 'AccentEvent') -Weight 'Semi'
@@ -2292,9 +2452,9 @@ function Show-FocusWindow {
     #     · Reset        —— 放弃本次，不记录。
     #   为什么"结束"要能算出"本次已走多少"：剩余时长 = Total - Remaining，
     #   走完的部分就是 Total - Remaining（Reset 后 Remaining = Total，所以算出来 0）。
-    $bStart = New-PixBtn -Text 'Start' -Bg (Get-Pal 'AccentEvent') -Fg '#FFFFFF' -W 94 -H 36 -FontSize 12
-    $bEnd = New-PixBtn -Text 'End & log' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 104 -H 36 -FontSize 12
-    $bReset = New-PixBtn -Text 'Reset' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 88 -H 36 -FontSize 12
+    $bStart = New-PixBtn -Text (Get-LangText 'btn.start') -Bg (Get-Pal 'AccentEvent') -Fg '#FFFFFF' -W 94 -H 36 -FontSize 12
+    $bEnd = New-PixBtn -Text (Get-LangText 'btn.endLog') -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 104 -H 36 -FontSize 12
+    $bReset = New-PixBtn -Text (Get-LangText 'btn.reset') -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 88 -H 36 -FontSize 12
     $bStart.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     $bEnd.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     [void]$btnRow.Children.Add($bStart)
@@ -2303,7 +2463,7 @@ function Show-FocusWindow {
     [void]$sp.Children.Add($btnRow)
     $script:FoStartText = $bStart.Content
 
-    $chrome = Get-EditorChrome 'Focus' $sp
+    $chrome = Get-EditorChrome (Get-LangText 'win.focus') $sp
     $script:FoWin.Content = $chrome.Root
     # Content 就位后再定位：Set-DialogStartPosition 要靠内容量出真实尺寸才能居中。
     Set-DialogStartPosition $script:FoWin 'FocusWin'
@@ -2332,7 +2492,7 @@ function Show-FocusWindow {
                 if ([bool]$script:Settings['PomodoroEnabled']) {
                     Toggle-Pomodoro
                 } else {
-                    $script:FoErr.Text = 'Enable the focus timer before starting.'
+                    $script:FoErr.Text = (Get-LangText 'err.focusDisabled')
                     $script:FoErr.Visibility = 'Visible'
                 }
             }
@@ -2358,7 +2518,7 @@ function Show-FocusWindow {
 # ---------------------------------------------------------------------------
 function Show-AvatarWindow {
     $script:AvWin = New-Object System.Windows.Window
-    $script:AvWin.Title = 'Avatar'
+    $script:AvWin.Title = (Get-LangText 'win.avatar')
     $script:AvWin.WindowStyle = 'None'
     $script:AvWin.AllowsTransparency = $true
     $script:AvWin.Background = $null
@@ -2371,8 +2531,8 @@ function Show-AvatarWindow {
     $sp = New-Object System.Windows.Controls.StackPanel
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 410
-    [void]$sp.Children.Add((New-Txt -Text 'Your avatar' -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
-    [void]$sp.Children.Add((New-Txt -Text 'Choose a PNG, JPG, BMP or GIF image. It is copied into the app data folder.' `
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'av.title2') -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'av.hint') `
         -Size 11 -Color (Get-Pal 'InkSoft')))
 
     $previewBorder = New-Bd -Bg (Get-Pal 'CardAlt') -Border (Get-Pal 'Border') -Radius 12
@@ -2390,7 +2550,7 @@ function Show-AvatarWindow {
     $script:AvPreviewHintBox.VerticalAlignment = 'Bottom'
     $script:AvPreviewHintBox.Background = Brush (Get-Pal 'Card')
     $script:AvPreviewHintBox.Opacity = 0.88
-    $script:AvPreviewHint = New-Txt -Text 'Default' -Size 10 -Color (Get-Pal 'InkSoft')
+    $script:AvPreviewHint = New-Txt -Text (Get-LangText 'av.default') -Size 10 -Color (Get-Pal 'InkSoft')
     $script:AvPreviewHint.HorizontalAlignment = 'Center'
     $script:AvPreviewHintBox.Child = $script:AvPreviewHint
     [void]$previewGrid.Children.Add($script:AvPreviewCanvas)
@@ -2408,14 +2568,14 @@ function Show-AvatarWindow {
     $btnRow = New-Object System.Windows.Controls.StackPanel
     $btnRow.Orientation = 'Horizontal'
     $btnRow.HorizontalAlignment = 'Center'
-    $bChoose = New-PixBtn -Text 'Choose image' -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 126 -H 36 -FontSize 12
-    $bDefault = New-PixBtn -Text 'Restore default' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 126 -H 36 -FontSize 12
+    $bChoose = New-PixBtn -Text (Get-LangText 'btn.chooseImg') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 126 -H 36 -FontSize 12
+    $bDefault = New-PixBtn -Text (Get-LangText 'btn.restoreDef') -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 126 -H 36 -FontSize 12
     $bChoose.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     [void]$btnRow.Children.Add($bChoose)
     [void]$btnRow.Children.Add($bDefault)
     [void]$sp.Children.Add($btnRow)
 
-    $chrome = Get-EditorChrome 'Avatar' $sp
+    $chrome = Get-EditorChrome (Get-LangText 'win.avatar') $sp
     $script:AvWin.Content = $chrome.Root
     $chrome.Bar.Add_MouseLeftButtonDown({
         param($s, $e)
@@ -2432,7 +2592,7 @@ function Show-AvatarWindow {
     $bChoose.Add_Click({
         try {
             $dlg = New-Object Microsoft.Win32.OpenFileDialog
-            $dlg.Title = 'Choose avatar image'
+            $dlg.Title = (Get-LangText 'dlg.chooseAvatar')
             $dlg.Filter = 'Images (*.png;*.jpg;*.jpeg;*.bmp;*.gif)|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All files (*.*)|*.*'
             if ($dlg.ShowDialog() -eq $true) {
                 $script:AvDraftPath = [string]$dlg.FileName

@@ -290,38 +290,39 @@ function Update-PomodoroVisual {
     $mode = [string]$script:Pomo.Mode
     if ([string]::IsNullOrWhiteSpace($mode)) { $mode = 'focus' }
     if ($null -ne $script:PomoBtnText) {
-        if (-not $enabled) { $script:PomoBtnText.Text = 'Setup' }
-        elseif ([bool]$script:Pomo.Running) { $script:PomoBtnText.Text = 'Pause' }
-        elseif ($mode -eq 'break') { $script:PomoBtnText.Text = 'Resume' }
-        else { $script:PomoBtnText.Text = 'Start' }
+        # 第十轮语言收尾：按钮/状态文字全部走语言表（原来是硬编码英文）。
+        if (-not $enabled) { $script:PomoBtnText.Text = (Get-LangText 'pomo.setup') }
+        elseif ([bool]$script:Pomo.Running) { $script:PomoBtnText.Text = (Get-LangText 'pomo.pause') }
+        elseif ($mode -eq 'break') { $script:PomoBtnText.Text = (Get-LangText 'pomo.resume') }
+        else { $script:PomoBtnText.Text = (Get-LangText 'btn.start') }
     }
     if ($null -ne $script:PomoHint) {
-        if (-not $enabled) { $script:PomoHint.Text = 'Disabled' }
-        elseif ($mode -eq 'break' -and [bool]$script:Pomo.Running) { $script:PomoHint.Text = 'Break' }
-        elseif ($mode -eq 'break') { $script:PomoHint.Text = 'Break paused' }
-        elseif ([bool]$script:Pomo.Running) { $script:PomoHint.Text = 'Focusing' }
-        elseif ($rem -le 0) { $script:PomoHint.Text = 'Complete' }
-        elseif ($rem -lt $total) { $script:PomoHint.Text = 'Paused' }
-        else { $script:PomoHint.Text = 'Ready' }
+        if (-not $enabled) { $script:PomoHint.Text = (Get-LangText 'pomo.disabled') }
+        elseif ($mode -eq 'break' -and [bool]$script:Pomo.Running) { $script:PomoHint.Text = (Get-LangText 'pomo.break') }
+        elseif ($mode -eq 'break') { $script:PomoHint.Text = (Get-LangText 'pomo.breakPaused') }
+        elseif ([bool]$script:Pomo.Running) { $script:PomoHint.Text = (Get-LangText 'pomo.focusing') }
+        elseif ($rem -le 0) { $script:PomoHint.Text = (Get-LangText 'pomo.complete') }
+        elseif ($rem -lt $total) { $script:PomoHint.Text = (Get-LangText 'pomo.paused') }
+        else { $script:PomoHint.Text = (Get-LangText 'fo.ready') }
     }
     if ($null -ne $script:PomoBox) {
-        if (-not $enabled) { $script:PomoBox.ToolTip = 'Focus is disabled - click to open settings' }
-        elseif ([bool]$script:Pomo.Running) { $script:PomoBox.ToolTip = 'Focus timer is running - click to pause' }
-        else { $script:PomoBox.ToolTip = 'Click to start focus timer' }
+        if (-not $enabled) { $script:PomoBox.ToolTip = (Get-LangText 'fo.disabledTip') }
+        elseif ([bool]$script:Pomo.Running) { $script:PomoBox.ToolTip = (Get-LangText 'fo.runningTip') }
+        else { $script:PomoBox.ToolTip = (Get-LangText 'fo.startTip') }
     }
     if ($null -ne $script:FoTimeText) {
         $script:FoTimeText.Text = ('{0:00}:{1:00}' -f [math]::Floor($rem / 60), ($rem % 60))
-        if (-not $enabled) { $script:FoStatusText.Text = 'Disabled' }
-        elseif ($mode -eq 'break' -and [bool]$script:Pomo.Running) { $script:FoStatusText.Text = 'Break' }
-        elseif ($mode -eq 'break') { $script:FoStatusText.Text = 'Break paused' }
-        elseif ([bool]$script:Pomo.Running) { $script:FoStatusText.Text = 'Focusing' }
-        elseif ($rem -le 0) { $script:FoStatusText.Text = 'Complete' }
-        elseif ($rem -lt $total) { $script:FoStatusText.Text = 'Paused' }
-        else { $script:FoStatusText.Text = 'Ready' }
-        $script:FoStartText.Text = $(if ([bool]$script:Pomo.Running) { 'Pause' } elseif ($mode -eq 'break') { 'Resume' } else { 'Start' })
+        if (-not $enabled) { $script:FoStatusText.Text = (Get-LangText 'pomo.disabled') }
+        elseif ($mode -eq 'break' -and [bool]$script:Pomo.Running) { $script:FoStatusText.Text = (Get-LangText 'pomo.break') }
+        elseif ($mode -eq 'break') { $script:FoStatusText.Text = (Get-LangText 'pomo.breakPaused') }
+        elseif ([bool]$script:Pomo.Running) { $script:FoStatusText.Text = (Get-LangText 'pomo.focusing') }
+        elseif ($rem -le 0) { $script:FoStatusText.Text = (Get-LangText 'pomo.complete') }
+        elseif ($rem -lt $total) { $script:FoStatusText.Text = (Get-LangText 'pomo.paused') }
+        else { $script:FoStatusText.Text = (Get-LangText 'fo.ready') }
+        $script:FoStartText.Text = $(if ([bool]$script:Pomo.Running) { Get-LangText 'pomo.pause' } elseif ($mode -eq 'break') { Get-LangText 'pomo.resume' } else { Get-LangText 'btn.start' })
         $task = [string]$script:Pomo.Task
-        if ([string]::IsNullOrWhiteSpace($task)) { $task = 'No task selected' }
-        $script:FoTaskText.Text = 'Task: ' + $task
+        if ([string]::IsNullOrWhiteSpace($task)) { $task = (Get-LangText 'pomo.noTask') }
+        $script:FoTaskText.Text = (Get-LangText 'pomo.taskPrefix') + $task
     }
 }
 
@@ -342,7 +343,7 @@ if ([int]$script:Pomo.Remaining -le 0) {
         $script:Pomo.Remaining = $mins * 60
         if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
         try { [System.Media.SystemSounds]::Asterisk.Play() } catch { }
-        Show-DesktopNotification 'Break finished' 'Ready for the next focus session.'
+        Show-DesktopNotification (Get-LangText 'ntf.breakDone') (Get-LangText 'ntf.breakReady')
     } else {
         $script:Settings['FocusTodayMin'] = [int]$script:Settings['FocusTodayMin'] + [int]$script:Pomo.Total
         if (-not [string]::IsNullOrWhiteSpace([string]$script:Pomo.TaskId)) {
@@ -357,7 +358,7 @@ if ([int]$script:Pomo.Remaining -le 0) {
         }
         Save-Settings
         $taskText = [string]$script:Pomo.Task
-        if ([string]::IsNullOrWhiteSpace($taskText)) { $taskText = 'Focus session' }
+        if ([string]::IsNullOrWhiteSpace($taskText)) { $taskText = (Get-LangText 'pomo.session') }
         try { [System.Media.SystemSounds]::Asterisk.Play() } catch { }
         if ([bool]$script:Settings['BreakEnabled']) {
             # 休息时长为 0 = 不休息：直接跳过 break 阶段，别弹一条"break for 0 min"的提示。
@@ -366,7 +367,7 @@ if ([int]$script:Pomo.Remaining -le 0) {
             if ($null -ne $script:Settings['BreakMin'] -and
                 [int]::TryParse(([string]$script:Settings['BreakMin']).Trim(), [ref]$parsedBm)) { $bm = $parsedBm }
             if ($bm -gt 0) {
-                Show-DesktopNotification 'Focus finished' ($taskText + ' finished · break for ' + [string]$bm + ' min')
+                Show-DesktopNotification (Get-LangText 'ntf.focusDone') ((Get-LangText 'ntf.focusBreak') -f $taskText, [string]$bm)
                 $script:Pomo.Mode = 'break'
                 $script:Pomo.Total = $bm * 60
                 $script:Pomo.Remaining = $bm * 60
@@ -382,7 +383,7 @@ if ([int]$script:Pomo.Remaining -le 0) {
             $script:Pomo.Running = $false
             $script:Pomo.Remaining = 0
             if ($null -ne $script:PomoTimer) { $script:PomoTimer.Stop() }
-            Show-DesktopNotification 'Focus finished' ($taskText + ' · +' + [string]$script:Pomo.Total + ' min')
+            Show-DesktopNotification (Get-LangText 'ntf.focusDone') ((Get-LangText 'ntf.focusAdd') -f $taskText, [string]$script:Pomo.Total)
         }
         $script:Selected = [datetime]::Today
         Refresh-All
@@ -444,12 +445,13 @@ function End-FocusSession {
             Save-Settings
             Save-Data
             try { Fill-Tasks } catch { }
-            $label = $(if ([string]::IsNullOrWhiteSpace($taskText)) { 'Focus session' } else { $taskText })
-            Show-DesktopNotification 'Focus logged' ($label + ' · +' + [string]$elapsed + ' min')
-            try { Show-Toast 'Focus logged' ($label + ' · +' + [string]$elapsed + ' min') } catch { }
+            $label = $(if ([string]::IsNullOrWhiteSpace($taskText)) { Get-LangText 'pomo.session' } else { $taskText })
+            $ntfBody = (Get-LangText 'ntf.focusAdd') -f $label, [string]$elapsed
+            Show-DesktopNotification (Get-LangText 'ntf.focusLogged') $ntfBody
+            try { Show-Toast (Get-LangText 'ntf.focusLogged') $ntfBody } catch { }
             $script:LastFocusEndMin = $elapsed
         } else {
-            try { Show-Toast 'Focus' 'No focus time to log yet' } catch { }
+            try { Show-Toast (Get-LangText 'ntf.focus') (Get-LangText 'ntf.noLog') } catch { }
             $script:LastFocusEndMin = 0
         }
 
@@ -519,7 +521,7 @@ function New-TrayIcon {
     try {
         $ni.Icon = [System.Drawing.SystemIcons]::Application
     } catch { }
-    $ni.Text = 'Schedule'
+    $ni.Text = (Get-LangText 'tray.name')
     $ni.Visible = $true
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -622,7 +624,7 @@ function Check-Reminders {
                     $key = 'event:' + [string]$ev.id + ':' + [string]$ev.date
                     if (-not $script:NotifiedKeys.ContainsKey($key)) {
                         $script:NotifiedKeys[$key] = $true
-                        Show-DesktopNotification ('In ' + [string]$rm + ' min') ([string]$ev.title + ' · ' + (Min-To-HHMM ([int]$ev.start)))
+                        Show-DesktopNotification ((Get-LangText 'ntf.inMin') -f [string]$rm) ([string]$ev.title + ' · ' + (Min-To-HHMM ([int]$ev.start)))
                     }
                 }
             }
@@ -644,7 +646,7 @@ function Check-Reminders {
                 $key = 'task:' + [string]$t.id + ':' + (Fmt-Date $dueAt)
                 if (-not $script:NotifiedKeys.ContainsKey($key)) {
                     $script:NotifiedKeys[$key] = $true
-                    $when = $(if ($rm -gt 0) { 'Due in ' + [string]$rm + ' min' } else { 'Task due' })
+                    $when = $(if ($rm -gt 0) { (Get-LangText 'ntf.dueIn') -f [string]$rm } else { Get-LangText 'ntf.taskDue' })
                     Show-DesktopNotification $when ([string]$t.text)
                 }
             }
@@ -1011,7 +1013,7 @@ function Build-Window {
     try {
         if ($null -ne $script:UndoHint) {
             $script:UndoHint.Cursor = [System.Windows.Input.Cursors]::Hand
-            $script:UndoHint.ToolTip = 'Click to undo the last action'
+            $script:UndoHint.ToolTip = (Get-LangText 'undo.clickTip')
             $script:UndoHint.Add_MouseLeftButtonUp({
                 param($s, $e)
                 try { Undo-Delete } catch { Write-ErrLog ('Undo hint click: ' + $_.Exception.Message) }
@@ -1224,7 +1226,7 @@ function Build-Window {
     # 标题现在是个"可点入口"，必须自己给出可点的视觉线索 ——
     # WPF 的 TextBlock 默认是箭头光标，不给 Hand 用户根本不知道这里能点。
     $script:CalPeriod.Cursor = 'Hand'
-    $script:CalPeriod.ToolTip = 'Pick a date'
+    $script:CalPeriod.ToolTip = (Get-LangText 'pick.calTip')
     # ---- 头像与图标 ----
     Draw-Avatar $script:AvatarCanvas
     Apply-AvatarImage -Path ([string]$script:Settings['AvatarPath']) | Out-Null
@@ -1435,7 +1437,7 @@ function Invoke-PaintPeriodPicker {
 
 function Show-PeriodPickerWindow {
     $script:DpWin = New-Object System.Windows.Window
-    $script:DpWin.Title = 'Pick a date'
+    $script:DpWin.Title = (Get-LangText 'win.pickDate')
     $script:DpWin.WindowStyle = 'None'
     $script:DpWin.AllowsTransparency = $true
     $script:DpWin.Background = $null
@@ -1451,8 +1453,8 @@ function Show-PeriodPickerWindow {
     $sp.Margin = [System.Windows.Thickness]::new(24, 20, 24, 20)
     $sp.Width = 306
 
-    [void]$sp.Children.Add((New-Txt -Text 'Jump to date' -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
-    [void]$sp.Children.Add((New-Txt -Text 'Pick any day. Week view jumps to that week; Month and List jump to that month.' `
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'pick.title') -Size 20 -Color (Get-Pal 'Ink') -Weight 'Bold'))
+    [void]$sp.Children.Add((New-Txt -Text (Get-LangText 'pick.hint') `
         -Size 11 -Color (Get-Pal 'InkSoft')))
 
     # ---- 月份切换行：<  September 2026  > ----
@@ -1469,8 +1471,8 @@ function Show-PeriodPickerWindow {
     $head.ColumnDefinitions.Add($cdC)
     $bPrevM = New-PixBtn -Text '<' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 34 -H 30 -FontSize 13
     $bNextM = New-PixBtn -Text '>' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 34 -H 30 -FontSize 13
-    $bPrevM.ToolTip = 'Previous month'
-    $bNextM.ToolTip = 'Next month'
+    $bPrevM.ToolTip = (Get-LangText 'pick.prevMonth')
+    $bNextM.ToolTip = (Get-LangText 'pick.nextMonth')
     # 给翻月按钮挂语义 Tag：一是让审计能按 Tag 找到它（pickflip 动词），
     # 二是避免处理器闭包去抓函数局部变量 —— 本项目多次栽在"处理器看不见局部变量"上。
     $bPrevM.Tag = @{ kind = 'pick-flip'; dir = 'prev' }
@@ -1550,7 +1552,7 @@ function Show-PeriodPickerWindow {
     $foot.Orientation = 'Horizontal'
     $foot.HorizontalAlignment = 'Right'
     $foot.Margin = [System.Windows.Thickness]::new(0, 14, 0, 0)
-    $bToday = New-PixBtn -Text 'Today' -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 84 -H 34
+    $bToday = New-PixBtn -Text (Get-LangText 'btn.today') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 84 -H 34
     [void]$foot.Children.Add($bToday)
     [void]$sp.Children.Add($foot)
 

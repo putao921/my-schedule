@@ -603,7 +603,7 @@ function New-WeekRangeBar {
     $row.VerticalAlignment = 'Center'
     $row.Margin = [System.Windows.Thickness]::new(10, 0, 10, 0)
 
-    $cap = New-Txt -Text 'Time range' -Size 11 -Color (Get-Pal 'InkFaint')
+    $cap = New-Txt -Text (Get-LangText 'week.timeRange') -Size 11 -Color (Get-Pal 'InkFaint')
     $cap.VerticalAlignment = 'Center'
     $cap.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
     [void]$row.Children.Add($cap)
@@ -620,7 +620,7 @@ function New-WeekRangeBar {
     $box.VerticalContentAlignment = 'Center'
     foreach ($p in @($script:WeekRangePresets)) { [void]$box.Items.Add([string]$p.Label) }
     [void]$box.Items.Add([string]$script:WeekRangeCustomLabel)
-    $box.ToolTip = 'Pick how many hours the week grid shows'
+    $box.ToolTip = (Get-LangText 'week.hoursTip')
     [void]$row.Children.Add($box)
 
     $from = New-Object System.Windows.Controls.ComboBox
@@ -1417,11 +1417,14 @@ function Render-List {
     $cbo = New-Object System.Windows.Controls.ComboBox
     $cbo.Width = 104; $cbo.Height = 27; $cbo.FontSize = 11
     $cbo.Margin = [System.Windows.Thickness]::new(7, 0, 0, 0)
-    foreach ($it in @(
-        [pscustomobject]@{ Tag='all';   Text='All tags' },
-        [pscustomobject]@{ Tag='work';  Text='Work' },
-        [pscustomobject]@{ Tag='focus'; Text='Focus' },
-        [pscustomobject]@{ Tag='life';  Text='Life' })) {
+    # 标签筛选：第十轮起标签可自定义，选项从 TagColors（Get-TagChoices）动态来，
+    # 不再写死 work/focus/life —— 用户新加的标签不出现在筛选里就是漏数据。
+    # 标签名是用户数据，原文显示（不走语言表）。
+    $tagOpts = @([pscustomobject]@{ Tag='all'; Text=(Get-LangText 'flt.allTags') })
+    foreach ($tk in @((Get-TagChoices).Keys)) {
+        $tagOpts += [pscustomobject]@{ Tag=[string]$tk; Text=[string]$tk }
+    }
+    foreach ($it in $tagOpts) {
         $ci = New-Object System.Windows.Controls.ComboBoxItem
         $ci.Tag = $it.Tag; $ci.Content = $it.Text
         [void]$cbo.Items.Add($ci)
@@ -1434,11 +1437,11 @@ function Render-List {
     $cbo2.Width = 108; $cbo2.Height = 27; $cbo2.FontSize = 11
     $cbo2.Margin = [System.Windows.Thickness]::new(7, 0, 0, 0)
     foreach ($it in @(
-        [pscustomobject]@{ Tag='all';      Text='All tasks' },
-        [pscustomobject]@{ Tag='today';    Text='Today' },
-        [pscustomobject]@{ Tag='week';     Text='This week' },
-        [pscustomobject]@{ Tag='overdue';  Text='Overdue' },
-        [pscustomobject]@{ Tag='nodate';   Text='No date' })) {
+        [pscustomobject]@{ Tag='all';      Text=(Get-LangText 'flt.allTasks') },
+        [pscustomobject]@{ Tag='today';    Text=(Get-LangText 'flt.today') },
+        [pscustomobject]@{ Tag='week';     Text=(Get-LangText 'flt.thisWeek') },
+        [pscustomobject]@{ Tag='overdue';  Text=(Get-LangText 'flt.overdue') },
+        [pscustomobject]@{ Tag='nodate';   Text=(Get-LangText 'flt.noDate') })) {
         $ci = New-Object System.Windows.Controls.ComboBoxItem
         $ci.Tag = $it.Tag; $ci.Content = $it.Text
         [void]$cbo2.Items.Add($ci)
@@ -1616,7 +1619,7 @@ function New-SearchHint {
     #   ① 输入框自身必须变透明，否则它那层不透明底色会把提示整块盖住；
     #   ② 提示要 IsHitTestVisible=False，否则鼠标点在提示文字上时聚焦不到输入框；
     #   ③ 提示控件由调用方存到 $script: 上（StrictMode 下事件处理器看不到函数局部变量）。
-    param([System.Windows.Controls.TextBox]$Box, [string]$Text = 'Search…')
+    param([System.Windows.Controls.TextBox]$Box, [string]$Text = '')
     $ph = New-Txt -Text $Text -Size 12 -Color (Get-Pal 'InkFaint')
     $ph.IsHitTestVisible = $false
     $ph.VerticalAlignment = 'Center'
@@ -1670,6 +1673,51 @@ function Set-TaskPanelCollapsed {
 }
 
 # ---------------------------------------------------------------------------
+#  今日计划（自动排期，第十轮第 4 条）
+# ---------------------------------------------------------------------------
+# 从"未完成任务池"里按 优先级(高→低) + 截止(近→远) 挑出 3-5 件，
+# 每件按其 estimatedMin（预估时长，缺省 60 分钟）变成今天的一个时间块，
+# 从今天 09:00 起逐个向后累加排布（不重叠）。挑中的任务打上 work 标签。
+function Plan-Today {
+    $today = [datetime]::Today
+    # 候选：未完成的任务，按优先级 + 截止排序
+    $open = @($script:Tasks | Where-Object { -not [bool](Get-TaskField $_ 'done' $false) })
+    if ($open.Count -eq 0) {
+        Show-Toast (Get-LangText 'plan.title') (Get-LangText 'plan.empty') -Seconds 4
+        return
+    }
+    $ranked = @($open | Sort-Object -Property @{E={Get-TaskRank $_}}, @{E={Get-TaskDueKey $_}})
+    # 挑 3-5 件（不足 3 件就全排）
+    $picked = @($ranked | Select-Object -First 5)
+    if ($picked.Count -gt 5) { $picked = @($ranked | Select-Object -First 5) }
+    # 排期：从 09:00 起，每件用预估时长（缺省 60 分钟），时间块之间不重叠
+    $cursor = 9 * 60   # 09:00
+    $planned = 0
+    foreach ($t in $picked) {
+        $est = [int](Get-TaskField $t 'estimatedMin' 0)
+        if ($est -lt 15) { $est = 60 }
+        if ($est -gt 240) { $est = 240 }
+        $title = [string](Get-TaskField $t 'text' '')
+        if ([string]::IsNullOrWhiteSpace($title)) { $title = Get-LangText 'plan.untitled' }
+        [void]$script:Events.Add([pscustomobject]@{
+            id = (New-Id); date = Fmt-Date $today
+            start = $cursor; end = ($cursor + $est)
+            title = $title; tag = 'work'; note = ''; done = $false
+            repeat = 'none'; repeatEvery = 1; repeatUntil = ''; repeatMonthMode = 'day'
+            reminderMin = 0; reminderKey = ''
+        })
+        $cursor += $est
+        $planned++
+    }
+    Save-Data
+    $script:Selected = $today
+    $script:Anchor = $today
+    Set-View 'week'
+    Refresh-All
+    Show-Toast (Get-LangText 'plan.title') ((Get-LangText 'plan.done') -f $planned) -Seconds 5
+}
+
+# ---------------------------------------------------------------------------
 #  任务视图（侧栏 "Tasks" 按钮）
 # ---------------------------------------------------------------------------
 # 为什么单独开一个视图：侧栏那个 Tasks 按钮以前点了只是 Set-View 'list'，
@@ -1683,31 +1731,22 @@ function Render-Tasks {
     $shell = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 8
     $root = New-Object System.Windows.Controls.DockPanel
 
-    # --- 头部：[计数] + [+New task]（第二行）---
-    # 第七轮（item 4）：
-    #   ① 删掉 "Tasks" 大标题 —— 左栏导航已经高亮了 Tasks，视图里再写一遍是重复信息，
-    #      而且它跟下面的筛选栏挤在同一行，视觉上没起到"分节"的作用。
-    #   ② "+ Add task" 改名为 "+New task"（与需求文案一致），并**挪到下一行**：
-    #      原来它 Dock 在最右、与计数同一行，在窄窗下会和筛选栏抢宽度。
-    #      现在头部是两行：第一行放计数（左对齐），第二行放新建按钮（左对齐）。
+    # --- 头部：计数（单行）---
+    # 第七轮（item 4）：删掉 "Tasks" 大标题；第十轮（item 7）：
+    #   "+New task" 从头部独立第二行**移到筛选栏同一行**（放在五个筛选控件之后）。
+    #   原来独立占一行是为了窄窗下不跟筛选栏抢宽度；现在改用 WrapPanel 折行，
+    #   按钮随筛选控件一起流式排布，窄窗时自动折到下一行，不再需要单独占位。
     $head = New-Object System.Windows.Controls.Border
     $head.Background = Brush (Get-Pal 'CardAlt')
     $head.BorderBrush = Brush (Get-Pal 'BorderSoft')
     $head.BorderThickness = [System.Windows.Thickness]::new(0, 0, 0, 2)
     $hp = New-Object System.Windows.Controls.StackPanel
-    $hp.Margin = [System.Windows.Thickness]::new(14, 10, 14, 10)
+    $hp.Margin = [System.Windows.Thickness]::new(14, 8, 14, 8)
 
     $t2 = New-Txt -Text '' -Size 11 -Color (Get-Pal 'InkFaint')
     $t2.VerticalAlignment = 'Center'
     $script:TaskOpenText = $t2
     [void]$hp.Children.Add($t2)
-
-    $bAdd = New-PixBtn -Text '+New task' -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 96 -H 30 -FontSize 10
-    $bAdd.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
-    $bAdd.HorizontalAlignment = 'Left'
-    $script:TaskAddButton = $bAdd
-    $bAdd.Add_Click({ try { Open-TaskEditor } catch { Write-ErrLog ('Add task: ' + $_.Exception.Message) } })
-    [void]$hp.Children.Add($bAdd)
 
     $head.Child = $hp
     [System.Windows.Controls.DockPanel]::SetDock($head, 'Top')
@@ -1725,7 +1764,7 @@ function Render-Tasks {
 
     $tb = New-Object System.Windows.Controls.TextBox
     $tb.Width = 200; $tb.Height = 28; $tb.FontSize = 12
-    $tb.ToolTip = 'Search task titles'
+    $tb.ToolTip = (Get-LangText 'task.searchTip')
     $tb.VerticalContentAlignment = 'Center'
     $tb.Background = Brush (Get-Pal 'Card')
     $tb.Foreground = Brush (Get-Pal 'Ink')
@@ -1733,11 +1772,11 @@ function Render-Tasks {
     $tb.BorderThickness = [System.Windows.Thickness]::new(2)
     $tb.Padding = [System.Windows.Thickness]::new(6, 0, 6, 0)
     $script:TaskSearch = $tb
-    $hint = New-SearchHint -Box $tb -Text 'Search task titles…'
+    $hint = New-SearchHint -Box $tb -Text (Get-LangText 'task.searchHint')
     $script:TaskSearchHint = $hint.Hint
     [void]$fp.Children.Add($hint.Wrap)
 
-    $projOpts = @([pscustomobject]@{ Tag = 'all'; Text = 'All projects' })
+    $projOpts = @([pscustomobject]@{ Tag = 'all'; Text = (Get-LangText 'flt.allProjects') })
     foreach ($proj in @($script:Tasks | ForEach-Object { [string]$_.project } |
                         Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)) {
         $projOpts += [pscustomobject]@{ Tag = $proj; Text = $proj }
@@ -1746,24 +1785,43 @@ function Render-Tasks {
     [void]$fp.Children.Add($script:TaskProjectBox)
 
     $script:TaskStatusBox = New-TaskFilterCombo -Name 'TaskStatusBox' -Width 108 -Options @(
-        [pscustomobject]@{ Tag = 'all';  Text = 'All status' },
-        [pscustomobject]@{ Tag = 'open'; Text = 'Open' },
-        [pscustomobject]@{ Tag = 'done'; Text = 'Done' })
+        [pscustomobject]@{ Tag = 'all';  Text = (Get-LangText 'flt.allStatus') },
+        [pscustomobject]@{ Tag = 'open'; Text = (Get-LangText 'flt.open') },
+        [pscustomobject]@{ Tag = 'done'; Text = (Get-LangText 'flt.done') })
     [void]$fp.Children.Add($script:TaskStatusBox)
 
     $script:TaskScopeBox = New-TaskFilterCombo -Name 'TaskScopeBox' -Width 128 -Options @(
-        [pscustomobject]@{ Tag = 'all';     Text = 'All dates' },
-        [pscustomobject]@{ Tag = 'today';   Text = 'Today' },
-        [pscustomobject]@{ Tag = 'week';    Text = 'This week' },
-        [pscustomobject]@{ Tag = 'overdue'; Text = 'Overdue' },
-        [pscustomobject]@{ Tag = 'nodate';  Text = 'No date' })
+        [pscustomobject]@{ Tag = 'all';     Text = (Get-LangText 'flt.allDates') },
+        [pscustomobject]@{ Tag = 'today';   Text = (Get-LangText 'flt.today') },
+        [pscustomobject]@{ Tag = 'week';    Text = (Get-LangText 'flt.thisWeek') },
+        [pscustomobject]@{ Tag = 'overdue'; Text = (Get-LangText 'flt.overdue') },
+        [pscustomobject]@{ Tag = 'nodate';  Text = (Get-LangText 'flt.noDate') })
     [void]$fp.Children.Add($script:TaskScopeBox)
 
     $script:TaskSortBox = New-TaskFilterCombo -Name 'TaskSortBox' -Width 138 -Options @(
-        [pscustomobject]@{ Tag = 'due';      Text = 'Sort: Due date' },
-        [pscustomobject]@{ Tag = 'priority'; Text = 'Sort: Priority' },
-        [pscustomobject]@{ Tag = 'title';    Text = 'Sort: Title' })
+        [pscustomobject]@{ Tag = 'due';      Text = (Get-LangText 'flt.sortDue') },
+        [pscustomobject]@{ Tag = 'priority'; Text = (Get-LangText 'flt.sortPriority') },
+        [pscustomobject]@{ Tag = 'title';    Text = (Get-LangText 'flt.sortTitle') })
     [void]$fp.Children.Add($script:TaskSortBox)
+
+    # 第十轮（item 7）："+New task" 与五个筛选控件同一行（WrapPanel 流式排布）。
+    #   按钮放最右、强调色，与筛选的下拉区分开（筛选是灰色"查询"，新建是彩色"动作"）。
+    $bAdd = New-PixBtn -Text (Get-LangText 'btn.newTask') -Bg (Get-Pal 'AccentTask') -Fg (Get-Pal 'Ink') -W 96 -H 28 -FontSize 10
+    $bAdd.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
+    $bAdd.VerticalAlignment = 'Center'
+    $script:TaskAddButton = $bAdd
+    $bAdd.Add_Click({ try { Open-TaskEditor } catch { Write-ErrLog ('Add task: ' + $_.Exception.Message) } })
+    [void]$fp.Children.Add($bAdd)
+
+    # 第十轮（第 4 条）："今日计划"——按优先级+截止+预估时长，从任务池挑 3-5 件，
+    #   一键变成今天的时间块。放在 +New task 旁边（都是"动作"类）。
+    $bPlan = New-PixBtn -Text (Get-LangText 'btn.planToday') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 104 -H 28 -FontSize 10
+    $bPlan.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
+    $bPlan.VerticalAlignment = 'Center'
+    $bPlan.Tag = 'plan-today'
+    $script:PlanTodayButton = $bPlan
+    $bPlan.Add_Click({ try { Plan-Today } catch { Write-ErrLog ('Plan today: ' + $_.Exception.Message) } })
+    [void]$fp.Children.Add($bPlan)
 
     $bar.Child = $fp
     $script:TaskFilterRow = $bar
@@ -2042,13 +2100,13 @@ function Fill-Tasks {
     if ($null -ne $script:TaskOpenText) {
         # 统计口径＝"全量"，筛选生效时再补一句"当前显示几条"，
         # 否则筛完之后光看"N open"会以为任务被删了。
-        $txt = [string]$openN + ' open · ' + [string]$doneN + ' done'
-        if ($tasks.Count -ne $total) { $txt += '  ·  showing ' + [string]$tasks.Count + '/' + [string]$total }
+        $txt = (Get-LangText 'cnt.openDone') -f [string]$openN, [string]$doneN
+        if ($tasks.Count -ne $total) { $txt += (Get-LangText 'cnt.showing') -f [string]$tasks.Count, [string]$total }
         $script:TaskOpenText.Text = $txt
     }
 
     if ($tasks.Count -eq 0) {
-        $empty = New-Txt -Text 'No tasks match this filter.' -Size 11 -Color (Get-Pal 'InkFaint')
+        $empty = New-Txt -Text (Get-LangText 'empty.task') -Size 11 -Color (Get-Pal 'InkFaint')
         $empty.HorizontalAlignment = 'Center'
         $empty.Margin = [System.Windows.Thickness]::new(12, 26, 12, 0)
         [void]$built.Add($empty)
@@ -2200,11 +2258,11 @@ function Fill-Tasks {
             $dueTxt = $tDue.Substring(5)
             $dueBg = Get-Pal 'CardAlt'; $dueFg = Get-Pal 'InkSoft'
             if ($tDone) {
-                $dueTxt = 'Done · ' + $dueTxt; $dueFg = Get-Pal 'InkFaint'
+                $dueTxt = (Get-LangText 'flt.done') + ' · ' + $dueTxt; $dueFg = Get-Pal 'InkFaint'
             } elseif ($tDue -eq (Fmt-Date ([datetime]::Today))) {
-                $dueTxt = 'Today'; $dueBg = Get-Pal 'AccentFocus'; $dueFg = Get-Pal 'TodayInk'
+                $dueTxt = Get-LangText 'flt.today'; $dueBg = Get-Pal 'AccentFocus'; $dueFg = Get-Pal 'TodayInk'
             } elseif ((Parse-Date $tDue).Date -lt [datetime]::Today) {
-                $dueTxt = 'Overdue · ' + $dueTxt; $dueBg = Get-Pal 'AccentEvent'; $dueFg = Get-Pal 'OnAccent'
+                $dueTxt = (Get-LangText 'chip.overdue') -f $dueTxt; $dueBg = Get-Pal 'AccentEvent'; $dueFg = Get-Pal 'OnAccent'
             }
             $dueTime = [string](Get-TaskField $t 'dueTime' '')
             if (-not [string]::IsNullOrWhiteSpace($dueTime)) { $dueTxt += ' ' + $dueTime }
@@ -2214,7 +2272,7 @@ function Fill-Tasks {
             $projChip = New-TaskChip -Text $proj -Bg (Get-Pal 'Card') -Fg (Get-Pal 'InkSoft')
             $projChip.Tag = $proj
             $projChip.Cursor = [System.Windows.Input.Cursors]::Hand
-            $projChip.ToolTip = 'Filter by this project'
+            $projChip.ToolTip = (Get-LangText 'tip.filterProj')
             $projChip.Add_MouseLeftButtonUp({
                 param($s,$e)
                 try {
@@ -2227,7 +2285,7 @@ function Fill-Tasks {
             [void]$metaRow.Children.Add($projChip)
         }
         if ($est -gt 0 -or $actMin -gt 0) {
-            [void]$metaRow.Children.Add((New-TaskChip -Text ('Time ' + [string]$actMin + '/' + [string]$est + 'm') -Bg (Get-Pal 'CardAlt')))
+            [void]$metaRow.Children.Add((New-TaskChip -Text ((Get-LangText 'chip.time') -f [string]$actMin, [string]$est) -Bg (Get-Pal 'CardAlt')))
         }
         $subDone = 0; $subTotal = 0
         if ($t.PSObject.Properties.Name -contains 'subtasks' -and $null -ne $t.subtasks) {
@@ -2235,7 +2293,7 @@ function Fill-Tasks {
             $subDone = @($t.subtasks | Where-Object { [bool](Get-TaskField $_ 'done' $false) }).Count
         }
         if ($subTotal -gt 0) {
-            [void]$metaRow.Children.Add((New-TaskChip -Text ('Sub ' + [string]$subDone + '/' + [string]$subTotal) -Bg (Get-Pal 'CardAlt')))
+            [void]$metaRow.Children.Add((New-TaskChip -Text ((Get-LangText 'chip.sub') -f [string]$subDone, [string]$subTotal) -Bg (Get-Pal 'CardAlt')))
         }
         if ($metaRow.Children.Count -gt 0) { [void]$body.Children.Add($metaRow) }
 
@@ -2251,13 +2309,13 @@ function Fill-Tasks {
         $actRow.Orientation = 'Horizontal'
         $actRow.HorizontalAlignment = 'Right'
         $actRow.Margin = [System.Windows.Thickness]::new(0, 5, 0, 0)
-        $bFocus = New-PixBtn -Text 'Focus' -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 48 -H 23 -FontSize 8
+        $bFocus = New-PixBtn -Text (Get-LangText 'btn.focus') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 48 -H 23 -FontSize 8
         $bPost = New-PixBtn -Text '+1' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 38 -H 23 -FontSize 8
         $bFocus.Tag = @{ kind = 'task-focus'; id = $tId }
         $bPost.Tag = @{ kind = 'task-postpone'; id = $tId }
         $bFocus.Margin = [System.Windows.Thickness]::new(0, 0, 4, 0)
-        $bFocus.ToolTip = 'Start focus for this task'
-        $bPost.ToolTip = 'Postpone one day'
+        $bFocus.ToolTip = (Get-LangText 'tip.focus')
+        $bPost.ToolTip = (Get-LangText 'tip.postpone')
         $bFocus.Add_Click({ param($s,$e) try { Start-FocusForTask -Id ([string]$s.Tag['id']); $e.Handled = $true } catch { Write-ErrLog ('Focus task: ' + $_.Exception.Message) } })
         $bPost.Add_Click({ param($s,$e) try { Postpone-Task -Id ([string]$s.Tag['id']); $e.Handled = $true } catch { Write-ErrLog ('Postpone task: ' + $_.Exception.Message) } })
         [void]$actRow.Children.Add($bFocus)
@@ -2326,23 +2384,23 @@ function Fill-Tasks {
                 [void]$detail.Children.Add($ln)
             }
 
-            $prioText = 'Medium'
-            if ($tPriority -eq 'high') { $prioText = 'High' }
-            elseif ($tPriority -eq 'low') { $prioText = 'Low' }
-            & $addLine 'Title' $tText
-            & $addLine 'Due' $tDue
-            & $addLine 'Priority' $prioText
-            & $addLine 'Project' $proj
-            & $addLine 'Estimate' $(if ($est -gt 0) { [string]$est + ' min' } else { '' })
-            & $addLine 'Logged' $(if ($actMin -gt 0) { [string]$actMin + ' min' } else { '' })
+            $prioText = (Get-LangText 'opt.pri.mid')
+            if ($tPriority -eq 'high') { $prioText = (Get-LangText 'opt.pri.high') }
+            elseif ($tPriority -eq 'low') { $prioText = (Get-LangText 'opt.pri.low') }
+            & $addLine (Get-LangText 'det.title') $tText
+            & $addLine (Get-LangText 'det.due') $tDue
+            & $addLine (Get-LangText 'det.priority') $prioText
+            & $addLine (Get-LangText 'det.project') $proj
+            & $addLine (Get-LangText 'det.estimate') $(if ($est -gt 0) { [string]$est + (Get-LangText 'unit.min') } else { '' })
+            & $addLine (Get-LangText 'det.logged') $(if ($actMin -gt 0) { [string]$actMin + (Get-LangText 'unit.min') } else { '' })
             $remMin = [int](Get-TaskField $t 'reminderMin' 0)
-            & $addLine 'Reminder' $(if ($remMin -gt 0) { [string]$remMin + ' min before' } else { '' })
+            & $addLine (Get-LangText 'det.reminder') $(if ($remMin -gt 0) { [string]$remMin + (Get-LangText 'unit.minBefore') } else { '' })
             $tagVal = [string](Get-TaskField $t 'tag' '')
-            & $addLine 'Tag' $tagVal
+            & $addLine (Get-LangText 'det.tag') $tagVal
 
             # 子任务：展开面板里直接可勾，省得再开编辑窗口
             if ($subTotal -gt 0) {
-                $subTitle = New-Txt -Text ('Subtasks ' + [string]$subDone + '/' + [string]$subTotal) -Size 9 -Color (Get-Pal 'InkFaint')
+                $subTitle = New-Txt -Text ((Get-LangText 'det.subtasks') + ' ' + [string]$subDone + '/' + [string]$subTotal) -Size 9 -Color (Get-Pal 'InkFaint')
                 $subTitle.Margin = [System.Windows.Thickness]::new(0, 5, 0, 2)
                 [void]$detail.Children.Add($subTitle)
                 foreach ($st in @($t.subtasks)) {
@@ -2370,13 +2428,13 @@ function Fill-Tasks {
             $btnRow2.Orientation = 'Horizontal'
             $btnRow2.HorizontalAlignment = 'Right'
             $btnRow2.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
-            $bEdit2 = New-PixBtn -Text 'Edit' -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 58 -H 26 -FontSize 10
-            $bDel2 = New-PixBtn -Text 'Delete' -Bg (Get-Pal 'Weekend') -Fg (Get-Pal 'AccentEvent') -W 62 -H 26 -FontSize 10
+            $bEdit2 = New-PixBtn -Text (Get-LangText 'btn.edit') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 58 -H 26 -FontSize 10
+            $bDel2 = New-PixBtn -Text (Get-LangText 'btn.delete') -Bg (Get-Pal 'Weekend') -Fg (Get-Pal 'AccentEvent') -W 62 -H 26 -FontSize 10
             $bEdit2.Tag = @{ kind = 'task-edit'; id = $tId }
             $bDel2.Tag = @{ kind = 'task-delete'; id = $tId }
             $bDel2.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
-            $bEdit2.ToolTip = 'Edit task'
-            $bDel2.ToolTip = 'Delete task'
+            $bEdit2.ToolTip = (Get-LangText 'tip.editTask')
+            $bDel2.ToolTip = (Get-LangText 'tip.deleteTask')
             $bEdit2.Add_Click({
                 param($s,$e)
                 try {
@@ -2806,14 +2864,14 @@ function Update-Chrome {
         $pct = 0
         if ($tot -gt 0) { $pct = [int][math]::Round(($done / [double]$tot) * 100.0) }
         $fmin = [int]$script:Settings['FocusTodayMin']
-        $script:HeroStats.Text = ("Done {0}/{1} ({2}%) · Focus today {3}h{4:00}m" -f `
+        $script:HeroStats.Text = ((Get-LangText 'hero.stats') -f `
             $done, $tot, $pct, [math]::Floor($fmin / 60), ($fmin % 60))
     }
 
     # 日历导航条
     $a = $script:Anchor
     if ($script:View -eq 'month') {
-        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = 'This month' }
+        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = (Get-LangText 'lbl.thisMonth') }
         if ($null -ne $script:CalPeriod) { $script:CalPeriod.Text = $script:MonNames[$a.Month - 1] + ' ' + $a.Year }
         $n = 0
         foreach ($d in @(Month-Grid $a)) {
@@ -2822,13 +2880,13 @@ function Update-Chrome {
         if ($null -ne $script:CalNote) {
             # 复数：1 天的时候要写 "1 holiday"，否则英文会露怯
             if ($n -gt 0) {
-                $word = if ($n -eq 1) { 'holiday' } else { 'holidays' }
-                $script:CalNote.Text = "$n $word this month"
+                $key = if ($n -eq 1) { 'cal.holiday1' } else { 'cal.holidayN' }
+                $script:CalNote.Text = (Get-LangText $key) -f $n
             } else { $script:CalNote.Text = '' }
         }
     } elseif ($script:View -eq 'week') {
         $ws = Week-Days $a
-        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = 'This week' }
+        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = (Get-LangText 'flt.thisWeek') }
         if ($null -ne $script:CalPeriod) {
             $script:CalPeriod.Text = ('{0} {1} - {2} {3}' -f
                 $script:MonShort[$ws[0].Month - 1], $ws[0].Day,
@@ -2838,7 +2896,7 @@ function Update-Chrome {
         foreach ($d in $ws) { $h = Get-Holiday $d; if ($h) { $notes += ('{0}/{1} {2}' -f $d.Month, $d.Day, $h) } }
         if ($null -ne $script:CalNote) { $script:CalNote.Text = ($notes -join ' · ') }
     } else {
-        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = 'All' }
+        if ($null -ne $script:CalLabel)  { $script:CalLabel.Text = (Get-LangText 'lbl.all') }
         if ($null -ne $script:CalPeriod) { $script:CalPeriod.Text = $script:MonNames[$a.Month - 1] + ' ' + $a.Year }
         if ($null -ne $script:CalNote)   { $script:CalNote.Text = '' }
     }
