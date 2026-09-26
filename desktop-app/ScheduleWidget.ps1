@@ -101,21 +101,21 @@ if (-not $TestMode -and -not (Test-Path -LiteralPath $script:DataFile)) {
             '  换账户登录看到的是另一份（互相隔离，不会串）。',
             '',
             '常用操作：',
-            '  · 新建日程：顶部 + Event，或在月视图的某天上右键',
-            '  · 编辑/删除：列表左键，周视图双击日程块，改完 Save',
+            '  · 新建日程：顶部「+」按钮，或在月视图的某天上右键',
+            '  · 编辑/删除：列表左键，周视图双击日程块，改完点「保存」',
             '  · 月视图：一页从 1 号排到月末，首尾空位用浅色日期补满',
             '    （补的只是格子，不会显示上/下个月的日程）',
-            '  · 月视图：单击日期会自动跳到对应周视图，+N more 可展开当天详情',
+            '  · 月视图：单击日期会自动跳到对应周视图，"+N 更多" 可展开当天详情',
             '  · 周视图：空白处点击或拖动创建；拖动显示时间虚线；右键快速编辑/复制/删除',
             '  · 周视图：窗口拉高时时间轴会跟着变高（把整段时段铺满），不会在底下留一片空白',
             '  · 重复日程：编辑器可设置每天、每周、每月及自定义间隔',
             '  · 提醒：日程可提前 5/10/15 分钟提醒，任务按截止时间提醒',
             '  · 专注：支持专注后自动休息，并分别通知专注和休息结束',
             '  · 专注窗：按住计时器那块圆盘可以整体拖动窗口，位置会被记住',
-            '  · Tasks：左侧栏「Tasks」是任务专页，可搜索、按项目/状态/时间筛选、排序，',
+            '  · 任务：左侧栏「任务」是任务专页，可搜索、按项目/状态/时间筛选、排序，',
             '    支持拖拽排序、子任务勾选、延期和一键专注',
             '  · 头像：点击左上角头像，可换成自己的图片；其他设置见顶部“...”菜单',
-            '  · 夜间模式：右上角 Night / Day',
+            '  · 夜间模式：右上角 夜间 / 日间 切换',
             '  · 窗口缩放：鼠标拖动窗口四周边缘',
             '  · 关闭窗口 = 最小化到托盘，真正退出要用托盘右键的"退出"',
             '',
@@ -641,6 +641,7 @@ $script:LangEn = [ordered]@{
     'nav.month' = 'Month'; 'nav.week' = 'Week'; 'nav.list' = 'List'
     'nav.tasks' = 'Tasks'; 'nav.focus' = 'Focus'; 'nav.settings' = 'Settings'
     'nav.profile' = 'Profile'
+    'nav.newEvent' = 'New event'
     'view.month' = 'Month view'; 'view.week' = 'Week view'; 'view.list' = 'List view'
     'view.tasks' = 'Tasks view'
     'daily.note' = 'DAILY NOTE'
@@ -786,11 +787,6 @@ $script:LangEn = [ordered]@{
     'btn.reset'       = 'Reset'
     'btn.chooseImg'   = 'Choose image'
     'btn.restoreDef'  = 'Restore default'
-    'btn.planToday'   = 'Plan today'
-    'plan.empty'      = 'No open tasks to plan.'
-    'plan.done'       = 'Planned {0} task(s) into time blocks today.'
-    'plan.title'      = 'Plan for today'
-    'plan.untitled'   = '(untitled task)'
     # ---- 周视图 ----
     'week.timeRange'  = 'Time range'
     'week.hoursTip'   = 'Pick how many hours the week grid shows'
@@ -800,6 +796,11 @@ $script:LangEn = [ordered]@{
     'tip.editTask'    = 'Edit task'
     'tip.deleteTask'  = 'Delete task'
     'tip.filterProj'  = 'Filter by this project'
+    'tip.show'        = 'Show details'
+    'tip.hide'        = 'Hide details'
+    'tip.priHigh'     = 'High priority'
+    'tip.priMid'      = 'Medium priority'
+    'tip.priLow'      = 'Low priority'
     # ---- 任务详情面板行标签（第十轮收口）----
     'det.title'       = 'Title'
     'det.due'         = 'Due'
@@ -824,6 +825,13 @@ $script:LangEn = [ordered]@{
     'av.title2'       = 'Your avatar'
     'av.hint'         = 'Choose a PNG, JPG, BMP or GIF image. It is copied into the app data folder.'
     'av.default'      = 'Default'
+    'av.change'       = 'Change'
+    'av.tip'          = 'Click to choose your own avatar image'
+    # ---- 内置标签名（第十一轮：work/focus/life/task 显示名本地化）----
+    'tag.work'        = 'Work'
+    'tag.focus'       = 'Focus'
+    'tag.life'        = 'Life'
+    'tag.task'        = 'Task'
     # ---- 设置-数据页 ----
     'fld.st.focus7'   = 'Focus last 7 days (minutes)'
     # ---- 标签管理（第十轮）----
@@ -920,6 +928,7 @@ $script:LangZh = [ordered]@{
     'nav.month' = '月视图'; 'nav.week' = '周视图'; 'nav.list' = '列表'
     'nav.tasks' = '任务'; 'nav.focus' = '专注'; 'nav.settings' = '设置'
     'nav.profile' = '我的'
+    'nav.newEvent' = '新建日程'
     'view.month' = '月视图'; 'view.week' = '周视图'; 'view.list' = '列表视图'
     'view.tasks' = '任务视图'
     'daily.note' = '每日一句'
@@ -1061,11 +1070,6 @@ $script:LangZh = [ordered]@{
     'btn.reset'       = '归零'
     'btn.chooseImg'   = '选择图片'
     'btn.restoreDef'  = '恢复默认'
-    'btn.planToday'   = '今日计划'
-    'plan.empty'      = '没有可排期的未完成任务。'
-    'plan.done'       = '已把 {0} 个任务排成今天的时间块。'
-    'plan.title'      = '今日计划'
-    'plan.untitled'   = '（未命名任务）'
     # ---- 周视图 ----
     'week.timeRange'  = '时间范围'
     'week.hoursTip'   = '选择周视图显示多少小时'
@@ -1075,6 +1079,11 @@ $script:LangZh = [ordered]@{
     'tip.editTask'    = '编辑任务'
     'tip.deleteTask'  = '删除任务'
     'tip.filterProj'  = '按这个项目筛选'
+    'tip.show'        = '展开详情'
+    'tip.hide'        = '收起详情'
+    'tip.priHigh'     = '高优先级'
+    'tip.priMid'      = '中优先级'
+    'tip.priLow'      = '低优先级'
     # ---- 任务详情面板行标签（第十轮收口）----
     'det.title'       = '标题'
     'det.due'         = '截止'
@@ -1099,6 +1108,13 @@ $script:LangZh = [ordered]@{
     'av.title2'       = '你的头像'
     'av.hint'         = '选择 PNG、JPG、BMP 或 GIF 图片，会复制到应用数据目录。'
     'av.default'      = '默认'
+    'av.change'       = '更换'
+    'av.tip'          = '点击选择你自己的头像图片'
+    # ---- 内置标签名 ----
+    'tag.work'        = '工作'
+    'tag.focus'       = '专注'
+    'tag.life'        = '生活'
+    'tag.task'        = '任务'
     # ---- 设置-数据页 ----
     'fld.st.focus7'   = '近 7 天专注（分钟）'
     # ---- 标签管理（第十轮）----
@@ -1383,6 +1399,8 @@ $script:AvatarWindowOpen = $false
 $script:TagManagerStack = $null
 $script:TagNewName = $null
 $script:TagNewColor = $null
+# 第十一轮：内置标签的稳定键清单（显示名本地化用，Get-TagLabel 反查）。
+$script:TagBuiltin = @('work', 'focus', 'life', 'task')
 # 字号倍率相关（第四轮）：XAML 硬编码字号的基线表 + 侧栏缩放后的宽度。
 # 必须在根作用域显式起个值 —— StrictMode 2.0 下读未赋值变量会直接抛。
 $script:XamlFontNodes = New-Object System.Collections.ArrayList
@@ -2476,10 +2494,12 @@ function Invoke-HandlerAudit {
         #   Tasks 现在是一个真正的视图（以前点了只是跳回 list，自己永远不高亮）
         [void](Invoke-Click $script:NavTask)
         Write-AuditRow 'sidebar Tasks' ($script:View -eq 'tasks') ('View=' + $script:View)
-        # 第七轮（item 4）：按钮改名 '+New task' 且移到第二行；同时"Tasks"大标题已删。
-        #   断言同时验三件事，缺一层都可能假绿：
+        # 第七轮（item 4）：按钮改名 '+New task'；同时"Tasks"大标题已删。
+        #   第十一轮：计数"x 未完成"移到列表底部 footer，按钮在顶部筛选行，
+        #   所以现在是"按钮在上、计数在下"（pBtn.Y < pCnt.Y）。
+        #   断言验三件事，缺一层都可能假绿：
         #     ① 按钮文字确实变了（按旧文案找不到、按新文案找得到）；
-        #     ② 按钮与计数文字不在同一行（比较两者的相对 Y 坐标）；
+        #     ② 按钮在顶部筛选行、计数在底部 footer（按钮 Y 小于计数 Y）；
         #     ③ 视图里不再存在 'Tasks' 大标题（按文字找得到就算失败）。
         $addTaskBtn = Find-ButtonByText $script:NodeHost (Get-LangText 'btn.newTask')
         $oldAddBtn  = Find-ButtonByText $script:NodeHost '+ Add task'
@@ -2489,14 +2509,14 @@ function Invoke-HandlerAudit {
                 $script:MainWindow.UpdateLayout()
                 $pBtn = $addTaskBtn.TransformToAncestor($script:MainWindow).Transform([System.Windows.Point]::new(0, 0))
                 $pCnt = $script:TaskOpenText.TransformToAncestor($script:MainWindow).Transform([System.Windows.Point]::new(0, 0))
-                $rowOk = ([double]$pBtn.Y -gt [double]($pCnt.Y + 8.0))
+                $rowOk = ([double]$pBtn.Y -lt [double]($pCnt.Y - 8.0))
             } catch { }
         }
         $titleGone = ($null -eq (Find-TextBlockByText $script:NodeHost 'Tasks'))
-        Write-AuditRow 'task add button renamed + on own line' `
+        Write-AuditRow 'task add button renamed + in filter row' `
             (($null -ne $addTaskBtn) -and ($null -eq $oldAddBtn) -and $rowOk -and $titleGone) `
             ('found=' + [string]($null -ne $addTaskBtn) + ' oldGone=' + [string]($null -eq $oldAddBtn) +
-             ' nextRow=' + [string]$rowOk + ' titleGone=' + [string]$titleGone)
+             ' aboveCount=' + [string]$rowOk + ' titleGone=' + [string]$titleGone)
         $script:LastModalCall = ''
         [void](Invoke-Click $script:NavFocus)
         Write-AuditRow 'sidebar Focus' ($script:LastModalCall -eq 'focus') $script:LastModalCall

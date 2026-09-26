@@ -1419,10 +1419,10 @@ function Render-List {
     $cbo.Margin = [System.Windows.Thickness]::new(7, 0, 0, 0)
     # 标签筛选：第十轮起标签可自定义，选项从 TagColors（Get-TagChoices）动态来，
     # 不再写死 work/focus/life —— 用户新加的标签不出现在筛选里就是漏数据。
-    # 标签名是用户数据，原文显示（不走语言表）。
+    # 显示名走 Get-TagLabel：内置四键本地化，自定义标签原文显示；筛选值仍用键。
     $tagOpts = @([pscustomobject]@{ Tag='all'; Text=(Get-LangText 'flt.allTags') })
     foreach ($tk in @((Get-TagChoices).Keys)) {
-        $tagOpts += [pscustomobject]@{ Tag=[string]$tk; Text=[string]$tk }
+        $tagOpts += [pscustomobject]@{ Tag=[string]$tk; Text=(Get-TagLabel ([string]$tk)) }
     }
     foreach ($it in $tagOpts) {
         $ci = New-Object System.Windows.Controls.ComboBoxItem
@@ -1673,51 +1673,6 @@ function Set-TaskPanelCollapsed {
 }
 
 # ---------------------------------------------------------------------------
-#  今日计划（自动排期，第十轮第 4 条）
-# ---------------------------------------------------------------------------
-# 从"未完成任务池"里按 优先级(高→低) + 截止(近→远) 挑出 3-5 件，
-# 每件按其 estimatedMin（预估时长，缺省 60 分钟）变成今天的一个时间块，
-# 从今天 09:00 起逐个向后累加排布（不重叠）。挑中的任务打上 work 标签。
-function Plan-Today {
-    $today = [datetime]::Today
-    # 候选：未完成的任务，按优先级 + 截止排序
-    $open = @($script:Tasks | Where-Object { -not [bool](Get-TaskField $_ 'done' $false) })
-    if ($open.Count -eq 0) {
-        Show-Toast (Get-LangText 'plan.title') (Get-LangText 'plan.empty') -Seconds 4
-        return
-    }
-    $ranked = @($open | Sort-Object -Property @{E={Get-TaskRank $_}}, @{E={Get-TaskDueKey $_}})
-    # 挑 3-5 件（不足 3 件就全排）
-    $picked = @($ranked | Select-Object -First 5)
-    if ($picked.Count -gt 5) { $picked = @($ranked | Select-Object -First 5) }
-    # 排期：从 09:00 起，每件用预估时长（缺省 60 分钟），时间块之间不重叠
-    $cursor = 9 * 60   # 09:00
-    $planned = 0
-    foreach ($t in $picked) {
-        $est = [int](Get-TaskField $t 'estimatedMin' 0)
-        if ($est -lt 15) { $est = 60 }
-        if ($est -gt 240) { $est = 240 }
-        $title = [string](Get-TaskField $t 'text' '')
-        if ([string]::IsNullOrWhiteSpace($title)) { $title = Get-LangText 'plan.untitled' }
-        [void]$script:Events.Add([pscustomobject]@{
-            id = (New-Id); date = Fmt-Date $today
-            start = $cursor; end = ($cursor + $est)
-            title = $title; tag = 'work'; note = ''; done = $false
-            repeat = 'none'; repeatEvery = 1; repeatUntil = ''; repeatMonthMode = 'day'
-            reminderMin = 0; reminderKey = ''
-        })
-        $cursor += $est
-        $planned++
-    }
-    Save-Data
-    $script:Selected = $today
-    $script:Anchor = $today
-    Set-View 'week'
-    Refresh-All
-    Show-Toast (Get-LangText 'plan.title') ((Get-LangText 'plan.done') -f $planned) -Seconds 5
-}
-
-# ---------------------------------------------------------------------------
 #  任务视图（侧栏 "Tasks" 按钮）
 # ---------------------------------------------------------------------------
 # 为什么单独开一个视图：侧栏那个 Tasks 按钮以前点了只是 Set-View 'list'，
@@ -1730,27 +1685,6 @@ function Render-Tasks {
     $script:TaskCardWide = $true
     $shell = New-Bd -Bg (Get-Pal 'Card') -Border (Get-Pal 'Border') -Radius 8
     $root = New-Object System.Windows.Controls.DockPanel
-
-    # --- 头部：计数（单行）---
-    # 第七轮（item 4）：删掉 "Tasks" 大标题；第十轮（item 7）：
-    #   "+New task" 从头部独立第二行**移到筛选栏同一行**（放在五个筛选控件之后）。
-    #   原来独立占一行是为了窄窗下不跟筛选栏抢宽度；现在改用 WrapPanel 折行，
-    #   按钮随筛选控件一起流式排布，窄窗时自动折到下一行，不再需要单独占位。
-    $head = New-Object System.Windows.Controls.Border
-    $head.Background = Brush (Get-Pal 'CardAlt')
-    $head.BorderBrush = Brush (Get-Pal 'BorderSoft')
-    $head.BorderThickness = [System.Windows.Thickness]::new(0, 0, 0, 2)
-    $hp = New-Object System.Windows.Controls.StackPanel
-    $hp.Margin = [System.Windows.Thickness]::new(14, 8, 14, 8)
-
-    $t2 = New-Txt -Text '' -Size 11 -Color (Get-Pal 'InkFaint')
-    $t2.VerticalAlignment = 'Center'
-    $script:TaskOpenText = $t2
-    [void]$hp.Children.Add($t2)
-
-    $head.Child = $hp
-    [System.Windows.Controls.DockPanel]::SetDock($head, 'Top')
-    [void]$root.Children.Add($head)
 
     # --- 工具栏：五个筛选 ---
     # 用 WrapPanel：820px 窄窗下这一排会折到第二行，而不是被右边界裁掉
@@ -1813,20 +1747,27 @@ function Render-Tasks {
     $bAdd.Add_Click({ try { Open-TaskEditor } catch { Write-ErrLog ('Add task: ' + $_.Exception.Message) } })
     [void]$fp.Children.Add($bAdd)
 
-    # 第十轮（第 4 条）："今日计划"——按优先级+截止+预估时长，从任务池挑 3-5 件，
-    #   一键变成今天的时间块。放在 +New task 旁边（都是"动作"类）。
-    $bPlan = New-PixBtn -Text (Get-LangText 'btn.planToday') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 104 -H 28 -FontSize 10
-    $bPlan.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
-    $bPlan.VerticalAlignment = 'Center'
-    $bPlan.Tag = 'plan-today'
-    $script:PlanTodayButton = $bPlan
-    $bPlan.Add_Click({ try { Plan-Today } catch { Write-ErrLog ('Plan today: ' + $_.Exception.Message) } })
-    [void]$fp.Children.Add($bPlan)
-
     $bar.Child = $fp
     $script:TaskFilterRow = $bar
     [System.Windows.Controls.DockPanel]::SetDock($bar, 'Top')
     [void]$root.Children.Add($bar)
+
+    # --- 底部：计数（单行，第十一轮：从顶部移到列表下方）---
+    # 计数"x 未完成 · x 已完成"原来单独占一条顶部横条，和筛选行叠在一起显得重；
+    # 改成贴卡片列表底部的状态栏，视觉更轻、也符合"先内容、后统计"的阅读顺序。
+    $foot = New-Object System.Windows.Controls.Border
+    $foot.Background = Brush (Get-Pal 'CardAlt')
+    $foot.BorderBrush = Brush (Get-Pal 'BorderSoft')
+    $foot.BorderThickness = [System.Windows.Thickness]::new(0, 2, 0, 0)
+    $fpFoot = New-Object System.Windows.Controls.StackPanel
+    $fpFoot.Margin = [System.Windows.Thickness]::new(14, 6, 14, 6)
+    $t2 = New-Txt -Text '' -Size 11 -Color (Get-Pal 'InkFaint')
+    $t2.VerticalAlignment = 'Center'
+    $script:TaskOpenText = $t2
+    [void]$fpFoot.Children.Add($t2)
+    $foot.Child = $fpFoot
+    [System.Windows.Controls.DockPanel]::SetDock($foot, 'Bottom')
+    [void]$root.Children.Add($foot)
 
     # --- 卡片列表 ---
     $sv = New-Object System.Windows.Controls.ScrollViewer
@@ -2155,9 +2096,9 @@ function Fill-Tasks {
         }
 
         $stripCol = Get-Pal 'AccentFocus'
-        $stripTip = 'Medium priority'
-        if ($tPriority -eq 'high') { $stripCol = Get-Pal 'AccentEvent'; $stripTip = 'High priority' }
-        elseif ($tPriority -eq 'low') { $stripCol = Get-Pal 'AccentTask'; $stripTip = 'Low priority' }
+        $stripTip = (Get-LangText 'tip.priMid')
+        if ($tPriority -eq 'high') { $stripCol = Get-Pal 'AccentEvent'; $stripTip = (Get-LangText 'tip.priHigh') }
+        elseif ($tPriority -eq 'low') { $stripCol = Get-Pal 'AccentTask'; $stripTip = (Get-LangText 'tip.priLow') }
         $strip = New-Object System.Windows.Controls.Border
         $strip.Width = 4; $strip.Background = Brush $stripCol
         $strip.HorizontalAlignment = 'Left'; $strip.VerticalAlignment = 'Stretch'
@@ -2308,7 +2249,10 @@ function Fill-Tasks {
         $actRow = New-Object System.Windows.Controls.StackPanel
         $actRow.Orientation = 'Horizontal'
         $actRow.HorizontalAlignment = 'Right'
-        $actRow.Margin = [System.Windows.Thickness]::new(0, 5, 0, 0)
+        # 第十一轮：任务专页（wide）里按钮移到标题同一行的右侧 action 列，
+        # 上面留 2px 对齐标题；窄栏（list）仍独立成行、上留 5px。
+        if ($wide) { $actRow.Margin = [System.Windows.Thickness]::new(8, 2, 0, 0) }
+        else       { $actRow.Margin = [System.Windows.Thickness]::new(0, 5, 0, 0) }
         $bFocus = New-PixBtn -Text (Get-LangText 'btn.focus') -Bg (Get-Pal 'AccentFocus') -Fg (Get-Pal 'TodayInk') -W 48 -H 23 -FontSize 8
         $bPost = New-PixBtn -Text '+1' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 38 -H 23 -FontSize 8
         $bFocus.Tag = @{ kind = 'task-focus'; id = $tId }
@@ -2328,7 +2272,7 @@ function Fill-Tasks {
         $caret = New-PixBtn -Text $expCaret -Bg (Get-Pal 'Card') -Fg (Get-Pal 'InkFaint') -W 24 -H 23 -FontSize 9
         $caret.Tag = @{ kind = 'task-expand'; id = $tId }
         $caret.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0)
-        $caret.ToolTip = $(if ($expanded) { 'Hide details' } else { 'Show details' })
+        $caret.ToolTip = $(if ($expanded) { Get-LangText 'tip.hide' } else { Get-LangText 'tip.show' })
         $caret.Add_Click({
             param($s,$e)
             try {
@@ -2340,7 +2284,15 @@ function Fill-Tasks {
             } catch { Write-ErrLog ('Task expand: ' + $_.Exception.Message) }
         })
         [void]$actRow.Children.Add($caret)
-        [void]$body.Children.Add($actRow)
+        # 第十一轮：任务名和 专注/+1/▾ 放同一行——wide 模式把按钮组放进右侧
+        # action 列（Grid 第 2 列），与标题在同一水平线上；窄栏仍放进 body 下方。
+        if ($wide) {
+            [System.Windows.Controls.Grid]::SetColumn($actRow, 2)
+            $actRow.VerticalAlignment = 'Top'
+            [void]$row.Children.Add($actRow)
+        } else {
+            [void]$body.Children.Add($actRow)
+        }
 
         # ---- 行内详情面板（由卡片上的 ▾/▸ 按钮展开）：完整字段 + Edit / Del ----
         # 为什么把 Edit / Del 放这里而不是继续留在卡片上：
@@ -2396,7 +2348,7 @@ function Fill-Tasks {
             $remMin = [int](Get-TaskField $t 'reminderMin' 0)
             & $addLine (Get-LangText 'det.reminder') $(if ($remMin -gt 0) { [string]$remMin + (Get-LangText 'unit.minBefore') } else { '' })
             $tagVal = [string](Get-TaskField $t 'tag' '')
-            & $addLine (Get-LangText 'det.tag') $tagVal
+            & $addLine (Get-LangText 'det.tag') (Get-TagLabel $tagVal)
 
             # 子任务：展开面板里直接可勾，省得再开编辑窗口
             if ($subTotal -gt 0) {

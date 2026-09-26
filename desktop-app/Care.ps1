@@ -780,6 +780,11 @@ function Apply-Lang {
     Set-NavLabel $script:NavSettings (Get-LangText 'nav.settings')
     Set-NavLabel $script:NavProfile  (Get-LangText 'nav.profile')
     if ($null -ne $script:DailyNoteTitle) { $script:DailyNoteTitle.Text = (Get-LangText 'daily.note') }
+    # 第十一轮：侧栏「+ New event」按钮、头像「Change」文字与头像 ToolTip
+    #   也是 XAML 里写死的英文，一并收口。
+    if ($null -ne $script:BtnAdd)      { Set-NavLabel $script:BtnAdd (Get-LangText 'nav.newEvent') }
+    if ($null -ne $script:AvatarHint)  { $script:AvatarHint.Text = (Get-LangText 'av.change') }
+    if ($null -ne $script:AvatarBox)   { $script:AvatarBox.ToolTip = (Get-LangText 'av.tip') }
     # 标题栏 / Hero 标题在 Update-Chrome 里按语言表刷新（那里本来就在做这件事）
     try { Update-Chrome } catch { }
 }

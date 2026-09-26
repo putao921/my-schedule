@@ -30,6 +30,38 @@ function Get-TagChoices {
     return $out
 }
 
+# ---------------------------------------------------------------------------
+#  内置标签的显示名本地化（第十一轮）
+#
+#  标签的"键"是稳定的数据（work/focus/life/task + 用户自定义名），存进任务
+#  数据里永远不变；但默认四键是英文词，中文界面下直接显示就是"语言混用"。
+#  所以：内置四键走语言表显示，自定义标签原文显示。
+#  $script:TagBuiltin 在 ScheduleWidget.ps1 全局初始化处定义（根作用域）。
+# ---------------------------------------------------------------------------
+
+function Get-TagLabel {
+    # 键 -> 显示名。内置四键走语言表，其余（自定义标签）原样返回。
+    param([string]$Key)
+    if ([string]::IsNullOrWhiteSpace($Key)) { return '' }
+    $k = [string]$Key
+    foreach ($b in @($script:TagBuiltin)) {
+        if ($k -eq $b) { return (Get-LangText ('tag.' + $b)) }
+    }
+    return $k
+}
+
+function Get-TagKeyFromLabel {
+    # 显示名 -> 键（保存任务分类时用）。内置四键反查回英文键，
+    # 其余原样返回（自定义标签名本身就是键）。
+    param([string]$Label)
+    if ([string]::IsNullOrWhiteSpace($Label)) { return '' }
+    $lbl = [string]$Label
+    foreach ($b in @($script:TagBuiltin)) {
+        if ((Get-LangText ('tag.' + $b)) -eq $lbl) { return $b }
+    }
+    return $lbl
+}
+
 function Add-CustomTag {
     # 把"新标签名 + 颜色"写进 Settings['TagColors']，再刷新标签管理区。
     #   名字做 trim + 小写归一（避免 Study/study 两套），空名/重名直接忽略。
@@ -83,7 +115,7 @@ function Render-TagManagerRows {
         $sw.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
         $sw.VerticalAlignment = 'Center'
         [void]$chipRow.Children.Add($sw)
-        $lb = New-Txt -Text $k -Size 11 -Color (Get-Pal 'Ink')
+        $lb = New-Txt -Text (Get-TagLabel ([string]$k)) -Size 11 -Color (Get-Pal 'Ink')
         $lb.VerticalAlignment = 'Center'
         [void]$chipRow.Children.Add($lb)
         $del = New-PixBtn -Text '×' -Bg (Get-Pal 'Card') -Fg (Get-Pal 'AccentEvent') -W 22 -H 22 -FontSize 11 -Radius 4
@@ -1141,9 +1173,9 @@ function Show-EventEditorWindow {
     }
     $tagBtns = @{}
     foreach ($k in $tagColors.Keys) {
-        # 标签名是用户数据（第十轮起可自定义），原文显示，不做首字母大写——
-        # 否则用户建的小写标签在编辑器里会变成另一个样子，跟设置页的标签管理对不上。
-        $label = [string]$k
+        # 内置四键显示名本地化（work->工作），自定义标签原文显示；
+        # 按钮的 Tag 仍存键（data），配色与选中态都按键来。
+        $label = Get-TagLabel ([string]$k)
         # 注意：按钮没有 TagColorKey 这种属性（写上去会抛"在此对象上找不到属性"，
         # 而且整个编辑窗口都建不起来）。配色表统一放 $script:EdTagColors。
         $b = New-PixBtn -Text $label -Bg (Get-Pal 'Card') -Fg (Get-Pal 'Ink') -W 94 -H 26 -FontSize 11 -Tag $k
@@ -2171,10 +2203,14 @@ function Show-TaskEditorWindow {
 
     # 分类的值是**数据键**（写进 task.tag，还决定卡片竖条颜色），不进语言表。
     # 第十轮：标签从 Settings['TagColors'] 动态生成（用户可在设置里增删改）。
+    # 第十一轮：下拉显示"本地化显示名"，但保存时反查回键（Get-TagKeyFromLabel），
+    #   数据里存的仍是稳定键 work/focus/life/task / 自定义名，不会因为切语言而变。
     $tagKeys = @((Get-TagChoices).Keys)
-    $script:TkTag = New-ComboField $sp (Get-LangText 'fld.tk.tag') $tagVal $tagKeys
+    $tagLabels = @($tagKeys | ForEach-Object { Get-TagLabel ([string]$_) })
+    $tagValLabel = Get-TagLabel ([string]$tagVal)
+    $script:TkTag = New-ComboField $sp (Get-LangText 'fld.tk.tag') $tagValLabel $tagLabels
     $script:TkTag.IsEditable = $false
-    $script:TkTag.SelectedItem = $tagVal
+    $script:TkTag.SelectedItem = $tagValLabel
 
     $doneRow = New-Object System.Windows.Controls.StackPanel
     $doneRow.Orientation = 'Horizontal'
@@ -2239,8 +2275,9 @@ function Show-TaskEditorWindow {
                 $script:TkErr.Visibility = 'Visible'
                 return
             }
-            # 分类是数据键（不翻译），但为了兼容"万一"被本地化过的旧值，仍然读 .Text 并原样落库。
-            $tag = [string]$script:TkTag.Text
+            # 分类是数据键：下拉显示本地化名，这里反查回键（Get-TagKeyFromLabel），
+            # 数据里存的始终是稳定键 work/focus/life/task / 自定义名。
+            $tag = Get-TagKeyFromLabel ([string]$script:TkTag.Text)
             if ([string]::IsNullOrWhiteSpace($tag)) { $tag = 'task' }
             # 优先级 / 提醒读 .Tag（语义值）：文案随语言变，读 .Text 在中文界面下必然失配。
             $priority = ([string]$script:TkPriority.Tag).ToLowerInvariant()
