@@ -1,0 +1,28 @@
+# ===== WorkBuddy runtime metadata (machine-specific absolute paths) =====
+*.genie
+
+# ===== Debug / scratch check files =====
+_*.txt
+syn2.txt
+syntax.txt
+verification/*.txt
+
+# ===== Build artifacts (desktop WPF output) =====
+dist/
+dist-build/
+
+# ===== Backups & local appdata =====
+backups/
+appdata/
+
+# ===== Screenshots / shot dumps =====
+shots/
+verification/shots21/
+
+# ===== Python caches =====
+__pycache__/
+*.pyc
+
+# ===== OS cruft =====
+Thumbs.db
+.DS_Store
