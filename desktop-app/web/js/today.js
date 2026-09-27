@@ -38,7 +38,7 @@
     var d = new Date();
     var zh = window.lang() === 'zh';
 
-    var evs = Store.eventsOn(today);
+    var evs = Store.expandedEventsOn(today);
     var tasks = Store.tasks.slice();
     var overdue = tasks.filter(isOverdue);
     var dueToday = tasks.filter(isDueToday);

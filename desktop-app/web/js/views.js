@@ -190,7 +190,7 @@
      scan for), and up to three event dots. */
   function cell(date, todayS, out) {
     var s = Store.iso(date);
-    var evs = Store.eventsOn(s);
+    var evs = Store.expandedEventsOn(s);
     var cls = 'day' + (out ? ' out' : '') + (s === todayS ? ' today' : '');
     var weekend = (date.getDay() === 0 || date.getDay() === 6);
     if (weekend && !out) cls += ' weekend';
@@ -238,7 +238,7 @@
   }
 
   function dayList(dateStr) {
-    var evs = Store.eventsOn(dateStr).filter(matchEvent);
+    var evs = Store.expandedEventsOn(dateStr).filter(matchEvent);
     if (!evs.length) return emptyBox(query ? t('search.none') : t('fld.day.empty'));
     var out = '';
     for (var i = 0; i < evs.length; i++) out += eventCard(evs[i]);
@@ -261,7 +261,7 @@
       var d = new Date(start.getTime());
       d.setDate(d.getDate() + i);
       var s = Store.iso(d);
-      var evs = Store.eventsOn(s).filter(matchEvent);
+      var evs = Store.expandedEventsOn(s).filter(matchEvent);
 
       /* 24 slot cells give the column its height (blocks are absolutely
          positioned, so without them the column collapses to zero) and act as

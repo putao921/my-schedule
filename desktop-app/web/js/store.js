@@ -133,7 +133,8 @@
   }
 
   function updateEvent(evId, patch) {
-    var e = findEvent(evId);
+    var realId = (evId && evId.indexOf('@') > 0) ? evId.split('@')[0] : evId;
+    var e = findEvent(realId);
     if (!e) return null;
     for (var k in patch) {
       if (Object.prototype.hasOwnProperty.call(patch, k)) e[k] = patch[k];
@@ -143,7 +144,8 @@
   }
 
   function removeEvent(evId) {
-    data.events = data.events.filter(function (e) { return e.id !== evId; });
+    var realId = (evId && evId.indexOf('@') > 0) ? evId.split('@')[0] : evId;
+    data.events = data.events.filter(function (e) { return e.id !== realId; });
     persist(); emit('event.remove');
   }
 
@@ -254,6 +256,91 @@
       .sort(function (a, b) { return (a.start || 0) - (b.start || 0); });
   }
 
+  /* ---- repeating events: expand a base event into visible instances ------ */
+  /* A base event with repeat != 'none' yields one instance per matching day.
+     Instances are virtual clones (id = baseId + '@' + date) so the UI can open
+     the editor for any occurrence; editing / deleting acts on the base event,
+     i.e. the whole series. The base day itself is reached through the same rule
+     (delta 0), so we never return both the base record and its clone. */
+  function diffDays(a, b) {
+    return Math.round((a.getTime() - b.getTime()) / 86400000);
+  }
+
+  function daysInMonth(d) {
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  }
+
+  function isLastDay(d) {
+    return d.getDate() === daysInMonth(d);
+  }
+
+  /* Does `target` fall on the repeating series defined by base event `e`? */
+  function repeatsOn(e, base, target) {
+    var every = Math.max(1, parseInt(e.repeatEvery, 10) || 1);
+    if (diffDays(target, base) < 0) return false;
+    if (e.repeatUntil) {
+      var until = parseISO(e.repeatUntil);
+      if (until && target > until) return false;
+    }
+    var mode = e.repeatMonthMode || 'day';
+    if (e.repeat === 'daily') {
+      return diffDays(target, base) % every === 0;
+    }
+    if (e.repeat === 'weekly') {
+      if (target.getDay() !== base.getDay()) return false;
+      return Math.floor(diffDays(target, base) / 7) % every === 0;
+    }
+    if (e.repeat === 'monthly') {
+      var months = (target.getFullYear() - base.getFullYear()) * 12 + (target.getMonth() - base.getMonth());
+      if (months < 0 || months % every !== 0) return false;
+      if (mode === 'last') return isLastDay(target);
+      /* day mode: same date, but a base day > days-in-month (e.g. 31st) lands
+         on the last day so the series never vanishes in short months. */
+      if (base.getDate() > daysInMonth(target)) return isLastDay(target);
+      return target.getDate() === base.getDate();
+    }
+    if (e.repeat === 'yearly') {
+      var years = target.getFullYear() - base.getFullYear();
+      if (years < 0 || years % every !== 0) return false;
+      if (target.getMonth() !== base.getMonth()) return false;
+      if (mode === 'last') return isLastDay(target);
+      if (base.getDate() > daysInMonth(target)) return isLastDay(target);
+      return target.getDate() === base.getDate();
+    }
+    return false;
+  }
+
+  function cloneInstance(e, dateStr) {
+    var inst = {};
+    for (var k in e) {
+      if (Object.prototype.hasOwnProperty.call(e, k)) inst[k] = e[k];
+    }
+    inst.date = dateStr;
+    inst.id = e.id + '@' + dateStr;
+    inst._repeat = true;
+    return inst;
+  }
+
+  /* What shows on a given day: real single-day events plus every repeating
+     instance that lands on that day. */
+  function expandedEventsOn(dateStr) {
+    var target = parseISO(dateStr);
+    if (!target) return eventsOn(dateStr);
+    var out = [];
+    for (var i = 0; i < data.events.length; i++) {
+      var e = data.events[i];
+      if (!e || !e.date) continue;
+      if (e.repeat && e.repeat !== 'none') {
+        var base = parseISO(e.date);
+        if (base && repeatsOn(e, base, target)) out.push(cloneInstance(e, dateStr));
+      } else if (e.date === dateStr) {
+        out.push(e);
+      }
+    }
+    out.sort(function (a, b) { return (a.start || 0) - (b.start || 0); });
+    return out;
+  }
+
   /* ---- focus bookkeeping ---------------------------------------------- */
   /* One entry point, so the hero's "today" figure and the stats week can never
      drift apart: both read the same log. */
@@ -301,6 +388,7 @@
     fromHHMM: fromHHMM,
     startOfWeek: startOfWeek,
     eventsOn: eventsOn,
+    expandedEventsOn: expandedEventsOn,
     addFocus: addFocus,
     focusOn: focusOn,
     stats: stats

@@ -208,6 +208,37 @@
   }
 
   /* ---- 5b. count-up + wheel duration picker --------------------------- */
+  function testRepeat() {
+    /* weekly: every week from Mon 2026-09-28 */
+    var base = '2026-09-28';
+    var ev = Store.newEvent({ date: base, start: 10 * 60, end: 11 * 60, title: '周会', tag: 'work', repeat: 'weekly', repeatEvery: 1 });
+    var id = ev.id;
+    var next = Store.expandedEventsOn('2026-10-05');
+    ok('repeat.weeklyNext', next.some(function (e) { return e.id === id + '@2026-10-05'; }), 'n=' + next.length);
+    var tue = Store.expandedEventsOn('2026-09-29');
+    ok('repeat.weeklySkip', !tue.some(function (e) { return e.id === id + '@2026-09-29'; }));
+    /* until boundary is inclusive */
+    Store.updateEvent(id, { repeatUntil: '2026-10-12' });
+    ok('repeat.untilStop', !Store.expandedEventsOn('2026-10-19').some(function (e) { return e.id === id + '@2026-10-19'; }));
+    ok('repeat.untilIncl', Store.expandedEventsOn('2026-10-12').some(function (e) { return e.id === id + '@2026-10-12'; }));
+    Store.updateEvent(id, { repeatUntil: '' });
+    /* daily every 2 */
+    var d = Store.newEvent({ date: '2026-01-01', start: 9 * 60, end: 10 * 60, title: '双日', repeat: 'daily', repeatEvery: 2 });
+    ok('repeat.dailyEvery2', Store.expandedEventsOn('2026-01-03').some(function (e) { return e.id === d.id + '@2026-01-03'; }));
+    ok('repeat.dailySkip', !Store.expandedEventsOn('2026-01-02').some(function (e) { return e.id === d.id + '@2026-01-02'; }));
+    /* monthly last day: 01-31 -> 02-28 (2026 is not a leap year) */
+    var m = Store.newEvent({ date: '2026-01-31', start: 9 * 60, end: 10 * 60, title: '月末', repeat: 'monthly', repeatEvery: 1, repeatMonthMode: 'last' });
+    ok('repeat.monthLast', Store.expandedEventsOn('2026-02-28').some(function (e) { return e.id === m.id + '@2026-02-28'; }));
+    /* yearly */
+    var y = Store.newEvent({ date: '2026-03-01', start: 9 * 60, end: 10 * 60, title: '年庆', repeat: 'yearly', repeatEvery: 1 });
+    ok('repeat.yearlyNext', Store.expandedEventsOn('2027-03-01').some(function (e) { return e.id === y.id + '@2027-03-01'; }));
+    /* editing an instance hits the base event (whole series) */
+    Store.updateEvent(id + '@2026-10-05', { title: '周会改' });
+    ok('repeat.editBase', Store.findEvent(id).title === '周会改', String(Store.findEvent(id).title));
+    /* cleanup so repeated runs stay clean */
+    Store.removeEvent(id); Store.removeEvent(d.id); Store.removeEvent(m.id); Store.removeEvent(y.id);
+  }
+
   function testTimer() {
     ok('nav.focusAgain', click('.nav-btn[data-view="focus"]'));
     ok('timer.currentIsFocus', window.App && App.currentView() === 'focus',
@@ -355,6 +386,7 @@
     });
     try { testLunar(); } catch (e) { ok('lunar.crash', false, e.message); }
     try { testToday(); } catch (e) { ok('today.crash', false, e.message); }
+    try { testRepeat(); } catch (e) { ok('repeat.crash', false, e.message); }
     try { testStats(); } catch (e) { ok('stats.crash', false, e.message); }
     testQueue()
       .catch(function (e) { ok('queue.crash', false, e.message); })

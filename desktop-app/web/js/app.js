@@ -93,9 +93,10 @@
   var editing = null;   /* { kind:'event'|'task', id } */
 
   function openSheet(kind, id) {
-    editing = { kind: kind, id: id || null };
+    var baseId = (id && id.indexOf('@') > 0) ? id.split('@')[0] : id;
+    editing = { kind: kind, id: baseId };
     var rec = null;
-    if (id) rec = kind === 'event' ? Store.findEvent(id) : Store.findTask(id);
+    if (baseId) rec = kind === 'event' ? Store.findEvent(baseId) : Store.findTask(baseId);
 
     $('sheetTitle').textContent = rec
       ? (kind === 'event' ? t('fld.ed.title') : t('fld.tk.title'))
@@ -116,7 +117,8 @@
             return '<option value="' + Views.esc(g) + '"' + (rec && rec.tag === g ? ' selected' : '') + '>' +
               Views.esc(g) + '</option>';
           }).join('') + '</select>') +
-        field(t('fld.ed.note'), '<textarea id="fNote">' + Views.esc(rec ? rec.note : '') + '</textarea>');
+        field(t('fld.ed.note'), '<textarea id="fNote">' + Views.esc(rec ? rec.note : '') + '</textarea>') +
+        buildRepeat(rec);
     } else {
       body =
         field(t('fld.tk.text'), '<input id="fText" type="text" value="' + Views.esc(rec ? rec.text : '') + '">') +
@@ -128,12 +130,42 @@
           }).join('') + '</select>');
     }
     $('sheetBody').innerHTML = body;
+    var fr = $('fRepeat');
+    if (fr) {
+      var syncRepeat = function () {
+        var ex = $('repeatExtra');
+        if (ex) ex.style.display = (fr.value === 'none') ? 'none' : 'block';
+        var mm = $('fRepeatMonthMode');
+        if (mm && mm.parentNode) mm.parentNode.style.display =
+          (fr.value === 'monthly' || fr.value === 'yearly') ? '' : 'none';
+      };
+      fr.addEventListener('change', syncRepeat);
+      syncRepeat();
+    }
     $('sheetMask').hidden = false;
     $('sheet').hidden = false;
   }
 
   function field(label, inner) {
     return '<div class="field"><label>' + label + '</label>' + inner + '</div>';
+  }
+
+  /* Repeat picker for the event editor. The base event keeps one set of fields;
+     the view expands it into per-day instances. */
+  function buildRepeat(rec) {
+    var reps = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
+    var sel = '<select id="fRepeat">' + reps.map(function (r) {
+      return '<option value="' + r + '"' + (rec && rec.repeat === r ? ' selected' : '') + '>' + t('opt.rep.' + r) + '</option>';
+    }).join('') + '</select>';
+    var extra =
+      field(t('fld.ed.every'), '<input id="fRepeatEvery" type="number" min="1" step="1" value="' + (rec && rec.repeatEvery ? rec.repeatEvery : 1) + '">') +
+      field(t('fld.ed.until'), '<input id="fRepeatUntil" type="date" value="' + (rec && rec.repeatUntil ? rec.repeatUntil : '') + '">') +
+      field(t('fld.ed.monthLast'), '<select id="fRepeatMonthMode">' +
+        '<option value="day"' + (rec && rec.repeatMonthMode !== 'last' ? ' selected' : '') + '>' + t('opt.rep.day') + '</option>' +
+        '<option value="last"' + (rec && rec.repeatMonthMode === 'last' ? ' selected' : '') + '>' + t('opt.rep.last') + '</option>' +
+        '</select>');
+    return '<div class="field"><label>' + t('fld.ed.repeat') + '</label>' + sel +
+      '<div id="repeatExtra" style="margin-top:6px">' + extra + '</div></div>';
   }
 
   function closeSheet() {
@@ -152,7 +184,11 @@
         start: Store.fromHHMM(v('fStart')),
         end: Store.fromHHMM(v('fEnd')),
         tag: v('fTag'),
-        note: v('fNote')
+        note: v('fNote'),
+        repeat: v('fRepeat') || 'none',
+        repeatEvery: Math.max(1, parseInt(v('fRepeatEvery'), 10) || 1),
+        repeatUntil: v('fRepeatUntil') || '',
+        repeatMonthMode: v('fRepeatMonthMode') || 'day'
       };
       if (editing.id) Store.updateEvent(editing.id, patch);
       else Store.newEvent(patch);
