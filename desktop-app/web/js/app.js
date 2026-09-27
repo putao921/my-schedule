@@ -19,11 +19,13 @@
   function applyLang() {
     document.documentElement.lang = Store.settings.lang;
     var map = {
+      'nav.today': '.nav-btn[data-view="today"] .nav-txt',
       'nav.month': '.nav-btn[data-view="month"] .nav-txt',
       'nav.week': '.nav-btn[data-view="week"] .nav-txt',
       'nav.list': '.nav-btn[data-view="list"] .nav-txt',
       'nav.tasks': '.nav-btn[data-view="tasks"] .nav-txt',
       'nav.focus': '.nav-btn[data-view="focus"] .nav-txt',
+      'nav.stats': '.nav-btn[data-view="stats"] .nav-txt',
       'nav.profile': '.nav-btn[data-view="me"] .nav-txt',
       'search.toggle': '#searchToggleTxt'
     };
@@ -96,8 +98,8 @@
     if (id) rec = kind === 'event' ? Store.findEvent(id) : Store.findTask(id);
 
     $('sheetTitle').textContent = rec
-      ? (kind === 'event' ? t('fld.ed.title') : 'Edit task')
-      : (kind === 'event' ? t('fld.ed.new') : 'New task');
+      ? (kind === 'event' ? t('fld.ed.title') : t('fld.tk.title'))
+      : (kind === 'event' ? t('fld.ed.new') : t('fld.tk.new'));
     $('sheetDelete').hidden = !rec;
 
     var body = '';
@@ -114,13 +116,13 @@
             return '<option value="' + Views.esc(g) + '"' + (rec && rec.tag === g ? ' selected' : '') + '>' +
               Views.esc(g) + '</option>';
           }).join('') + '</select>') +
-        field('Note', '<textarea id="fNote">' + Views.esc(rec ? rec.note : '') + '</textarea>');
+        field(t('fld.ed.note'), '<textarea id="fNote">' + Views.esc(rec ? rec.note : '') + '</textarea>');
     } else {
       body =
-        field('Task', '<input id="fText" type="text" value="' + Views.esc(rec ? rec.text : '') + '">') +
-        field('Due', '<input id="fDue" type="date" value="' + (rec && rec.due ? rec.due : '') + '">') +
-        field('Project', '<input id="fProject" type="text" value="' + Views.esc(rec ? rec.project : 'Inbox') + '">') +
-        field('Priority', '<select id="fPriority">' +
+        field(t('fld.tk.text'), '<input id="fText" type="text" value="' + Views.esc(rec ? rec.text : '') + '">') +
+        field(t('fld.tk.due'), '<input id="fDue" type="date" value="' + (rec && rec.due ? rec.due : '') + '">') +
+        field(t('fld.tk.project'), '<input id="fProject" type="text" value="' + Views.esc(rec ? rec.project : 'Inbox') + '">') +
+        field(t('fld.tk.priority'), '<select id="fPriority">' +
           ['low', 'medium', 'high'].map(function (p) {
             return '<option value="' + p + '"' + (rec && rec.priority === p ? ' selected' : '') + '>' + p + '</option>';
           }).join('') + '</select>');
@@ -166,7 +168,7 @@
     }
     closeSheet();
     render();
-    toast('saved');
+    toast(t('toast.saved'));
   }
 
   /* --------------------------------------------------------------- search -- */
@@ -207,7 +209,7 @@
             Store.settings.avatar = c.toDataURL('image/png');
             Store.persistSettings();
             render();
-          } catch (e) { toast('avatar too large'); }
+          } catch (e) { toast(t('toast.avTooLarge')); }
         };
         img.src = r.result;
       };
@@ -240,9 +242,9 @@
           if (!Array.isArray(obj.events) || !Array.isArray(obj.tasks)) throw new Error('bad shape');
           Store.replaceAll(obj);
           render();
-          toast('imported');
+          toast(t('toast.imported'));
         } catch (e) {
-          toast('import failed: ' + e.message);
+          toast(t('toast.importFail') + ': ' + e.message);
         }
       };
       r.readAsText(f);
@@ -300,14 +302,33 @@
           Store.persistSettings(); render(); return;
         }
 
+        /* ---- view shortcuts from other pages ---- */
+        case 'go-stats': go('stats'); return;
+        case 'go-focus': go('focus'); return;
+        case 'go-today': go('today'); return;
+
+        /* ---- custom festivals ---- */
+        case 'hol-add': {
+          var d = $('holDate') && $('holDate').value;
+          var n = $('holName') && $('holName').value.trim();
+          if (!d || !n) { toast(t('hol.needBoth')); return; }
+          Store.settings.holidays[d] = n;
+          Store.persistSettings(); render(); return;
+        }
+        case 'hol-del': {
+          delete Store.settings.holidays[b.dataset.date];
+          Store.persistSettings(); render(); return;
+        }
+
         /* ---- avatar ---- */
         case 'av-pick': pickAvatar(); return;
         case 'av-reset':
           Store.settings.avatar = null;
           Store.persistSettings(); render(); return;
       }
-      /* Focus timer owns its own buttons (view + mini bar). */
-      if (window.Focus && Focus.handle && Focus.handle(act)) return;
+      /* Focus timer owns its own buttons (view + mini bar); the element is
+         passed along because queue buttons carry a row index in data-i. */
+      if (window.Focus && Focus.handle && Focus.handle(act, b)) return;
       /* Cloud actions are owned by cloud.js. */
       if (window.CloudSync && CloudSync.handle) { CloudSync.handle(act); return; }
     }
@@ -334,6 +355,15 @@
     /* Focus registers Views.focus, so it must run before the deep-link lookup
        below -- otherwise #focus silently falls back to the month view. */
     if (window.Focus && Focus.init) Focus.init();
+
+    /* Today and Stats are their own files (they are big enough to deserve
+       one) and register themselves here, before the deep-link lookup below --
+       otherwise #today / #stats silently fall back to the month view, exactly
+       the bug #focus had. */
+    if (window.Views) {
+      if (window.TodayView) Views.today = TodayView.render;
+      if (window.StatsView) Views.stats = StatsView.render;
+    }
 
     /* Deep link: #tasks / #week / ... opens that view directly. */
     var h = location.hash.replace('#', '');
@@ -379,7 +409,7 @@
       if (!editing || !editing.id) return;
       if (editing.kind === 'event') Store.removeEvent(editing.id);
       else Store.removeTask(editing.id);
-      closeSheet(); render(); toast('deleted');
+      closeSheet(); render(); toast(t('toast.deleted'));
     });
 
     document.addEventListener('click', onDocumentClick);
@@ -396,6 +426,14 @@
     }
 
     if (window.CloudSync && CloudSync.init) CloudSync.init();
+
+    /* ?selftest=1 loads the browser self test. Injected rather than linked so
+       a normal visit never downloads it. */
+    if (/[?&]selftest=1/.test(location.search)) {
+      var st = document.createElement('script');
+      st.src = 'js/selftest.js';
+      document.body.appendChild(st);
+    }
 
     /* ?debug: report real layout metrics through the title so headless runs
        can assert the responsive rules without opening devtools (and without

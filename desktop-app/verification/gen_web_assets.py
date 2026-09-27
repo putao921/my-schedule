@@ -97,6 +97,59 @@ WEB_EXTRA = {
         "set.saved": "saved",
         "av.choose": "Choose image",
         "av.reset": "Reset",
+
+        # Navigation for the two web-only views.
+        "nav.today": "Today",
+        "nav.stats": "Stats",
+
+        # Today view.
+        "today.evDone": "events done",
+        "today.focus": "focus today",
+        "today.due": "due today",
+        "today.overdue": "Overdue",
+        "today.events": "Today's schedule",
+        "today.dueToday": "Tasks due today",
+        "today.evEmpty": "Nothing scheduled today",
+        "today.dueEmpty": "Nothing due today",
+        "today.stats": "Open stats",
+        "today.lateDays": "{0}d late",
+
+        # Stats view.
+        "st.focusWeek": "focus this week",
+        "st.evWeek": "events done / planned",
+        "st.streak": "day focus streak",
+        "st.taskDone": "tasks done",
+        "st.focus7": "Focus, last 7 days",
+        "st.ev7": "Events, last 7 days",
+        "st.minutes": "minutes",
+        "st.byTag": "Events by tag",
+        "st.noData": "No data yet",
+
+        # Pomodoro queue.
+        "pomo.queue": "Task queue",
+        "pomo.queueAdd": "Add",
+        "pomo.queueNow": "Now",
+        "pomo.queueClear": "Clear queue",
+        "pomo.queueEmpty": "no queued tasks - add one to chain them",
+
+        # Custom festivals.
+        "set.holidays": "Festivals",
+        "set.holidaysHint": "add your own dates",
+        "hol.date": "Date",
+        "hol.name": "Name",
+        "hol.add": "Add festival",
+        "hol.none": "none yet",
+        "hol.needBoth": "pick a date and a name first",
+
+        # Leftover English strings found during the feature round.
+        "fld.ed.note": "Note",
+        "task.doneHead": "Done",
+        "gen.untitled": "(untitled)",
+        "toast.saved": "saved",
+        "toast.deleted": "deleted",
+        "toast.imported": "imported",
+        "toast.importFail": "import failed",
+        "toast.avTooLarge": "image too large",
     },
     "zh": {
         "sync.title": "云同步",
@@ -169,6 +222,59 @@ WEB_EXTRA = {
         "set.saved": "已保存",
         "av.choose": "选择图片",
         "av.reset": "恢复默认",
+
+        # 仅网页端有的两个视图
+        "nav.today": "今日",
+        "nav.stats": "统计",
+
+        # 今日计划
+        "today.evDone": "日程已完成",
+        "today.focus": "今日专注",
+        "today.due": "今日到期",
+        "today.overdue": "已逾期",
+        "today.events": "今日日程",
+        "today.dueToday": "今日到期任务",
+        "today.evEmpty": "今天没有安排",
+        "today.dueEmpty": "今天没有到期任务",
+        "today.stats": "查看统计",
+        "today.lateDays": "逾期 {0} 天",
+
+        # 统计页
+        "st.focusWeek": "本周专注",
+        "st.evWeek": "日程完成 / 计划",
+        "st.streak": "连续专注天数",
+        "st.taskDone": "任务完成",
+        "st.focus7": "近 7 天专注",
+        "st.ev7": "近 7 天日程",
+        "st.minutes": "分钟",
+        "st.byTag": "日程标签分布",
+        "st.noData": "还没有数据",
+
+        # 番茄钟任务队列
+        "pomo.queue": "任务队列",
+        "pomo.queueAdd": "加入队列",
+        "pomo.queueNow": "就这个",
+        "pomo.queueClear": "清空队列",
+        "pomo.queueEmpty": "队列是空的 —— 加几个任务就能连着做",
+
+        # 自定义节假日
+        "set.holidays": "节假日",
+        "set.holidaysHint": "添加自己的日期",
+        "hol.date": "日期",
+        "hol.name": "名称",
+        "hol.add": "添加节假日",
+        "hol.none": "还没有自定义的",
+        "hol.needBoth": "先填日期和名称",
+
+        # 清理编辑弹层等处遗留的英文
+        "fld.ed.note": "备注",
+        "task.doneHead": "已完成",
+        "gen.untitled": "（未命名）",
+        "toast.saved": "已保存",
+        "toast.deleted": "已删除",
+        "toast.imported": "已导入",
+        "toast.importFail": "导入失败",
+        "toast.avTooLarge": "图片过大，请换一张",
     },
 }
 

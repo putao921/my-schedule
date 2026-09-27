@@ -32,8 +32,15 @@
     breakMin: 5,
     focusTodayMin: 0,
     focusDate: null,
-    pomo: { mode: 'focus', running: false, endsAt: null, left: null, taskId: null },
+    /* focusLog keeps one entry per day (yyyy-MM-dd -> minutes). The hero only
+       needs today, but the stats chart needs a week, and a week cannot be
+       reconstructed from a single "today" counter once the day rolls over. */
+    focusLog: {},
+    pomo: { mode: 'focus', running: false, endsAt: null, left: null, taskId: null, queue: [] },
     tags: DEFAULT_TAGS,
+    /* User-entered festivals, keyed 'yyyy-MM-DD'. They override anything the
+       built-in calendar knows: it is the user's calendar, not ours. */
+    holidays: {},
     avatar: null
   };
 
@@ -45,6 +52,10 @@
     if (settings[k] === undefined) settings[k] = DEFAULT_SETTINGS[k];
   });
   if (!Array.isArray(settings.tags) || !settings.tags.length) settings.tags = DEFAULT_TAGS;
+  if (!settings.focusLog || typeof settings.focusLog !== 'object') settings.focusLog = {};
+  if (!settings.holidays || typeof settings.holidays !== 'object') settings.holidays = {};
+  if (!settings.pomo || typeof settings.pomo !== 'object') settings.pomo = DEFAULT_SETTINGS.pomo;
+  if (!Array.isArray(settings.pomo.queue)) settings.pomo.queue = [];
 
   /* ---- records --------------------------------------------------------- */
   var data = load(KEY_DATA, null) || { events: [], tasks: [] };
@@ -234,6 +245,23 @@
       .sort(function (a, b) { return (a.start || 0) - (b.start || 0); });
   }
 
+  /* ---- focus bookkeeping ---------------------------------------------- */
+  /* One entry point, so the hero's "today" figure and the stats week can never
+     drift apart: both read the same log. */
+  function addFocus(mins, dateStr) {
+    mins = parseInt(mins, 10) || 0;
+    if (mins <= 0) return;
+    var day = dateStr || todayStr();
+    if (settings.focusDate !== day) { settings.focusDate = day; settings.focusTodayMin = 0; }
+    settings.focusTodayMin = (parseInt(settings.focusTodayMin, 10) || 0) + mins;
+    settings.focusLog[day] = (parseInt(settings.focusLog[day], 10) || 0) + mins;
+    persistSettings();
+  }
+
+  function focusOn(dateStr) {
+    return parseInt(settings.focusLog[dateStr], 10) || 0;
+  }
+
   function stats() {
     var done = data.events.filter(function (e) { return e.done; }).length;
     return { done: done, total: data.events.length };
@@ -264,6 +292,8 @@
     fromHHMM: fromHHMM,
     startOfWeek: startOfWeek,
     eventsOn: eventsOn,
+    addFocus: addFocus,
+    focusOn: focusOn,
     stats: stats
   };
 })();

@@ -44,11 +44,13 @@
 
 <!-- Bottom navigation: thumb-reachable on phones, becomes a sidebar on wide screens. -->
 <nav class="nav" id="nav">
+  <button class="nav-btn" data-view="today"><span class="nav-ico" data-ico="today"></span><span class="nav-txt" data-i18n="nav.today">今日</span></button>
   <button class="nav-btn" data-view="month"><span class="nav-ico" data-ico="month"></span><span class="nav-txt" data-i18n="nav.month">月</span></button>
   <button class="nav-btn" data-view="week"><span class="nav-ico" data-ico="week"></span><span class="nav-txt" data-i18n="nav.week">周</span></button>
   <button class="nav-btn" data-view="list"><span class="nav-ico" data-ico="list"></span><span class="nav-txt" data-i18n="nav.list">列表</span></button>
   <button class="nav-btn" data-view="tasks"><span class="nav-ico" data-ico="tasks"></span><span class="nav-txt" data-i18n="nav.tasks">任务</span></button>
   <button class="nav-btn" data-view="focus"><span class="nav-ico" data-ico="focus"></span><span class="nav-txt" data-i18n="nav.focus">专注</span></button>
+  <button class="nav-btn" data-view="stats"><span class="nav-ico" data-ico="stats"></span><span class="nav-txt" data-i18n="nav.stats">统计</span></button>
   <button class="nav-btn nav-me" data-view="me"><span class="nav-ico" data-ico="me"></span><span class="nav-txt" data-i18n="nav.profile">我的</span></button>
 </nav>
 
@@ -76,7 +78,10 @@
 
 <script src="js/i18n.js"></script>
 <script src="js/store.js"></script>
+<script src="js/lunar.js"></script>
 <script src="js/views.js"></script>
+<script src="js/today.js"></script>
+<script src="js/stats.js"></script>
 <script src="js/focus.js"></script>
 <script src="js/drag.js"></script>
 <!-- Cloud SDK (CDN form: this project has no build step). The IIFE exposes the

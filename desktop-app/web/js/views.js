@@ -103,27 +103,31 @@
     return '<div class="card card-row" data-ev="' + e.id + '">' +
       '<button class="tick' + (e.done ? ' on' : '') + '" data-act="toggle-ev" data-id="' + e.id + '">&#10003;</button>' +
       '<span class="grow">' +
-      '<div class="ev-title' + (e.done ? ' done' : '') + '">' + esc(e.title || '(untitled)') + '</div>' +
+      '<div class="ev-title' + (e.done ? ' done' : '') + '">' + esc(e.title || t('gen.untitled')) + '</div>' +
       '<div class="ev-meta">' + Store.hhmm(e.start) + '-' + Store.hhmm(e.end) + '</div>' +
       '</span>' +
       '<span class="chip" data-tag="' + esc(e.tag) + '" style="background:var(' + tagColor(e.tag) + ')">' +
       esc(e.tag) + '</span>' +
       '<div class="row-actions">' +
-      '<button class="mini-btn" data-act="edit-ev" data-id="' + e.id + '">Edit</button>' +
+      '<button class="mini-btn" data-act="edit-ev" data-id="' + e.id + '">' + esc(t('btn.edit')) + '</button>' +
       '</div>' +
       '</div>';
   }
 
+  /* NOTE: the parameter is named t to match the desktop app's record naming,
+     which shadows the global t() translator -- so every translated string in
+     here goes through window.t explicitly. Getting this wrong throws inside
+     every task list, which is how the self test caught it. */
   function taskCard(t) {
     return '<div class="card card-row" data-task="' + t.id + '">' +
       '<button class="tick' + (t.done ? ' on' : '') + '" data-act="toggle-task" data-id="' + t.id + '">&#10003;</button>' +
       '<span class="grow">' +
-      '<div class="ev-title' + (t.done ? ' done' : '') + '">' + esc(t.text || '(untitled)') + '</div>' +
+      '<div class="ev-title' + (t.done ? ' done' : '') + '">' + esc(t.text || window.t('gen.untitled')) + '</div>' +
       '<div class="ev-meta">' + (t.due ? esc(t.due) + ' ' + esc(t.dueTime || '') : '') +
       ' · ' + esc(t.project || 'Inbox') + ' · ' + esc(t.priority || 'medium') + '</div>' +
       '</span>' +
       '<div class="row-actions">' +
-      '<button class="mini-btn" data-act="edit-task" data-id="' + t.id + '">Edit</button>' +
+      '<button class="mini-btn" data-act="edit-task" data-id="' + t.id + '">' + esc(window.t('btn.edit')) + '</button>' +
       '</div>' +
       '</div>';
   }
@@ -170,15 +174,20 @@
       '<div class="month-pane">' +
       '<div class="sec-head"><h3>' + esc(title) + '</h3>' +
       '<span class="sub">' + esc(t('view.month')) + '</span></div>' +
-      head + grid +
+      head + grid + holidayLine(y, m) +
       '</div>' +
       '<div class="day-pane">' +
       '<div class="sec-head"><h3>' + esc(t('fld.day.title')) + '</h3>' +
-      '<span class="sub">' + Store.iso(cur) + '</span></div>' +
+      '<span class="sub">' + Store.iso(cur) +
+      (lunarLabel(Store.iso(cur)) ? ' · ' + esc(lunarLabel(Store.iso(cur))) : '') +
+      '</span></div>' +
       dayList(Store.iso(cur)) +
       '</div></div>';
   }
 
+  /* A month cell shows three things: the day number, the lunar label (or the
+     festival name when the day has one -- the festival is what people actually
+     scan for), and up to three event dots. */
   function cell(date, todayS, out) {
     var s = Store.iso(date);
     var evs = Store.eventsOn(s);
@@ -186,13 +195,46 @@
     var weekend = (date.getDay() === 0 || date.getDay() === 6);
     if (weekend && !out) cls += ' weekend';
 
+    /* Out-of-month filler cells carry no lunar label: they exist only to keep
+       the grid rectangular, and filling them would imply they are real days. */
+    var info = (window.Lunar && !out) ? Lunar.dayInfo(s) : null;
+    if (info && info.festival) cls += ' holi';
+
     var dots = '';
     for (var i = 0; i < Math.min(evs.length, 3); i++) {
       dots += '<div class="day-dot" data-tag="' + esc(evs[i].tag) + '" style="background:var(' +
         tagColor(evs[i].tag) + ')"></div>';
     }
+
+    var lunar = '';
+    if (info) {
+      lunar = '<span class="day-lunar' + (info.festival ? ' fest' : '') + '">' +
+        esc(info.festival || info.text) + '</span>';
+    }
+
     return '<div class="' + cls + '" data-date="' + s + '">' +
-      '<div class="day-num">' + date.getDate() + '</div>' + dots + '</div>';
+      '<div class="day-top"><span class="day-num">' + date.getDate() + '</span>' + lunar + '</div>' +
+      dots + '</div>';
+  }
+
+  /* "本月 N 个节假日" -- the count the desktop app shows under the calendar. */
+  function holidayLine(y, m) {
+    if (!window.Lunar) return '';
+    var list = Lunar.festivalsIn(y, m);
+    if (!list.length) return '';
+    return '<div class="ev-meta hol-line">' +
+      esc(fmt(t(list.length === 1 ? 'cal.holiday1' : 'cal.holidayN'), list.length)) +
+      ' · ' + list.map(function (x) { return x.day + ' ' + x.name; }).join('、') +
+      '</div>';
+  }
+
+  /* "八月十五 · 中秋节" -- one line, dropped entirely when there is nothing
+     to say (before lunar.js loads, or outside its 1900-2100 range). */
+  function lunarLabel(dateStr) {
+    if (!window.Lunar) return '';
+    var i = Lunar.dayInfo(dateStr);
+    if (!i || !i.lunar) return '';
+    return i.festival ? (i.full + ' · ' + i.festival) : i.full;
   }
 
   function dayList(dateStr) {
@@ -250,7 +292,11 @@
     for (var k = 0; k < 7; k++) {
       var hd = new Date(start.getTime());
       hd.setDate(hd.getDate() + k);
-      head += '<div class="month-dow">' + dn[k] + '<br><span class="ev-meta">' + hd.getDate() + '</span></div>';
+      var hs = Store.iso(hd);
+      var hi = window.Lunar ? Lunar.dayInfo(hs) : null;
+      head += '<div class="month-dow">' + dn[k] + '<br><span class="ev-meta">' + hd.getDate() +
+        '</span>' + (hi ? '<span class="wk-lunar' + (hi.festival ? ' fest' : '') + '">' +
+          esc(hi.festival || hi.text) + '</span>' : '') + '</div>';
     }
     head += '</div>';
 
@@ -294,7 +340,7 @@
     }
     open.forEach(function (t) { out += taskCard(t); });
     if (done.length) {
-      out += '<div class="sec-head"><h3>Done</h3><span class="sub">' + done.length + '</span></div>';
+      out += '<div class="sec-head"><h3>' + esc(t('task.doneHead')) + '</h3><span class="sub">' + done.length + '</span></div>';
       done.forEach(function (t) { out += taskCard(t); });
     }
     el.innerHTML = out;
@@ -333,6 +379,12 @@
       '<div class="card-row" style="flex-wrap:wrap;gap:8px">' +
       '<button class="btn" data-act="export">' + esc(t('sync.export')) + '</button>' +
       '<button class="btn" data-act="import">' + esc(t('sync.import')) + '</button>' +
+      '</div></div>';
+
+    out += '<div class="card">' +
+      '<div class="card-row" style="flex-wrap:wrap;gap:8px">' +
+      '<button class="btn" data-act="go-today">' + esc(t('nav.today')) + '</button>' +
+      '<button class="btn" data-act="go-stats">' + esc(t('nav.stats')) + '</button>' +
       '</div></div>';
 
     /* ---- appearance ------------------------------------------------- */
@@ -383,6 +435,23 @@
       '<button class="mini-btn" data-act="tag-add">+ ' + esc(t('set.tagAdd')) + '</button>' +
       '</div></div>';
 
+    /* ---- custom festivals -------------------------------------------- */
+    /* The built-in calendar covers the usual ones; this is the escape hatch
+       for company anniversaries, birthdays, or a local holiday the table
+       does not know. A user entry overrides the built-in name. */
+    out += '<div class="sec-head"><h3>' + esc(t('set.holidays')) + '</h3>' +
+      '<span class="sub">' + esc(t('set.holidaysHint')) + '</span></div>';
+    out += '<div class="card">' +
+      '<div class="row2">' +
+      '<div class="field"><label>' + esc(t('hol.date')) + '</label>' +
+      '<input type="date" id="holDate"></div>' +
+      '<div class="field"><label>' + esc(t('hol.name')) + '</label>' +
+      '<input type="text" id="holName"></div>' +
+      '</div>' +
+      '<button class="mini-btn" data-act="hol-add">+ ' + esc(t('hol.add')) + '</button>' +
+      holidayList() +
+      '</div>';
+
     el.innerHTML = out;
 
     /* Settings inputs are live: no save button to forget. */
@@ -399,6 +468,22 @@
         if (window.App) App.render();
       });
     });
+  }
+
+  /* Sorted by date: an unsorted list makes "did I already add that" a
+     scanning exercise. */
+  function holidayList() {
+    var h = (window.Store && Store.settings.holidays) || {};
+    var keys = Object.keys(h).sort();
+    if (!keys.length) return '<div class="ev-meta" style="margin-top:8px">' +
+      esc(t('hol.none')) + '</div>';
+    return '<div class="hol-list">' + keys.map(function (k) {
+      return '<div class="hol-row">' +
+        '<span class="ev-meta">' + esc(k) + '</span>' +
+        '<span class="grow">' + esc(h[k]) + '</span>' +
+        '<button class="mini-btn" data-act="hol-del" data-date="' + esc(k) + '">&times;</button>' +
+        '</div>';
+    }).join('') + '</div>';
   }
 
   function bindSetting(id, key, numeric) {
@@ -436,6 +521,12 @@
     setQuery: setQuery,
     getQuery: getQuery,
     tagNames: tagNames,
-    tagColor: tagColor
+    tagColor: tagColor,
+    /* Shared by the Today and Stats views, which live in their own files but
+       render the same rows. */
+    eventCard: eventCard,
+    taskCard: taskCard,
+    emptyBox: emptyBox,
+    lunarLabel: lunarLabel
   };
 })();

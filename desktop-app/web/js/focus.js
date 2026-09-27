@@ -29,10 +29,12 @@
   function pomo() {
     var s = S();
     if (!s.pomo || typeof s.pomo !== 'object') {
-      s.pomo = { mode: 'focus', running: false, endsAt: null, left: null, taskId: null };
+      s.pomo = { mode: 'focus', running: false, endsAt: null, left: null, taskId: null, queue: [] };
     }
     var p = s.pomo;
     if (p.mode !== 'break') p.mode = 'focus';
+    /* Queue holds task ids, in order. */
+    if (!Array.isArray(p.queue)) p.queue = [];
     return p;
   }
 
@@ -66,6 +68,9 @@
   function start() {
     var p = pomo();
     if (p.running) return;
+    /* Nothing picked by hand but a queue is waiting: take its head, so
+       "queue two tasks, press start" works without a second tap. */
+    if (!p.taskId && queue().length) advanceQueue();
     var secs = remaining(p);
     p.left = secs;
     p.endsAt = Date.now() + secs * 1000;
@@ -107,11 +112,53 @@
   }
 
   function addFocus(mins) {
-    var s = S();
-    var today = Store.todayStr();
-    /* The daily total belongs to today only; a new day starts from zero. */
-    if (s.focusDate !== today) { s.focusDate = today; s.focusTodayMin = 0; }
-    s.focusTodayMin = (parseInt(s.focusTodayMin, 10) || 0) + mins;
+    /* Delegated to the store so today's hero figure and the stats week are
+       written by the same code path -- two writers is how they drift. */
+    if (window.Store && Store.addFocus) Store.addFocus(mins);
+  }
+
+  /* ---- task queue ----------------------------------------------------- */
+  /* Rotating queue, same rule as the desktop app: only a focus block that
+     runs to completion consumes a slot. Pausing or stopping early leaves the
+     queue alone, because the user may well want to carry on with the same
+     task. The head becomes the current task and moves to the tail, so a
+     three-task queue cycles instead of running once and stopping. */
+  function queue() { return pomo().queue; }
+
+  function queueAlive() {
+    return queue().filter(function (id) { return !!Store.findTask(id); });
+  }
+
+  function advanceQueue() {
+    var p = pomo();
+    var ids = queueAlive();
+    if (!ids.length) { p.queue = []; save(); return null; }
+    var head = ids[0];
+    var t = Store.findTask(head);
+    if (t) p.taskId = head;
+    p.queue = ids.slice(1).concat([head]);
+    save();
+    return t;
+  }
+
+  function enqueue(taskId) {
+    if (!taskId) return;
+    var p = pomo();
+    /* No duplicates: the same task twice would just waste a slot later. */
+    if (p.queue.indexOf(taskId) !== -1) return;
+    p.queue.push(taskId);
+    save();
+  }
+
+  function dequeueAt(i) {
+    var p = pomo();
+    if (i < 0 || i >= p.queue.length) return;
+    p.queue.splice(i, 1);
+    save();
+  }
+
+  function clearQueue() {
+    pomo().queue = [];
     save();
   }
 
@@ -119,6 +166,8 @@
     var p = pomo();
     if (p.mode === 'focus') {
       addFocus(minutes().focus);
+      /* Only a block that ran out on its own earns the next task. */
+      advanceQueue();
       p.mode = 'break';
     } else {
       p.mode = 'focus';
@@ -186,6 +235,54 @@
     return t ? t.text : txt('pomo.noTask', 'no task');
   }
 
+  /* Queue block: what is being worked on now, what comes next, and how to
+     change both. Rendered only when there is something to show plus a way to
+     add -- an always-visible empty list is just noise. */
+  function queueHtml(p) {
+    var ids = queueAlive();
+    var out = '<div class="card queue">' +
+      '<div class="card-row"><span class="grow"><b>' + txt('pomo.queue', 'Queue') + '</b></span>' +
+      '<span class="ev-meta">' + ids.length + '</span></div>';
+
+    if (!ids.length) {
+      out += '<div class="ev-meta q-empty">' + txt('pomo.queueEmpty', 'no queued tasks') + '</div>';
+    } else {
+      out += '<ol class="qlist">';
+      ids.forEach(function (id, i) {
+        var t = Store.findTask(id);
+        if (!t) return;
+        out += '<li class="qrow">' +
+          '<span class="qnum">' + (i + 1) + '</span>' +
+          '<span class="grow qname">' + esc2(t.text) + '</span>' +
+          '<button class="mini-btn" data-act="fo-q-now" data-i="' + i + '">' +
+          txt('pomo.queueNow', 'Now') + '</button>' +
+          '<button class="mini-btn" data-act="fo-q-del" data-i="' + i + '">&times;</button>' +
+          '</li>';
+      });
+      out += '</ol>';
+    }
+
+    var options = '';
+    Store.tasks.forEach(function (t) {
+      if (t.done) return;
+      if (ids.indexOf(t.id) !== -1) return;
+      options += '<option value="' + t.id + '">' + esc2(t.text) + '</option>';
+    });
+    if (options) {
+      out += '<div class="qadd">' +
+        '<select id="foQAdd">' + options + '</select>' +
+        '<button class="mini-btn" data-act="fo-q-add">' +
+        txt('pomo.queueAdd', 'Add') + '</button>' +
+        '</div>';
+    }
+    if (ids.length) {
+      out += '<div class="card-row" style="margin-top:8px">' +
+        '<button class="mini-btn" data-act="fo-q-clear">' +
+        txt('pomo.queueClear', 'Clear queue') + '</button></div>';
+    }
+    return out + '</div>';
+  }
+
   function renderFocus(el) {
     var p = pomo();
     var secs = remaining(p);
@@ -213,13 +310,23 @@
       '<button class="btn btn-ghost" data-act="fo-reset">' + txt('focus.reset', 'Reset') + '</button>' +
       '</div>' +
       '<div class="ev-meta">' + txt('pomo.hint', '') + '</div>' +
+      queueHtml(p) +
       '</div>';
 
+    /* The task select and the queue's add-select are both live controls. */
     var sel = document.getElementById('foTaskSel');
     if (sel) {
       sel.addEventListener('change', function () {
         pomo().taskId = sel.value || null;
         save();
+      });
+    }
+    var qadd = document.getElementById('foQAdd');
+    if (qadd) {
+      qadd.addEventListener('change', function () {
+        if (!qadd.value) return;
+        enqueue(qadd.value);
+        if (window.App) App.render();
       });
     }
   }
@@ -306,10 +413,31 @@
     reset: reset,
     end: endAndLog,
     /* Handles the data-act buttons used by both the view and the mini bar. */
-    handle: function (act) {
+    handle: function (act, el) {
       if (act === 'fo-toggle') { pomo().running ? pause() : start(); return true; }
       if (act === 'fo-end') { endAndLog(); if (window.App) App.render(); return true; }
       if (act === 'fo-reset') { reset(); if (window.App) App.render(); return true; }
+      /* Queue buttons carry their row index in data-i. */
+      if (act === 'fo-q-add') {
+        var sel = document.getElementById('foQAdd');
+        if (sel && sel.value) enqueue(sel.value);
+        if (window.App) App.render();
+        return true;
+      }
+      if (act === 'fo-q-del' && el) { dequeueAt(parseInt(el.dataset.i, 10)); if (window.App) App.render(); return true; }
+      if (act === 'fo-q-clear') { clearQueue(); if (window.App) App.render(); return true; }
+      if (act === 'fo-q-now' && el) {
+        var i = parseInt(el.dataset.i, 10);
+        var id = queueAlive()[i];
+        if (id) {
+          var p = pomo();
+          p.taskId = id;
+          p.queue = queueAlive().filter(function (x) { return x !== id; });
+          save();
+          if (window.App) App.render();
+        }
+        return true;
+      }
       return false;
     },
     init: function () {

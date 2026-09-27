@@ -11,10 +11,12 @@
    and need no extra network requests (works offline). */
 :root {
   --ico-month: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 3h14v12H1z" fill="none" stroke="black" stroke-width="2"/><path d="M1 7h14M5 3v4M11 3v4" stroke="black" stroke-width="2"/><rect x="4" y="9" width="3" height="3"/></svg>');
+  --ico-today: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 2h12v12H2z" fill="none" stroke="black" stroke-width="2"/><path d="M5 8.5l2 2 4-4" fill="none" stroke="black" stroke-width="2"/></svg>');
   --ico-week:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 2h14v12H1z" fill="none" stroke="black" stroke-width="2"/><path d="M1 6h14" stroke="black" stroke-width="2"/><rect x="3" y="8" width="4" height="4"/><rect x="9" y="8" width="4" height="4"/></svg>');
   --ico-list:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" stroke="black" stroke-width="2"/></svg>');
   --ico-task:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 3h12v10H2z" fill="none" stroke="black" stroke-width="2"/><path d="M5 8l2 2 4-4" stroke="black" stroke-width="2" fill="none"/></svg>');
   --ico-focus: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="9" r="5" fill="none" stroke="black" stroke-width="2"/><path d="M6 2h4M8 2v3" stroke="black" stroke-width="2"/></svg>');
+  --ico-stats: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="9" width="3" height="5"/><rect x="6.5" y="5" width="3" height="9"/><rect x="11" y="2" width="3" height="12"/></svg>');
   --ico-me:    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="none" stroke="black" stroke-width="2"/><path d="M2 14c0-3 3-5 6-5s6 2 6 5" fill="none" stroke="black" stroke-width="2"/></svg>');
 
   /* Shell metrics, overridden per breakpoint. */
@@ -194,11 +196,13 @@ button { font-family: inherit; cursor: pointer; }
   -webkit-mask-position: center;
   mask-position: center;
 }
+.nav-ico[data-ico="today"] { -webkit-mask-image: var(--ico-today); mask-image: var(--ico-today); }
 .nav-ico[data-ico="month"] { -webkit-mask-image: var(--ico-month); mask-image: var(--ico-month); }
 .nav-ico[data-ico="week"]  { -webkit-mask-image: var(--ico-week);  mask-image: var(--ico-week); }
 .nav-ico[data-ico="list"]  { -webkit-mask-image: var(--ico-list);  mask-image: var(--ico-list); }
 .nav-ico[data-ico="tasks"] { -webkit-mask-image: var(--ico-task);  mask-image: var(--ico-task); }
 .nav-ico[data-ico="focus"] { -webkit-mask-image: var(--ico-focus); mask-image: var(--ico-focus); }
+.nav-ico[data-ico="stats"] { -webkit-mask-image: var(--ico-stats); mask-image: var(--ico-stats); }
 .nav-ico[data-ico="me"]    { -webkit-mask-image: var(--ico-me);    mask-image: var(--ico-me); }
 
 /* ----------------------------------------------------------------- fab --- */
@@ -562,6 +566,172 @@ button { font-family: inherit; cursor: pointer; }
 }
 .acct-mail { font-size: 12px; color: var(--fg-soft); word-break: break-all; }
 
+/* -------------------------------------------- lunar / festival labels --- */
+/* The lunar label sits on the day-number line rather than under it: the cell
+   is small on a phone, and a second full-width line would push the event dots
+   out of the box. */
+.day-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px;
+}
+.day-lunar {
+  font-size: 9px;
+  color: var(--fg-faint);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day-lunar.fest { color: var(--holiday); font-weight: 700; }
+.day.holi { border-color: var(--holiday); background: var(--bg-card-alt); }
+.day.holi .day-num { color: var(--holiday); }
+.hol-line { margin-top: 6px; color: var(--holiday); }
+.wk-lunar {
+  display: block;
+  font-size: 9px;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wk-lunar.fest { color: var(--holiday); font-weight: 700; }
+
+/* --------------------------------------------------------- today view --- */
+.today-head { padding: 12px; }
+.today-head.fest { border-color: var(--holiday); }
+.today-date {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.today-dow { font-size: 11px; color: var(--fg-soft); }
+.today-day { font-size: 18px; font-weight: 700; font-family: var(--font-mono); }
+.today-lunar { font-size: 11px; font-weight: 600; color: var(--holiday); }
+.today-nums { display: flex; gap: 10px; margin-top: 12px; }
+.tnum { flex: 1 1 0; text-align: center; min-width: 0; }
+.tnum b { display: block; font-size: 16px; font-family: var(--font-mono); }
+.tnum span {
+  font-size: 10px; color: var(--fg-soft);
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.today-bar {
+  height: 10px; margin-top: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--line-soft);
+  overflow: hidden;
+}
+.today-bar > i {
+  display: block; height: 100%; width: 0;
+  background: var(--accent-cool);
+  transition: width .25s ease;
+}
+.late { color: var(--holiday); font-weight: 700; }
+
+/* --------------------------------------------------------- stats view --- */
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.tile {
+  background: var(--bg-card);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 10px 8px;
+  text-align: center;
+}
+.tile b { display: block; font-size: 20px; font-family: var(--font-mono); }
+.tile span { font-size: 10px; color: var(--fg-soft); }
+
+/* Bars: value labels on top, the bar in a fixed-height middle area, day
+   labels below. The middle area is a fixed pixel height ON PURPOSE: a % bar
+   height inside a 1fr grid row resolves against an indefinite row and
+   collapses to zero (measured, not guessed -- the first screenshot showed an
+   empty chart). A definite wrapper makes the % resolvable. */
+.bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.bar-val {
+  height: 16px;
+  font-size: 9px; font-family: var(--font-mono); color: var(--fg-soft);
+}
+.bar-area {
+  height: 96px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.bar-track {
+  width: 74%;
+  background: var(--line-soft);
+  border-radius: 3px 3px 0 0;
+  position: relative;
+  overflow: hidden;
+}
+.bar-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: var(--accent-warm);
+}
+.bar-lab { height: 16px; font-size: 10px; color: var(--fg-soft); }
+
+.dist-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.dist-key {
+  flex: 0 0 72px; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dist-track {
+  flex: 1 1 auto; height: 10px;
+  background: var(--line-soft);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.dist-track > i { display: block; height: 100%; }
+.dist-val {
+  flex: 0 0 30px; text-align: right;
+  font-size: 11px; font-family: var(--font-mono); color: var(--fg-soft);
+}
+
+/* ------------------------------------------------- pomodoro task queue --- */
+.queue { align-self: stretch; max-width: 420px; width: 100%; }
+.qlist { list-style: none; margin: 6px 0 0; padding: 0; }
+.qrow {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line-soft);
+}
+.qnum { flex: 0 0 16px; font-size: 11px; font-family: var(--font-mono); color: var(--fg-faint); }
+.qname { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-empty { padding: 6px 0 2px; }
+.qadd { display: flex; gap: 8px; margin-top: 10px; }
+.qadd select {
+  flex: 1 1 auto; min-width: 0; min-height: 36px;
+  font-family: inherit; font-size: 13px;
+  color: var(--fg); background: var(--bg-card-alt);
+  border: 1.5px solid var(--line); border-radius: var(--radius-btn);
+  padding: 4px 8px;
+}
+
+/* Drop target readout on the drag ghost. */
+.ghost-tag {
+  display: block;
+  margin-top: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 4px;
+}
+
 /* ---------------------------------------------- tablet portrait >=600px -- */
 @media (min-width: 600px) {
   :root {
@@ -573,6 +743,11 @@ button { font-family: inherit; cursor: pointer; }
   .week-hours { flex: 0 0 46px; font-size: 10px; }
   .focus-ring { width: 220px; height: 220px; }
   .focus-time { font-size: 46px; }
+  /* Four tiles read as a row of numbers; two per row reads as a list. */
+  .tiles { grid-template-columns: repeat(4, 1fr); }
+  .day-lunar { font-size: 10px; }
+  .wk-lunar { font-size: 10px; }
+  .bar-area { height: 112px; }
 }
 
 /* --------------------------------- phones held sideways: height is scarce -- */
@@ -595,6 +770,14 @@ button { font-family: inherit; cursor: pointer; }
   .focus-ring { width: 130px; height: 130px; }
   .focus-time { font-size: 28px; }
   .focus-wrap { gap: 8px; padding: 2px 0 10px; }
+}
+
+/* Eight nav items on a narrow phone: shrink the glyph and the label rather
+   than letting the row wrap or the text clip. */
+@media (max-width: 400px) {
+  .nav-btn { font-size: 10px; padding: 6px 1px; gap: 1px; }
+  .nav-ico { width: 18px; height: 18px; }
+  .nav-txt { letter-spacing: -.2px; }
 }
 
 /* ------------------------- tablet landscape / desktop: nav becomes a rail -- */
