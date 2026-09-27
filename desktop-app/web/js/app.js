@@ -23,12 +23,16 @@
       'nav.week': '.nav-btn[data-view="week"] .nav-txt',
       'nav.list': '.nav-btn[data-view="list"] .nav-txt',
       'nav.tasks': '.nav-btn[data-view="tasks"] .nav-txt',
-      'nav.profile': '.nav-btn[data-view="me"] .nav-txt'
+      'nav.focus': '.nav-btn[data-view="focus"] .nav-txt',
+      'nav.profile': '.nav-btn[data-view="me"] .nav-txt',
+      'search.toggle': '#searchToggleTxt'
     };
     Object.keys(map).forEach(function (k) {
       var el = document.querySelector(map[k]);
       if (el) el.textContent = t(k);
     });
+    var ph = $('searchInput');
+    if (ph) ph.setAttribute('placeholder', t('search.toggle'));
   }
 
   function refreshHero() {
@@ -54,11 +58,15 @@
   function render() {
     var el = $('view');
     var fn = Views[current] || Views.month;
+    /* Views key off this for breakpoint-specific rules (e.g. the two-column
+       task list on wide screens). */
+    el.dataset.view = current;
     fn(el, cursor);
     Array.prototype.forEach.call(document.querySelectorAll('.nav-btn'), function (b) {
       b.classList.toggle('is-on', b.dataset.view === current);
     });
     refreshHero();
+    if (window.Focus) Focus.paint();
     if (window.CloudSync && CloudSync.refreshBadge) CloudSync.refreshBadge();
   }
 
@@ -102,8 +110,9 @@
         '<input id="fStart" type="time" value="' + Store.hhmm(rec ? rec.start : 9 * 60) + '">' +
         '<input id="fEnd" type="time" value="' + Store.hhmm(rec ? rec.end : 10 * 60) + '"></div></div>' +
         field(t('fld.ed.tag'), '<select id="fTag">' +
-          ['work', 'focus', 'life'].map(function (g) {
-            return '<option value="' + g + '"' + (rec && rec.tag === g ? ' selected' : '') + '>' + g + '</option>';
+          (Views.tagNames ? Views.tagNames() : ['work', 'focus', 'life']).map(function (g) {
+            return '<option value="' + Views.esc(g) + '"' + (rec && rec.tag === g ? ' selected' : '') + '>' +
+              Views.esc(g) + '</option>';
           }).join('') + '</select>') +
         field('Note', '<textarea id="fNote">' + Views.esc(rec ? rec.note : '') + '</textarea>');
     } else {
@@ -158,6 +167,53 @@
     closeSheet();
     render();
     toast('saved');
+  }
+
+  /* --------------------------------------------------------------- search -- */
+  function openSearch() {
+    $('searchBar').hidden = false;
+    var i = $('searchInput');
+    i.focus();
+  }
+  function closeSearch() {
+    $('searchBar').hidden = true;
+    $('searchInput').value = '';
+    Views.setQuery('');
+    render();
+  }
+
+  /* --------------------------------------------------------------- avatar -- */
+  /* Downscale to 128px before storing: localStorage is small and a phone photo
+     would blow the quota (and slow down sync) for no visual gain. */
+  function pickAvatar() {
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = function () {
+      var f = inp.files && inp.files[0];
+      if (!f) return;
+      var r = new FileReader();
+      r.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var size = 128;
+          var c = document.createElement('canvas');
+          c.width = size; c.height = size;
+          var ctx = c.getContext('2d');
+          var s = Math.max(size / img.width, size / img.height);
+          var dw = img.width * s, dh = img.height * s;
+          ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+          try {
+            Store.settings.avatar = c.toDataURL('image/png');
+            Store.persistSettings();
+            render();
+          } catch (e) { toast('avatar too large'); }
+        };
+        img.src = r.result;
+      };
+      r.readAsDataURL(f);
+    };
+    inp.click();
   }
 
   /* ------------------------------------------------------- import/export -- */
@@ -220,7 +276,38 @@
           Store.persistSettings(); applyLang(); render(); return;
         case 'export': exportData(); return;
         case 'import': importData(); return;
+
+        /* ---- tag customisation ---- */
+        case 'tag-add':
+          Store.settings.tags.push({ key: 'new', color: '--accent' });
+          Store.persistSettings(); render(); return;
+        case 'tag-del': {
+          var ti = parseInt(b.dataset.i, 10);
+          var gone = Store.settings.tags[ti];
+          Store.settings.tags.splice(ti, 1);
+          /* Events keep their tag string; it simply falls back to the default
+             colour until the user reassigns it. */
+          Store.persistSettings(); render();
+          if (gone) toast(gone.key);
+          return;
+        }
+        case 'tag-color': {
+          var ci = parseInt(b.dataset.i, 10);
+          var cur = Store.settings.tags[ci];
+          if (!cur) return;
+          var order = ['--accent', '--accent-warm', '--accent-cool', '--holiday', '--ink-soft'];
+          cur.color = order[(order.indexOf(cur.color) + 1) % order.length];
+          Store.persistSettings(); render(); return;
+        }
+
+        /* ---- avatar ---- */
+        case 'av-pick': pickAvatar(); return;
+        case 'av-reset':
+          Store.settings.avatar = null;
+          Store.persistSettings(); render(); return;
       }
+      /* Focus timer owns its own buttons (view + mini bar). */
+      if (window.Focus && Focus.handle && Focus.handle(act)) return;
       /* Cloud actions are owned by cloud.js. */
       if (window.CloudSync && CloudSync.handle) { CloudSync.handle(act); return; }
     }
@@ -244,6 +331,10 @@
     applyTheme();
     applyLang();
 
+    /* Focus registers Views.focus, so it must run before the deep-link lookup
+       below -- otherwise #focus silently falls back to the month view. */
+    if (window.Focus && Focus.init) Focus.init();
+
     /* Deep link: #tasks / #week / ... opens that view directly. */
     var h = location.hash.replace('#', '');
     if (Views[h]) { current = h; Store.settings.view = h; }
@@ -264,6 +355,22 @@
     $('fab').addEventListener('click', function () {
       openSheet(current === 'tasks' ? 'task' : 'event', null);
     });
+
+    /* Search: typing filters the current view. */
+    $('searchToggle').addEventListener('click', function () {
+      if ($('searchBar').hidden) openSearch(); else closeSearch();
+    });
+    $('searchClear').addEventListener('click', closeSearch);
+    (function () {
+      var t = null;
+      $('searchInput').addEventListener('input', function () {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          Views.setQuery($('searchInput').value);
+          render();
+        }, 180);
+      });
+    })();
     $('sheetClose').addEventListener('click', closeSheet);
     $('sheetCancel').addEventListener('click', closeSheet);
     $('sheetMask').addEventListener('click', closeSheet);
@@ -290,15 +397,45 @@
 
     if (window.CloudSync && CloudSync.init) CloudSync.init();
 
-    /* ?debug: report the real layout metrics through the title, so headless
-       runs can be checked without opening devtools. */
+    /* ?debug: report real layout metrics through the title so headless runs
+       can assert the responsive rules without opening devtools (and without
+       reading a screenshot, which cannot be verified programmatically). */
     if (location.search.indexOf('debug') !== -1) {
-      var v = $('view');
-      document.title = 'vw=' + window.innerWidth +
-        ' docW=' + document.documentElement.scrollWidth +
-        ' viewW=' + v.scrollWidth +
-        ' gridW=' + (document.querySelector('.month-grid') || {}).scrollWidth;
+      setTimeout(function () { reportLayout(); }, 400);
+      window.addEventListener('resize', function () { reportLayout(); });
     }
+  }
+
+  function rect(sel) {
+    var el = document.querySelector(sel);
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+  }
+
+  function reportLayout() {
+    var v = $('view');
+    var nav = rect('.nav'), hero = rect('.hero'), view = rect('#view');
+    var col = rect('.week-col');
+    var cards = document.querySelectorAll('.view > .card');
+    var x1 = cards[0] ? Math.round(cards[0].getBoundingClientRect().left) : -1;
+    var x2 = cards[1] ? Math.round(cards[1].getBoundingClientRect().left) : -1;
+    var out = [
+      'vw=' + window.innerWidth,
+      'vh=' + window.innerHeight,
+      'docW=' + document.documentElement.scrollWidth,
+      'nav=' + (nav ? (nav.x + ',' + nav.y + ' ' + nav.w + 'x' + nav.h) : 'none'),
+      'hero=' + (hero ? (hero.x + ',' + hero.y + ' ' + hero.w + 'x' + hero.h) : 'none'),
+      'view=' + (view ? (view.x + ',' + view.y + ' ' + view.w + 'x' + view.h) : 'none'),
+      'weekcol=' + (col ? col.h : 'none'),
+      'cardX=' + x1 + '/' + x2
+    ].join(' ');
+    document.title = out;
+    var p = document.createElement('pre');
+    p.id = 'layoutReport';
+    p.textContent = out;
+    p.style.display = 'none';
+    document.body.appendChild(p);
   }
 
   function seed() {
@@ -315,6 +452,8 @@
     toast: toast,
     refreshHero: refreshHero,
     applyLang: applyLang,
+    currentView: function () { return current; },
+    openSearch: openSearch,
     get cursor() { return cursor; }
   };
 

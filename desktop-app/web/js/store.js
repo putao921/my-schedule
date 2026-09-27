@@ -16,15 +16,35 @@
   var KEY_SET = 'myschedule.settings.v1';
 
   /* ---- settings -------------------------------------------------------- */
+  /* Tag colours are CSS custom properties from tokens.css, so a custom tag is
+     just a name plus a variable -- no hex values live in the data. */
+  var DEFAULT_TAGS = [
+    { key: 'work', color: '--accent' },
+    { key: 'focus', color: '--accent-warm' },
+    { key: 'life', color: '--accent-cool' }
+  ];
+
   var DEFAULT_SETTINGS = {
     theme: 'light',
     lang: 'zh',
     view: 'month',
     pomodoroMin: 25,
-    focusTodayMin: 0
+    breakMin: 5,
+    focusTodayMin: 0,
+    focusDate: null,
+    pomo: { mode: 'focus', running: false, endsAt: null, left: null, taskId: null },
+    tags: DEFAULT_TAGS,
+    avatar: null
   };
 
   var settings = load(KEY_SET, DEFAULT_SETTINGS);
+
+  /* Old installs (and a hand-edited file) may miss newer keys; fill them in
+     without throwing away what is already there. */
+  Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
+    if (settings[k] === undefined) settings[k] = DEFAULT_SETTINGS[k];
+  });
+  if (!Array.isArray(settings.tags) || !settings.tags.length) settings.tags = DEFAULT_TAGS;
 
   /* ---- records --------------------------------------------------------- */
   var data = load(KEY_DATA, null) || { events: [], tasks: [] };

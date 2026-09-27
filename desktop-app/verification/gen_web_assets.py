@@ -75,6 +75,28 @@ WEB_EXTRA = {
                           "cloud, or Download to overwrite it with the cloud copy.",
         "sync.tookCloud": "loaded your cloud data",
         "sync.offline": "offline",
+
+        # Timer (rest of the pomo.* set already comes from the desktop app).
+        "pomo.start": "Start",
+        "pomo.ready": "Ready",
+        "pomo.logged": "minutes logged",
+        "pomo.hint": "The timer keeps running while you use other tabs.",
+        "nav.focus": "Focus",
+
+        # Search.
+        "search.toggle": "Search",
+        "search.none": "Nothing matches that search",
+
+        # Settings.
+        "set.appearance": "Appearance",
+        "set.pomoMin": "Focus minutes",
+        "set.breakMin": "Break minutes",
+        "set.tags": "Tags",
+        "set.tagsHint": "rename / recolour / add",
+        "set.tagAdd": "Add tag",
+        "set.saved": "saved",
+        "av.choose": "Choose image",
+        "av.reset": "Reset",
     },
     "zh": {
         "sync.title": "云同步",
@@ -125,6 +147,28 @@ WEB_EXTRA = {
         "sync.keptLocal": "本机已有数据：点「上传到云端」用它覆盖云端，或点「从云端下载」用云端覆盖本机。",
         "sync.tookCloud": "已载入云端数据",
         "sync.offline": "离线",
+
+        # Timer.
+        "pomo.start": "开始",
+        "pomo.ready": "就绪",
+        "pomo.logged": "已计入专注时长",
+        "pomo.hint": "切到其他页面计时也不会停",
+        "nav.focus": "专注",
+
+        # Search.
+        "search.toggle": "搜索",
+        "search.none": "没有匹配的内容",
+
+        # Settings.
+        "set.appearance": "外观",
+        "set.pomoMin": "专注时长（分钟）",
+        "set.breakMin": "休息时长（分钟）",
+        "set.tags": "标签",
+        "set.tagsHint": "改名 / 换色 / 新增",
+        "set.tagAdd": "新增标签",
+        "set.saved": "已保存",
+        "av.choose": "选择图片",
+        "av.reset": "恢复默认",
     },
 }
 

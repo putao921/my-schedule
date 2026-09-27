@@ -51,6 +51,53 @@
     });
   }
 
+  /* ---- tags ----------------------------------------------------------- */
+  /* Tag colours live in settings so users can rename/recolor them; every chip
+     and dot therefore reads the palette variable at render time. */
+  var PALETTE = [
+    ['--accent', 'accent'],
+    ['--accent-warm', 'warm'],
+    ['--accent-cool', 'cool'],
+    ['--holiday', 'holiday'],
+    ['--ink-soft', 'muted']
+  ];
+
+  function tagList() {
+    var t = (window.Store && Store.settings.tags) || [];
+    return Array.isArray(t) && t.length ? t
+      : [{ key: 'work', color: '--accent' }];
+  }
+
+  function tagColor(tag) {
+    var list = tagList();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].key === tag) return list[i].color || '--accent';
+    }
+    return '--accent';
+  }
+
+  function tagNames() {
+    return tagList().map(function (x) { return x.key; });
+  }
+
+  /* ---- search --------------------------------------------------------- */
+  /* One query filters every list-shaped view; month/week keep their shape and
+     simply drop non-matching records. */
+  var query = '';
+  function setQuery(q) { query = String(q || '').trim().toLowerCase(); }
+  function getQuery() { return query; }
+
+  function matches(hay) {
+    if (!query) return true;
+    return String(hay || '').toLowerCase().indexOf(query) !== -1;
+  }
+  function matchEvent(e) {
+    return matches((e.title || '') + ' ' + (e.note || '') + ' ' + (e.tag || ''));
+  }
+  function matchTask(t) {
+    return matches((t.text || '') + ' ' + (t.project || '') + ' ' + (t.priority || ''));
+  }
+
   /* ------------------------------------------------------------ helpers -- */
   function eventCard(e) {
     return '<div class="card card-row" data-ev="' + e.id + '">' +
@@ -59,7 +106,8 @@
       '<div class="ev-title' + (e.done ? ' done' : '') + '">' + esc(e.title || '(untitled)') + '</div>' +
       '<div class="ev-meta">' + Store.hhmm(e.start) + '-' + Store.hhmm(e.end) + '</div>' +
       '</span>' +
-      '<span class="chip" data-tag="' + esc(e.tag) + '">' + esc(e.tag) + '</span>' +
+      '<span class="chip" data-tag="' + esc(e.tag) + '" style="background:var(' + tagColor(e.tag) + ')">' +
+      esc(e.tag) + '</span>' +
       '<div class="row-actions">' +
       '<button class="mini-btn" data-act="edit-ev" data-id="' + e.id + '">Edit</button>' +
       '</div>' +
@@ -115,13 +163,20 @@
       ? (y + '年' + MON_ZH[m])
       : (MON_EN[m] + ' ' + y);
 
+    /* Two panes: the calendar and the agenda for the selected day. On wide
+       screens the stylesheet lays them side by side; on phones they stack. */
     el.innerHTML =
+      '<div class="month-split">' +
+      '<div class="month-pane">' +
       '<div class="sec-head"><h3>' + esc(title) + '</h3>' +
       '<span class="sub">' + esc(t('view.month')) + '</span></div>' +
       head + grid +
+      '</div>' +
+      '<div class="day-pane">' +
       '<div class="sec-head"><h3>' + esc(t('fld.day.title')) + '</h3>' +
       '<span class="sub">' + Store.iso(cur) + '</span></div>' +
-      dayList(Store.iso(cur));
+      dayList(Store.iso(cur)) +
+      '</div></div>';
   }
 
   function cell(date, todayS, out) {
@@ -133,15 +188,16 @@
 
     var dots = '';
     for (var i = 0; i < Math.min(evs.length, 3); i++) {
-      dots += '<div class="day-dot" data-tag="' + esc(evs[i].tag) + '"></div>';
+      dots += '<div class="day-dot" data-tag="' + esc(evs[i].tag) + '" style="background:var(' +
+        tagColor(evs[i].tag) + ')"></div>';
     }
     return '<div class="' + cls + '" data-date="' + s + '">' +
       '<div class="day-num">' + date.getDate() + '</div>' + dots + '</div>';
   }
 
   function dayList(dateStr) {
-    var evs = Store.eventsOn(dateStr);
-    if (!evs.length) return emptyBox(t('fld.day.empty'));
+    var evs = Store.eventsOn(dateStr).filter(matchEvent);
+    if (!evs.length) return emptyBox(query ? t('search.none') : t('fld.day.empty'));
     var out = '';
     for (var i = 0; i < evs.length; i++) out += eventCard(evs[i]);
     return out;
@@ -163,17 +219,31 @@
       var d = new Date(start.getTime());
       d.setDate(d.getDate() + i);
       var s = Store.iso(d);
-      var evs = Store.eventsOn(s);
+      var evs = Store.eventsOn(s).filter(matchEvent);
+
+      /* 24 slot cells give the column its height (blocks are absolutely
+         positioned, so without them the column collapses to zero) and act as
+         the drop grid for drag-to-reschedule. */
+      var slots = '';
+      for (var h2 = 0; h2 < 24; h2++) slots += '<div class="week-slot"></div>';
+
       var blocks = '';
       for (var j = 0; j < evs.length; j++) {
         var e = evs[j];
-        var topPx = ((e.start || 0) / 60) * 40;
-        blocks += '<div class="card" style="position:absolute;left:2px;right:2px;top:' + topPx +
-          'px;padding:2px 4px;font-size:10px;overflow:hidden" data-ev="' + e.id + '">' +
+        /* Percentages, not pixels: the slot height changes per breakpoint, so
+           a fixed 40px/hour would drift out of alignment on tablets. */
+        var st = e.start || 0;
+        var en = e.end !== undefined && e.end !== null ? e.end : st + 60;
+        if (en <= st) en = st + 30;
+        var topPct = (st / 1440) * 100;
+        var hPct = ((en - st) / 1440) * 100;
+        blocks += '<div class="wk-ev" style="top:' + topPct + '%;height:' + hPct +
+          '%;background:var(' + tagColor(e.tag) + ');color:var(--on-accent)" ' +
+          'data-ev="' + e.id + '" title="' + esc(e.title) + '">' +
           esc(e.title) + '</div>';
       }
       cols += '<div class="week-col' + (s === todayS ? ' today' : '') + '" data-date="' + s + '">' +
-        blocks + '</div>';
+        slots + blocks + '</div>';
     }
 
     var head = '<div class="month-head">';
@@ -195,12 +265,12 @@
   /* --------------------------------------------------------------- list -- */
   function renderList(el, cursor) {
     var groups = {};
-    Store.events.forEach(function (e) {
+    Store.events.filter(matchEvent).forEach(function (e) {
       var k = e.date || Store.todayStr();
       (groups[k] = groups[k] || []).push(e);
     });
     var keys = Object.keys(groups).sort();
-    if (!keys.length) { el.innerHTML = emptyBox(t('fld.day.empty')); return; }
+    if (!keys.length) { el.innerHTML = emptyBox(query ? t('search.none') : t('fld.day.empty')); return; }
 
     var out = '<div class="sec-head"><h3>' + esc(t('view.list')) + '</h3></div>';
     keys.forEach(function (k) {
@@ -213,13 +283,13 @@
 
   /* -------------------------------------------------------------- tasks -- */
   function renderTasks(el) {
-    var open = Store.tasks.filter(function (t) { return !t.done; });
-    var done = Store.tasks.filter(function (t) { return t.done; });
+    var open = Store.tasks.filter(function (t) { return !t.done; }).filter(matchTask);
+    var done = Store.tasks.filter(function (t) { return t.done; }).filter(matchTask);
     var out = '<div class="sec-head"><h3>' + esc(t('view.tasks')) + '</h3>' +
       '<span class="sub">' + open.length + '</span></div>';
 
     if (!open.length && !done.length) {
-      el.innerHTML = out + emptyBox(t('fld.day.empty'));
+      el.innerHTML = out + emptyBox(query ? t('search.none') : t('fld.day.empty'));
       return;
     }
     open.forEach(function (t) { out += taskCard(t); });
@@ -236,16 +306,10 @@
     var out = '<div class="sec-head"><h3>' + esc(t('nav.profile')) + '</h3></div>';
 
     out += '<div class="card acct">' +
-      '<img class="acct-av" id="acctAvatar" alt="" src="icons/icon-192.png">' +
+      '<img class="acct-av" id="acctAvatar" alt="" src="' +
+      esc(Store.settings.avatar || 'icons/icon-192.png') + '">' +
       '<span class="grow"><div id="acctMail">' + esc(t('sync.notSignedIn')) + '</div>' +
       '<div class="acct-mail" id="acctState">' + esc(t('sync.localOnly')) + '</div></span>' +
-      '</div>';
-
-    out += '<div class="card">' +
-      '<div class="card-row"><span class="grow">' + esc(t('fld.st.theme')) + '</span>' +
-      '<button class="mini-btn" data-act="toggle-theme">' + esc(t('sync.toggle')) + '</button></div>' +
-      '<div class="card-row" style="margin-top:8px"><span class="grow">' + esc(t('fld.st.lang')) + '</span>' +
-      '<button class="mini-btn" data-act="toggle-lang">ZH / EN</button></div>' +
       '</div>';
 
     out += '<div class="card">' +
@@ -271,7 +335,95 @@
       '<button class="btn" data-act="import">' + esc(t('sync.import')) + '</button>' +
       '</div></div>';
 
+    /* ---- appearance ------------------------------------------------- */
+    out += '<div class="sec-head"><h3>' + esc(t('set.appearance')) + '</h3></div>';
+    out += '<div class="card">' +
+      '<div class="card-row"><span class="grow">' + esc(t('fld.st.theme')) + '</span>' +
+      '<button class="mini-btn" data-act="toggle-theme">' + esc(t('sync.toggle')) + '</button></div>' +
+      '<div class="card-row" style="margin-top:8px"><span class="grow">' + esc(t('fld.st.lang')) + '</span>' +
+      '<button class="mini-btn" data-act="toggle-lang">ZH / EN</button></div>' +
+      '<div class="av-pick">' +
+      '<img id="acctAvatarBig" alt="" src="' + esc(Store.settings.avatar || 'icons/icon-192.png') + '">' +
+      '<span class="grow">' +
+      '<div class="ev-meta">' + esc(t('av.change')) + '</div>' +
+      '<div class="card-row" style="margin-top:6px;flex-wrap:wrap;gap:8px">' +
+      '<button class="mini-btn" data-act="av-pick">' + esc(t('av.choose')) + '</button>' +
+      '<button class="mini-btn" data-act="av-reset">' + esc(t('av.reset')) + '</button>' +
+      '</div></span></div>' +
+      '</div>';
+
+    /* ---- focus timer ------------------------------------------------ */
+    out += '<div class="sec-head"><h3>' + esc(t('nav.focus')) + '</h3></div>';
+    out += '<div class="card">' +
+      '<div class="row2">' +
+      '<div class="field"><label>' + esc(t('set.pomoMin')) + '</label>' +
+      '<input type="number" min="1" max="180" id="setPomo" value="' +
+      esc(Store.settings.pomodoroMin) + '"></div>' +
+      '<div class="field"><label>' + esc(t('set.breakMin')) + '</label>' +
+      '<input type="number" min="0" max="60" id="setBreak" value="' +
+      esc(Store.settings.breakMin) + '"></div>' +
+      '</div></div>';
+
+    /* ---- tags ------------------------------------------------------- */
+    out += '<div class="sec-head"><h3>' + esc(t('set.tags')) + '</h3>' +
+      '<span class="sub">' + esc(t('set.tagsHint')) + '</span></div>';
+    out += '<div class="card">' + tagList().map(function (tg, i) {
+      return '<div class="tagrow">' +
+        '<button class="swatch" data-act="tag-color" data-i="' + i + '" ' +
+        'style="background:var(' + esc(tg.color) + ')" aria-label="colour"></button>' +
+        '<input type="text" value="' + esc(tg.key) + '" data-tag-i="' + i + '">' +
+        '<select data-tag-color="' + i + '">' + PALETTE.map(function (p) {
+          return '<option value="' + p[0] + '"' + (tg.color === p[0] ? ' selected' : '') + '>' +
+            esc(p[1]) + '</option>';
+        }).join('') + '</select>' +
+        '<button class="mini-btn" data-act="tag-del" data-i="' + i + '">&times;</button>' +
+        '</div>';
+    }).join('') +
+      '<div class="card-row" style="margin-top:10px">' +
+      '<button class="mini-btn" data-act="tag-add">+ ' + esc(t('set.tagAdd')) + '</button>' +
+      '</div></div>';
+
     el.innerHTML = out;
+
+    /* Settings inputs are live: no save button to forget. */
+    bindSetting('setPomo', 'pomodoroMin', true);
+    bindSetting('setBreak', 'breakMin', true);
+    Array.prototype.forEach.call(el.querySelectorAll('[data-tag-i]'), function (inp) {
+      inp.addEventListener('change', function () { renameTag(parseInt(inp.dataset.tagI, 10), inp.value); });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-tag-color]'), function (sel) {
+      sel.addEventListener('change', function () {
+        var i = parseInt(sel.dataset.tagColor, 10);
+        Store.settings.tags[i].color = sel.value;
+        Store.persistSettings();
+        if (window.App) App.render();
+      });
+    });
+  }
+
+  function bindSetting(id, key, numeric) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      Store.settings[key] = numeric ? (parseInt(el.value, 10) || 0) : el.value;
+      Store.persistSettings();
+      if (window.App) { App.refreshHero(); App.toast(t('set.saved')); }
+    });
+  }
+
+  /* Renaming a tag must carry its events along, or they would point at a tag
+     that no longer exists and lose their colour. */
+  function renameTag(i, next) {
+    var list = Store.settings.tags;
+    var old = list[i] && list[i].key;
+    next = String(next || '').trim();
+    if (!next || !old || next === old) return;
+    list[i].key = next;
+    Store.events.forEach(function (e) {
+      if (e.tag === old) Store.updateEvent(e.id, { tag: next });
+    });
+    Store.persistSettings();
+    if (window.App) App.render();
   }
 
   window.Views = {
@@ -280,6 +432,10 @@
     list: renderList,
     tasks: renderTasks,
     me: renderMe,
-    esc: esc
+    esc: esc,
+    setQuery: setQuery,
+    getQuery: getQuery,
+    tagNames: tagNames,
+    tagColor: tagColor
   };
 })();

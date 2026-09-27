@@ -1,15 +1,26 @@
 /* My Schedule PWA -- pixel-flavoured shell.
-   Mobile-first: the nav is a bottom bar on phones and becomes a sidebar >=900px.
-   All colours come from tokens.css; nothing here hard-codes a hex. */
+ *
+ * Layout is a three-area grid (hero / view / nav) with named areas, so the
+ * desktop switch only re-declares the template -- it never reorders children.
+ * The earlier flex-direction:row approach made hero, view and nav sit side by
+ * side, which is what looked "messy" on anything wider than a phone.
+ *
+ * All colours come from tokens.css; nothing here hard-codes a hex. */
 
-/* Pixel tab glyphs: kept as data-URI masks so they inherit currentColor
+/* Pixel tab glyphs: data-URI masks so they inherit currentColor
    and need no extra network requests (works offline). */
 :root {
   --ico-month: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 3h14v12H1z" fill="none" stroke="black" stroke-width="2"/><path d="M1 7h14M5 3v4M11 3v4" stroke="black" stroke-width="2"/><rect x="4" y="9" width="3" height="3"/></svg>');
   --ico-week:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 2h14v12H1z" fill="none" stroke="black" stroke-width="2"/><path d="M1 6h14" stroke="black" stroke-width="2"/><rect x="3" y="8" width="4" height="4"/><rect x="9" y="8" width="4" height="4"/></svg>');
   --ico-list:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" stroke="black" stroke-width="2"/></svg>');
   --ico-task:  url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 3h12v10H2z" fill="none" stroke="black" stroke-width="2"/><path d="M5 8l2 2 4-4" stroke="black" stroke-width="2" fill="none"/></svg>');
+  --ico-focus: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="9" r="5" fill="none" stroke="black" stroke-width="2"/><path d="M6 2h4M8 2v3" stroke="black" stroke-width="2"/></svg>');
   --ico-me:    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="none" stroke="black" stroke-width="2"/><path d="M2 14c0-3 3-5 6-5s6 2 6 5" fill="none" stroke="black" stroke-width="2"/></svg>');
+
+  /* Shell metrics, overridden per breakpoint. */
+  --nav-h: 56px;
+  --content-max: 100%;
+  --shell-pad: 12px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -27,9 +38,15 @@ html, body {
   overscroll-behavior-y: none;
 }
 
+/* ------------------------------------------------------------- skeleton -- */
 body {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-areas:
+    "hero"
+    "view"
+    "nav";
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   /* Safe-area: keeps content clear of the phone's notch / home indicator. */
   padding-top: env(safe-area-inset-top);
 }
@@ -38,11 +55,15 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---------------------------------------------------------------- hero --- */
 .hero {
+  grid-area: hero;
   display: flex;
   gap: 8px;
-  padding: 10px 12px 8px;
+  padding: 10px var(--shell-pad) 8px;
   flex-wrap: wrap;
   align-items: center;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
   background: var(--bg-app);
 }
 
@@ -83,20 +104,49 @@ button { font-family: inherit; cursor: pointer; }
   transition: width .25s ease;
 }
 
+/* -------------------------------------------------------------- search --- */
+.searchbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px var(--shell-pad) 0;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+.searchbar > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--bg-card);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+.searchbar > input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* ---------------------------------------------------------------- view --- */
 .view {
-  flex: 1 1 auto;
+  grid-area: view;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 4px 12px 12px;
-  /* Leave room for the bottom nav + fab + home indicator. */
-  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  padding: 4px var(--shell-pad) 16px;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
 }
+
+/* Month view splits into calendar + agenda side by side on wide screens. */
+.month-pane { min-width: 0; }
+.day-pane { min-width: 0; }
 
 /* ----------------------------------------------------------------- nav --- */
 .nav {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
+  grid-area: nav;
   display: flex;
   background: var(--bg-chrome);
   border-top: 2px solid var(--line);
@@ -106,7 +156,8 @@ button { font-family: inherit; cursor: pointer; }
 
 .nav-btn {
   flex: 1 1 0;
-  min-height: 56px;           /* comfortably above the 44px touch minimum */
+  min-width: 0;
+  min-height: var(--nav-h);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -125,11 +176,17 @@ button { font-family: inherit; cursor: pointer; }
   font-weight: 700;
 }
 
+.nav-txt {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nav-ico {
   width: 20px; height: 20px;
   display: block;
   background: currentColor;
-  /* Pixel look: a simple glyph mask per tab. */
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-size: contain;
@@ -141,13 +198,14 @@ button { font-family: inherit; cursor: pointer; }
 .nav-ico[data-ico="week"]  { -webkit-mask-image: var(--ico-week);  mask-image: var(--ico-week); }
 .nav-ico[data-ico="list"]  { -webkit-mask-image: var(--ico-list);  mask-image: var(--ico-list); }
 .nav-ico[data-ico="tasks"] { -webkit-mask-image: var(--ico-task);  mask-image: var(--ico-task); }
+.nav-ico[data-ico="focus"] { -webkit-mask-image: var(--ico-focus); mask-image: var(--ico-focus); }
 .nav-ico[data-ico="me"]    { -webkit-mask-image: var(--ico-me);    mask-image: var(--ico-me); }
 
 /* ----------------------------------------------------------------- fab --- */
 .fab {
   position: fixed;
   right: 16px;
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom));
   width: 54px; height: 54px;
   border-radius: 50%;
   border: 2px solid var(--line);
@@ -180,7 +238,8 @@ button { font-family: inherit; cursor: pointer; }
 .ev-meta { font-size: 11px; color: var(--fg-soft); font-family: var(--font-mono); }
 .grow { flex: 1 1 auto; min-width: 0; }
 
-/* Tag chip: colour comes from the tag's palette key. */
+/* Tag chip: colour comes from the tag's palette key, which tag customisation
+   can rewrite -- hence the inline style rather than a fixed selector. */
 .chip {
   display: inline-block;
   padding: 1px 7px;
@@ -260,11 +319,113 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 9px;
   color: var(--fg-faint);
 }
-.week-hour { height: 40px; text-align: right; padding-right: 3px; }
+.week-hour { height: var(--slot-h, 40px); text-align: right; padding-right: 3px; }
 .week-cols { flex: 1 1 auto; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .week-col { position: relative; border-left: 1.5px solid var(--line-soft); }
 .week-col.today { background: var(--weekend); }
-.week-slot { height: 40px; border-bottom: 1px dotted var(--line-soft); }
+.week-slot { height: var(--slot-h, 40px); border-bottom: 1px dotted var(--line-soft); }
+
+/* Draggable event block (week view). */
+.wk-ev {
+  position: absolute;
+  left: 2px; right: 2px;
+  padding: 2px 4px;
+  font-size: 10px;
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: grab;
+  /* Long-press drag on touch; the JS sets panning off only while dragging. */
+  touch-action: pan-y;
+}
+.wk-ev.is-drag { opacity: .35; }
+.wk-ghost {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  opacity: .9;
+  box-shadow: 0 3px 0 0 var(--line);
+  transform: translate(-50%, -50%);
+}
+.week-col.drop-on { background: var(--accent-soft, var(--bg-card-alt)); outline: 2px dashed var(--accent); }
+
+/* --------------------------------------------------------- focus view --- */
+.focus-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0 16px;
+}
+.focus-ring {
+  width: 190px; height: 190px;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.focus-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.focus-time {
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.focus-state { font-size: 12px; color: var(--fg-soft); }
+.focus-task { font-size: 13px; color: var(--fg-soft); max-width: 90vw; text-align: center; }
+.focus-ctl { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+/* Mini floating timer: the web stand-in for the desktop app's floating
+   widget. It stays inside the page (a browser tab cannot float over other
+   apps) but is otherwise the same idea: countdown + pause + stop. */
+.mini {
+  position: fixed;
+  left: 12px;
+  bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom));
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-widget);
+  background: var(--bg-card);
+  box-shadow: 0 3px 0 0 var(--line);
+  max-width: calc(100vw - 24px);
+}
+.mini-time { font-family: var(--font-mono); font-size: 18px; font-weight: 700; }
+.mini-task { font-size: 11px; color: var(--fg-soft); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-btns { display: flex; gap: 6px; }
+
+/* ------------------------------------------------------------ settings -- */
+.tagrow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line-soft);
+  flex-wrap: wrap;
+}
+.tagrow > input[type="text"] { flex: 1 1 90px; min-width: 80px; }
+.tagrow > select { flex: 0 0 auto; }
+.swatch {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-btn);
+  border: 1.5px solid var(--line);
+  flex: 0 0 auto;
+  padding: 0;
+}
+.row2 { display: flex; gap: 8px; flex-wrap: wrap; }
+.row2 > .field { flex: 1 1 140px; margin-bottom: 8px; }
+
+.av-pick {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 0;
+}
+.av-pick img {
+  width: 64px; height: 64px;
+  border-radius: var(--radius-card);
+  border: 2px solid var(--line);
+  object-fit: cover;
+  background: var(--bg-card-alt);
+}
 
 /* -------------------------------------------------------------- sheet --- */
 .sheet-mask {
@@ -358,7 +519,7 @@ button { font-family: inherit; cursor: pointer; }
 .toast {
   position: fixed;
   left: 50%; transform: translateX(-50%);
-  bottom: calc(84px + env(safe-area-inset-bottom));
+  bottom: calc(var(--nav-h) + 26px + env(safe-area-inset-bottom));
   background: var(--fg);
   color: var(--bg-card);
   padding: 10px 16px;
@@ -401,36 +562,107 @@ button { font-family: inherit; cursor: pointer; }
 }
 .acct-mail { font-size: 12px; color: var(--fg-soft); word-break: break-all; }
 
-/* --------------------------------------------------- wide screens >=900 --- */
+/* ---------------------------------------------- tablet portrait >=600px -- */
+@media (min-width: 600px) {
+  :root {
+    --content-max: 720px;
+    --shell-pad: 16px;
+  }
+  .day { min-height: 62px; font-size: 12px; }
+  .week-hour, .week-slot { --slot-h: 44px; }
+  .week-hours { flex: 0 0 46px; font-size: 10px; }
+  .focus-ring { width: 220px; height: 220px; }
+  .focus-time { font-size: 46px; }
+}
+
+/* --------------------------------- phones held sideways: height is scarce -- */
+@media (orientation: landscape) and (max-height: 560px) {
+  :root { --nav-h: 46px; --shell-pad: 10px; }
+  .hero { padding: 5px var(--shell-pad) 4px; gap: 6px; }
+  .hero-pill { padding: 4px 10px; font-size: 11px; gap: 6px; }
+  .hero-clock { font-size: 13px; }
+  .hero-bar { width: 56px; height: 8px; }
+  .nav-btn {
+    flex-direction: row;
+    gap: 6px;
+    font-size: 11px;
+    padding: 2px 4px;
+  }
+  .nav-ico { width: 16px; height: 16px; }
+  .day { min-height: 34px; }
+  .view { padding-bottom: 10px; }
+  .fab { width: 46px; height: 46px; font-size: 24px; }
+  .focus-ring { width: 130px; height: 130px; }
+  .focus-time { font-size: 28px; }
+  .focus-wrap { gap: 8px; padding: 2px 0 10px; }
+}
+
+/* ------------------------- tablet landscape / desktop: nav becomes a rail -- */
 @media (min-width: 900px) {
-  body { flex-direction: row; }
+  :root {
+    --content-max: 980px;
+    --shell-pad: 20px;
+  }
+  body {
+    grid-template-areas:
+      "nav hero"
+      "nav view";
+    grid-template-columns: 208px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
   .nav {
-    position: static;
     flex-direction: column;
-    flex: 0 0 190px;
     border-top: none;
     border-right: 2px solid var(--line);
-    padding-top: 12px;
+    padding: 12px 0 env(safe-area-inset-bottom);
     align-items: stretch;
   }
   .nav-btn {
+    flex: 0 0 auto;
     flex-direction: row;
     justify-content: flex-start;
     gap: 12px;
-    min-height: 48px;
+    min-height: 46px;
     padding: 0 18px;
     font-size: 14px;
   }
   .nav-btn.is-on { border-left: 4px solid var(--accent); }
-  .view { padding-bottom: 24px; }
-  .fab { bottom: 24px; right: 24px; }
+  .fab { right: 24px; bottom: 24px; }
+  .toast { bottom: 28px; }
+  .mini { left: 224px; bottom: 20px; }
+  .day { min-height: 74px; }
+  .week-hour, .week-slot { --slot-h: 46px; }
   .sheet {
     left: 50%; right: auto;
     transform: translateX(-50%);
     bottom: 40px;
     width: 560px;
+    max-height: 84vh;
     border-radius: var(--radius-widget);
     border: 2px solid var(--line);
   }
-  .hero { padding: 14px 18px 10px; }
+  /* Month view: calendar and agenda sit side by side instead of stacked. */
+  .month-split { display: flex; gap: 16px; align-items: flex-start; }
+  .month-split > .month-pane { flex: 1 1 58%; }
+  .month-split > .day-pane { flex: 1 1 42%; }
+  /* Two columns of cards: tasks are flat lists, so columns read fine. */
+  .view[data-view="tasks"] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 12px;
+    align-content: start;
+  }
+  .view[data-view="tasks"] > .sec-head,
+  .view[data-view="tasks"] > .empty { grid-column: 1 / -1; }
+}
+
+/* ---------------------------------------------------- large desktop >=1280 -- */
+@media (min-width: 1280px) {
+  :root {
+    --content-max: 1180px;
+    --shell-pad: 24px;
+  }
+  body { grid-template-columns: 224px minmax(0, 1fr); }
+  .day { min-height: 82px; }
+  .mini { left: 248px; }
 }

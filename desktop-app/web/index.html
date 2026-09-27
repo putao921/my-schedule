@@ -28,7 +28,16 @@
   <div class="hero-pill hero-focus">
     <span class="hero-label" id="heroFocusLabel">今日专注 0 小时 0 分</span>
   </div>
+  <button class="hero-pill" id="searchToggle" style="cursor:pointer">
+    <span class="hero-label" id="searchToggleTxt">搜索</span>
+  </button>
 </header>
+
+<!-- Search: filters the current view. Hidden until a search is opened. -->
+<div class="searchbar" id="searchBar" hidden>
+  <input id="searchInput" type="search" placeholder="Search" autocomplete="off">
+  <button class="mini-btn" id="searchClear" aria-label="Clear">&times;</button>
+</div>
 
 <!-- Main scroll region. Views mount here. -->
 <main id="view" class="view"></main>
@@ -39,6 +48,7 @@
   <button class="nav-btn" data-view="week"><span class="nav-ico" data-ico="week"></span><span class="nav-txt" data-i18n="nav.week">周</span></button>
   <button class="nav-btn" data-view="list"><span class="nav-ico" data-ico="list"></span><span class="nav-txt" data-i18n="nav.list">列表</span></button>
   <button class="nav-btn" data-view="tasks"><span class="nav-ico" data-ico="tasks"></span><span class="nav-txt" data-i18n="nav.tasks">任务</span></button>
+  <button class="nav-btn" data-view="focus"><span class="nav-ico" data-ico="focus"></span><span class="nav-txt" data-i18n="nav.focus">专注</span></button>
   <button class="nav-btn nav-me" data-view="me"><span class="nav-ico" data-ico="me"></span><span class="nav-txt" data-i18n="nav.profile">我的</span></button>
 </nav>
 
@@ -67,6 +77,8 @@
 <script src="js/i18n.js"></script>
 <script src="js/store.js"></script>
 <script src="js/views.js"></script>
+<script src="js/focus.js"></script>
+<script src="js/drag.js"></script>
 <!-- Cloud SDK (CDN form: this project has no build step). The IIFE exposes the
      global WorkBuddyCloud; loaded synchronously so cloud.js can use it. -->
 <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
