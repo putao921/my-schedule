@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>My Schedule</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#EFD7D4">
+<meta name="description" content="My Schedule - pixel-style calendar, tasks and focus timer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-32.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- Hero: date + clock + progress. Same three-pill layout as the desktop app. -->
+<header class="hero" id="hero">
+  <div class="hero-pill hero-date">
+    <span class="hero-dow" id="heroDow">周六</span>
+    <span class="hero-day" id="heroDay">2026-09-27</span>
+    <span class="hero-clock" id="heroClock">10:20</span>
+  </div>
+  <div class="hero-pill hero-done">
+    <span class="hero-label" id="heroDoneLabel">已完成 0/0</span>
+    <span class="hero-bar"><i id="heroDoneBar"></i></span>
+  </div>
+  <div class="hero-pill hero-focus">
+    <span class="hero-label" id="heroFocusLabel">今日专注 0 小时 0 分</span>
+  </div>
+</header>
+
+<!-- Main scroll region. Views mount here. -->
+<main id="view" class="view"></main>
+
+<!-- Bottom navigation: thumb-reachable on phones, becomes a sidebar on wide screens. -->
+<nav class="nav" id="nav">
+  <button class="nav-btn" data-view="month"><span class="nav-ico" data-ico="month"></span><span class="nav-txt" data-i18n="nav.month">月</span></button>
+  <button class="nav-btn" data-view="week"><span class="nav-ico" data-ico="week"></span><span class="nav-txt" data-i18n="nav.week">周</span></button>
+  <button class="nav-btn" data-view="list"><span class="nav-ico" data-ico="list"></span><span class="nav-txt" data-i18n="nav.list">列表</span></button>
+  <button class="nav-btn" data-view="tasks"><span class="nav-ico" data-ico="tasks"></span><span class="nav-txt" data-i18n="nav.tasks">任务</span></button>
+  <button class="nav-btn nav-me" data-view="me"><span class="nav-ico" data-ico="me"></span><span class="nav-txt" data-i18n="nav.profile">我的</span></button>
+</nav>
+
+<!-- Floating add button. -->
+<button class="fab" id="fab" aria-label="New">+</button>
+
+<!-- Editor sheet (event / task). -->
+<div class="sheet-mask" id="sheetMask" hidden></div>
+<section class="sheet" id="sheet" hidden aria-modal="true">
+  <header class="sheet-head">
+    <h2 id="sheetTitle">新建</h2>
+    <button class="sheet-x" id="sheetClose" aria-label="Close">&times;</button>
+  </header>
+  <div class="sheet-body" id="sheetBody"></div>
+  <footer class="sheet-foot">
+    <button class="btn btn-ghost" id="sheetDelete" hidden>删除</button>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" id="sheetCancel">取消</button>
+    <button class="btn btn-primary" id="sheetSave">保存</button>
+  </footer>
+</section>
+
+<!-- Toast -->
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/i18n.js"></script>
+<script src="js/store.js"></script>
+<script src="js/views.js"></script>
+<!-- Cloud SDK (CDN form: this project has no build step). The IIFE exposes the
+     global WorkBuddyCloud; loaded synchronously so cloud.js can use it. -->
+<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

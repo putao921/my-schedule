@@ -1,0 +1,81 @@
+/* GENERATED from design/tokens.json -- do not hand-edit. */
+/* Source of truth is the WPF palette; keep the two in sync.  */
+
+:root {
+  --font-ui: 'Microsoft YaHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Consolas', ui-monospace, monospace;
+
+  --radius-card: 8px;
+  --radius-pill: 8px;
+  --radius-btn: 7px;
+  --radius-widget: 12px;
+
+  /* Light theme is the default surface set. */
+  --backdrop: #EFD7D4;
+  --chrome: #F2C9C6;
+  --chrome-deep: #E9AEAE;
+  --panel: #F7DEDB;
+  --card: #FFFDF7;
+  --card-alt: #FDF6E9;
+  --border: #7D4550;
+  --border-soft: #F2C9C6;
+  --ink: #3A2F2C;
+  --ink-soft: #6D5C58;
+  --ink-faint: #9A8884;
+  --accent-event: #B04E62;
+  --accent-focus: #F5B579;
+  --accent-task: #9FC4A4;
+  --accent-task-d: #7EA886;
+  --weekend: #FBEAEA;
+  --weekend-head: #F2C9C6;
+  --holiday: #E08A8A;
+  --holiday-rib: #DC9494;
+  --today-ink: #4A2F16;
+  --ring: #E8B93F;
+  --on-accent: #FFFFFF;
+  --shadow: #C47F85;
+}
+
+[data-theme='night'] {
+  --backdrop: #1B1318;
+  --chrome: #4A333D;
+  --chrome-deep: #3A2831;
+  --panel: #3C2C36;
+  --card: #241A20;
+  --card-alt: #302430;
+  --border: #E8C6CF;
+  --border-soft: #4D3742;
+  --ink: #F4E9EC;
+  --ink-soft: #CDB6BD;
+  --ink-faint: #A08C93;
+  --accent-event: #C25F79;
+  --accent-focus: #E0A16A;
+  --accent-task: #6F9A78;
+  --accent-task-d: #8FB897;
+  --weekend: #3A262C;
+  --weekend-head: #3E2C35;
+  --holiday: #C9707A;
+  --holiday-rib: #6B4A58;
+  --today-ink: #F4E1C8;
+  --ring: #C9A24A;
+  --on-accent: #1A1116;
+  --shadow: #150E12;
+}
+
+/* Semantic aliases -- components use these, so a palette swap
+   never forces a component rewrite. */
+:root {
+  --bg-app: var(--backdrop);
+  --bg-chrome: var(--chrome);
+  --bg-card: var(--card);
+  --bg-card-alt: var(--card-alt);
+  --fg: var(--ink);
+  --fg-soft: var(--ink-soft);
+  --fg-faint: var(--ink-faint);
+  --line: var(--border);
+  --line-soft: var(--border-soft);
+  --accent: var(--accent-event);
+  --accent-warm: var(--accent-focus);
+  --accent-cool: var(--accent-task);
+  --on-accent: var(--on-accent);
+}
