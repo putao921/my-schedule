@@ -50,14 +50,29 @@
   function note(msg, bad) {
     if (window.App && App.toast) App.toast(msg);
     var el = document.getElementById('syncState');
-    if (el) el.textContent = bad ? 'offline' : msg;
+    if (el) el.textContent = bad ? wt('sync.offline') : msg;
+  }
+
+  var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) { return ESC[c]; });
+  }
+
+  /* Views expose window.t(); fall back to the English literal when this file
+     is exercised before the bundle loads, so nothing degrades to a raw key. */
+  function wt(key, fallback) {
+    if (typeof window.t === 'function') {
+      var v = window.t(key);
+      if (v && v !== key) return v;
+    }
+    return fallback || key;
   }
 
   function paintState() {
     var mail = document.getElementById('acctMail');
     var st = document.getElementById('acctState');
-    if (mail) mail.textContent = user ? (user.email || 'signed in') : 'not signed in';
-    if (st) st.textContent = user ? 'cloud on' : 'local only';
+    if (mail) mail.textContent = user ? (user.email || wt('sync.signedIn')) : wt('sync.notSignedIn');
+    if (st) st.textContent = user ? wt('sync.cloudOn') : wt('sync.localOnly');
   }
 
   /* --------------------------------------------------------- auth sheet --- */
@@ -69,12 +84,12 @@
     el.id = 'authSheet';
     el.setAttribute('aria-modal', 'true');
     el.innerHTML =
-      '<header class="sheet-head"><h2 id="authTitle">Sign in</h2>' +
-      '<button class="sheet-x" id="authClose" aria-label="Close">&times;</button></header>' +
+      '<header class="sheet-head"><h2 id="authTitle">' + wt('sync.signin') + '</h2>' +
+      '<button class="sheet-x" id="authClose" aria-label="' + wt('sync.close') + '">&times;</button></header>' +
       '<div class="sheet-body" id="authBody"></div>' +
       '<footer class="sheet-foot"><span class="spacer"></span>' +
-      '<button class="btn btn-ghost" id="authCancel">Cancel</button>' +
-      '<button class="btn btn-primary" id="authGo">Go</button></footer>';
+      '<button class="btn btn-ghost" id="authCancel">' + wt('sync.cancel') + '</button>' +
+      '<button class="btn btn-primary" id="authGo">' + wt('sync.go') + '</button></footer>';
     document.body.appendChild(el);
     el.hidden = true;
     document.getElementById('authClose').onclick = closeAuth;
@@ -84,7 +99,7 @@
   }
 
   function openAuth(mode) {
-    if (!ready()) { note('cloud SDK not loaded', true); return; }
+    if (!ready()) { note(wt('sync.sdkMissing', 'cloud SDK not loaded'), true); return; }
     authMode = mode || 'password';
     var el = sheetEl();
     renderAuth();
@@ -103,37 +118,45 @@
     /* Tabs: all four flows reachable, as the default email contract requires. */
     var tabs =
       '<div class="card-row" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">' +
-      tabBtn('password', 'Password') + tabBtn('otp', 'Email code') +
-      tabBtn('signup', 'Sign up') + tabBtn('reset', 'Forgot') +
+      tabBtn('password', wt('sync.tabPassword')) + tabBtn('otp', wt('sync.tabOtp')) +
+      tabBtn('signup', wt('sync.tabSignup')) + tabBtn('reset', wt('sync.tabReset')) +
       '</div>';
 
     var form = '';
-    form += '<div class="field"><label>Email</label><input id="aEmail" type="email" inputmode="email" autocomplete="email"></div>';
+    form += '<div class="field"><label>' + wt('sync.email') + '</label>' +
+      '<input id="aEmail" type="email" inputmode="email" autocomplete="email"></div>';
 
     if (authMode === 'password') {
-      form += '<div class="field"><label>Password</label><input id="aPass" type="password" autocomplete="current-password"></div>';
+      form += '<div class="field"><label>' + wt('sync.password') + '</label>' +
+        '<input id="aPass" type="password" autocomplete="current-password"></div>';
     } else if (authMode === 'otp') {
-      form += '<div class="field"><label>Code from email</label>' +
+      form += '<div class="field"><label>' + wt('sync.code') + '</label>' +
         '<div style="display:flex;gap:8px"><input id="aCode" type="text" inputmode="numeric" style="flex:1">' +
-        '<button class="btn" type="button" id="aSend">Get code</button></div></div>';
+        '<button class="btn" type="button" id="aSend">' + wt('sync.getCode') + '</button></div></div>';
     } else if (authMode === 'signup') {
-      form += '<div class="field"><label>Password (for future logins)</label><input id="aPass" type="password" autocomplete="new-password"></div>' +
-        '<div class="field"><label>Code from email</label>' +
+      form += '<div class="field"><label>' + wt('sync.newPassword') + '</label>' +
+        '<input id="aPass" type="password" autocomplete="new-password"></div>' +
+        '<div class="field"><label>' + wt('sync.code') + '</label>' +
         '<div style="display:flex;gap:8px"><input id="aCode" type="text" inputmode="numeric" style="flex:1">' +
-        '<button class="btn" type="button" id="aSend">Get code</button></div></div>';
+        '<button class="btn" type="button" id="aSend">' + wt('sync.getCode') + '</button></div></div>';
     } else {
-      form += '<div class="field"><label>New password</label><input id="aPass" type="password" autocomplete="new-password"></div>' +
-        '<div class="field"><label>Code from email</label>' +
+      form += '<div class="field"><label>' + wt('sync.newPassword') + '</label>' +
+        '<input id="aPass" type="password" autocomplete="new-password"></div>' +
+        '<div class="field"><label>' + wt('sync.code') + '</label>' +
         '<div style="display:flex;gap:8px"><input id="aCode" type="text" inputmode="numeric" style="flex:1">' +
-        '<button class="btn" type="button" id="aSend">Send reset</button></div></div>';
+        '<button class="btn" type="button" id="aSend">' + wt('sync.sendReset') + '</button></div></div>';
     }
 
     var warn = onReleaseDomain() ? '' :
       '<div class="card" style="border-color:var(--holiday);font-size:12px">' +
-      'Sign-in works only on the published HTTPS domain. Local preview is offline-only; ' +
-      'data is still saved on this device.</div>';
+      esc(wt('sync.warnLocal')) + '</div>';
 
-    body.innerHTML = warn + tabs + form;
+    /* On a fresh domain nobody has an account yet, and the password tab looks
+       like the obvious one to use -- so say where to go. */
+    var hint = '<div class="ev-meta" style="margin-bottom:8px">' +
+      esc(wt('sync.firstHint')) + '</div>';
+
+    body.innerHTML = warn + hint + tabs + form;
 
     var send = document.getElementById('aSend');
     if (send) send.onclick = sendCode;
@@ -153,13 +176,13 @@
   /* ------------------------------------------------------------- flows --- */
   async function sendCode() {
     var email = val('aEmail');
-    if (!email) { note('enter your email first', true); return; }
+    if (!email) { note(wt('sync.enterEmail'), true); return; }
     try {
       if (authMode === 'reset') {
         var started = await cloud.auth.resetPasswordForEmail(email);
         if (started.error) { note(started.error.message, true); return; }
         pendingReset = started.data;
-        note('reset code sent');
+        note(wt('sync.resetSent'));
       } else {
         var sent = await cloud.auth.sendOtp({ email: email });
         if (sent.error) { note(sent.error.message, true); return; }
@@ -168,21 +191,21 @@
           verificationId: sent.data.verificationId,
           isExistingUser: !!sent.data.isExistingUser
         };
-        note('code sent');
+        note(wt('sync.codeSent'));
       }
     } catch (e) {
-      note('could not send: ' + e.message, true);
+      note(wt('sync.couldNotSend') + ': ' + e.message, true);
     }
   }
 
   async function submitAuth() {
     var email = val('aEmail');
-    if (!email) { note('enter your email first', true); return; }
+    if (!email) { note(wt('sync.enterEmail'), true); return; }
 
     try {
       if (authMode === 'password') {
         var r = await cloud.auth.signInWithPassword({ email: email, password: val('aPass') });
-        if (r.error) { note('wrong email or password', true); return; }
+        if (r.error) { note(wt('sync.wrong'), true); return; }
         user = r.data && r.data.user ? r.data.user : null;
         afterSignIn();
         return;
@@ -190,19 +213,19 @@
 
       if (authMode === 'reset') {
         if (!pendingReset || pendingReset.email !== email) {
-          note('send a reset code to this email first', true); return;
+          note(wt('sync.needResetCode'), true); return;
         }
         var done = await pendingReset.updateUser({ nonce: val('aCode'), password: val('aPass') });
         if (done.error) { note(done.error.message, true); return; }
         pendingReset = null;
-        note('password updated');
+        note(wt('sync.pwdUpdated'));
         closeAuth();
         return;
       }
 
       /* OTP login / verified signup share one challenge. */
       if (!pendingOtp || pendingOtp.email !== email) {
-        note('get a code for this email first', true); return;
+        note(wt('sync.needCode'), true); return;
       }
       var res = await cloud.auth.verifyOtp({
         email: pendingOtp.email,
@@ -216,17 +239,36 @@
       user = res.data && res.data.user ? res.data.user : null;
       afterSignIn();
     } catch (e) {
-      note('sign-in failed: ' + e.message, true);
+      note(wt('sync.wrong') + ': ' + e.message, true);
     }
   }
 
   function afterSignIn() {
     closeAuth();
     paintState();
-    note('signed in');
+    note(wt('sync.signedIn'));
     armAutoPush();
-    /* First sync after login: take whatever the cloud has if we are empty. */
-    pull(true);
+
+    /* First sync after login.
+     *
+     * A brand-new device has nothing local, so taking the cloud copy is
+     * unambiguously right. A device that already holds records is NOT
+     * auto-overwritten: silently swapping in the cloud snapshot would destroy
+     * whatever the user entered before signing in, with no undo. Instead we
+     * say so and let them pick Upload (local wins) or Download (cloud wins).
+     */
+    if (localCount() === 0) { pull(true); return; }
+    var el = document.getElementById('syncState');
+    if (el) el.textContent = wt('sync.cloudOn');
+    if (window.App && App.toast) App.toast(wt('sync.keptLocal'));
+  }
+
+  function localCount() {
+    try {
+      if (typeof Store === 'undefined') return 0;
+      return (Store.events ? Store.events.length : 0) +
+        (Store.tasks ? Store.tasks.length : 0);
+    } catch (e) { return 0; }
   }
 
   /* -------------------------------------------------------------- sync --- */
@@ -275,10 +317,10 @@
           .insert({ payload: payload }).select();
       }
       if (res.error) { note(res.error.message, true); return; }
-      if (!res.data || !res.data.length) { note('nothing written - check sign-in', true); return; }
-      note('uploaded ' + new Date().toLocaleTimeString());
+      if (!res.data || !res.data.length) { note(wt('sync.nothingWritten'), true); return; }
+      note(wt('sync.uploaded') + ' ' + new Date().toLocaleTimeString());
     } catch (e) {
-      note('upload failed: ' + e.message, true);
+      note(wt('sync.uploadFailed') + ': ' + e.message, true);
     }
   }
 
@@ -290,12 +332,12 @@
         .select('payload,updated_at').limit(1);
       if (res.error) { note(res.error.message, true); return; }
       if (!res.data || !res.data.length) {
-        if (!silent) note('no cloud copy yet');
+        if (!silent) note(wt('sync.noCloud'));
         return;
       }
       var p = res.data[0].payload;
       if (!p || !Array.isArray(p.events) || !Array.isArray(p.tasks)) {
-        note('cloud copy looks invalid', true); return;
+        note(wt('sync.badCloud'), true); return;
       }
       suppress = true;
       try {
@@ -304,9 +346,9 @@
         suppress = false;
       }
       if (window.App) App.render();
-      note('downloaded');
+      note(wt('sync.downloaded'));
     } catch (e) {
-      note('download failed: ' + e.message, true);
+      note(wt('sync.downloadFailed') + ': ' + e.message, true);
     }
   }
 
@@ -315,7 +357,7 @@
     await cloud.auth.signOut();
     user = null;
     paintState();
-    note('signed out');
+    note(wt('sync.signedOut'));
   }
 
   /* ------------------------------------------------------------ wiring --- */
@@ -338,12 +380,12 @@
   window.CloudSync = {
     init: function () {
       if (!ready()) {
-        note('cloud SDK unavailable', true);
+        note(wt('sync.sdkMissing'), true);
         return;
       }
       session().then(function (s) {
         paintState();
-        if (s) { armAutoPush(); pull(true); }
+        if (s) { armAutoPush(); if (localCount() === 0) pull(true); }
       }).catch(function () { paintState(); });
     },
     handle: handle,

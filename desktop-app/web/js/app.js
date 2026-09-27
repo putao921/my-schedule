@@ -248,6 +248,15 @@
     var h = location.hash.replace('#', '');
     if (Views[h]) { current = h; Store.settings.view = h; }
 
+    /* QA hook: ?auth=1 opens the sign-in sheet on load, so the panel can be
+       screenshotted without a scripted click. */
+    if (/[?&]auth=1/.test(location.search)) {
+      go('me');
+      setTimeout(function () {
+        if (window.CloudSync) CloudSync.handle('sync-signin');
+      }, 300);
+    }
+
     Array.prototype.forEach.call(document.querySelectorAll('.nav-btn'), function (btn) {
       btn.addEventListener('click', function () { go(btn.dataset.view); });
     });

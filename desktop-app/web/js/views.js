@@ -237,13 +237,13 @@
 
     out += '<div class="card acct">' +
       '<img class="acct-av" id="acctAvatar" alt="" src="icons/icon-192.png">' +
-      '<span class="grow"><div id="acctMail">' + esc(t('pomo.noTask')) + '</div>' +
-      '<div class="acct-mail" id="acctState">offline</div></span>' +
+      '<span class="grow"><div id="acctMail">' + esc(t('sync.notSignedIn')) + '</div>' +
+      '<div class="acct-mail" id="acctState">' + esc(t('sync.localOnly')) + '</div></span>' +
       '</div>';
 
     out += '<div class="card">' +
       '<div class="card-row"><span class="grow">' + esc(t('fld.st.theme')) + '</span>' +
-      '<button class="mini-btn" data-act="toggle-theme">Toggle</button></div>' +
+      '<button class="mini-btn" data-act="toggle-theme">' + esc(t('sync.toggle')) + '</button></div>' +
       '<div class="card-row" style="margin-top:8px"><span class="grow">' + esc(t('fld.st.lang')) + '</span>' +
       '<button class="mini-btn" data-act="toggle-lang">ZH / EN</button></div>' +
       '</div>';
@@ -256,19 +256,19 @@
 
     /* Sync controls: cloud.js fills in the real handlers. */
     out += '<div class="card">' +
-      '<div class="card-row"><span class="grow"><b>Sync</b></span>' +
+      '<div class="card-row"><span class="grow"><b>' + esc(t('sync.title')) + '</b></span>' +
       '<span class="ev-meta" id="syncState">-</span></div>' +
       '<div class="card-row" style="margin-top:8px;flex-wrap:wrap;gap:8px">' +
-      '<button class="btn" data-act="sync-signin">Sign in</button>' +
-      '<button class="btn" data-act="sync-push">Upload</button>' +
-      '<button class="btn" data-act="sync-pull">Download</button>' +
-      '<button class="btn btn-ghost" data-act="sync-out">Sign out</button>' +
+      '<button class="btn btn-primary" data-act="sync-signin">' + esc(t('sync.signin')) + '</button>' +
+      '<button class="btn" data-act="sync-push">' + esc(t('sync.upload')) + '</button>' +
+      '<button class="btn" data-act="sync-pull">' + esc(t('sync.download')) + '</button>' +
+      '<button class="btn btn-ghost" data-act="sync-out">' + esc(t('sync.signout')) + '</button>' +
       '</div></div>';
 
     out += '<div class="card">' +
       '<div class="card-row" style="flex-wrap:wrap;gap:8px">' +
-      '<button class="btn" data-act="export">Export</button>' +
-      '<button class="btn" data-act="import">Import</button>' +
+      '<button class="btn" data-act="export">' + esc(t('sync.export')) + '</button>' +
+      '<button class="btn" data-act="import">' + esc(t('sync.import')) + '</button>' +
       '</div></div>';
 
     el.innerHTML = out;
