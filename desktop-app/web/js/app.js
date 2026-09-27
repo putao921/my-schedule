@@ -74,8 +74,25 @@
 
   function go(view) {
     current = view;
+    /* Entering the month/week view lands on the period containing today;
+       the calendar navigation then moves the cursor from there. */
+    if (view === 'month' || view === 'week') cursor = new Date();
     Store.settings.view = view;
     Store.persistSettings();
+    render();
+  }
+
+  /* Move the calendar cursor by one period in the current view: a week for the
+     week view, a month for the month view. dir is -1 (prev) or +1 (next). */
+  function moveCursor(dir) {
+    if (current === 'week') {
+      var ws = Store.startOfWeek(cursor || new Date());
+      ws.setDate(ws.getDate() + dir * 7);
+      cursor = ws;
+    } else {
+      var c = cursor || new Date();
+      cursor = new Date(c.getFullYear(), c.getMonth() + dir, 1);
+    }
     render();
   }
 
@@ -343,6 +360,11 @@
         case 'go-focus': go('focus'); return;
         case 'go-today': go('today'); return;
 
+        /* ---- calendar navigation (month / week views) ---- */
+        case 'cal-prev': moveCursor(-1); return;
+        case 'cal-next': moveCursor(1); return;
+        case 'cal-today': cursor = new Date(); render(); return;
+
         /* ---- custom festivals ---- */
         case 'hol-add': {
           var d = $('holDate') && $('holDate').value;
@@ -369,11 +391,12 @@
       if (window.CloudSync && CloudSync.handle) { CloudSync.handle(act); return; }
     }
 
-    /* Tapping a month/day cell moves the cursor there. */
+    /* Tapping a month/day cell moves the cursor there (month: that day's month;
+       week: that day's week). Both views re-render so the navigation takes effect. */
     var cell = ev.target.closest ? ev.target.closest('[data-date]') : null;
     if (cell && cell.dataset.date) {
       var d = Store.parseISO(cell.dataset.date);
-      if (d) { cursor = d; if (current === 'month') render(); }
+      if (d) { cursor = d; if (current === 'month' || current === 'week') render(); }
       return;
     }
     /* Tapping an event card opens its editor. */

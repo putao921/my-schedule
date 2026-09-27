@@ -136,6 +136,22 @@
     return '<div class="empty">' + esc(text) + '</div>';
   }
 
+  /* A reusable header with prev / next / today controls so the month and week
+     views can be scrolled to any period, not just the one containing today.
+     `cursor` (owned by app.js) is the anchor; the buttons dispatch data-act
+     events that app.js turns into cursor moves. */
+  function calNav(title, sub) {
+    return '<div class="sec-head cal-nav">' +
+      '<button class="cal-btn" data-act="cal-prev" aria-label="' + esc(t('cal.prev')) +
+        '" title="' + esc(t('cal.prev')) + '">‹</button>' +
+      '<div class="cal-title"><h3>' + esc(title) + '</h3>' +
+        (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</div>' +
+      '<button class="cal-btn" data-act="cal-next" aria-label="' + esc(t('cal.next')) +
+        '" title="' + esc(t('cal.next')) + '">›</button>' +
+      '<button class="cal-today" data-act="cal-today">' + esc(t('nav.today')) + '</button>' +
+      '</div>';
+  }
+
   /* -------------------------------------------------------------- month -- */
   function renderMonth(el, cursor) {
     var cur = cursor || new Date();
@@ -172,8 +188,7 @@
     el.innerHTML =
       '<div class="month-split">' +
       '<div class="month-pane">' +
-      '<div class="sec-head"><h3>' + esc(title) + '</h3>' +
-      '<span class="sub">' + esc(t('view.month')) + '</span></div>' +
+      calNav(title, t('view.month')) +
       head + grid + holidayLine(y, m) +
       '</div>' +
       '<div class="day-pane">' +
@@ -300,9 +315,20 @@
     }
     head += '</div>';
 
+    var wkEnd = new Date(start.getTime());
+    wkEnd.setDate(wkEnd.getDate() + 6);
+    var mn = monNames();
+    var wkTitle = (window.lang() === 'zh')
+      ? (mn[start.getMonth()] + start.getDate() + '日 – ' + mn[wkEnd.getMonth()] + wkEnd.getDate() + '日')
+      : (mn[start.getMonth()] + ' ' + start.getDate() + ' – ' + mn[wkEnd.getMonth()] + ' ' + wkEnd.getDate());
+    if (start.getFullYear() !== wkEnd.getFullYear()) {
+      wkTitle = (window.lang() === 'zh')
+        ? (start.getFullYear() + '年' + wkTitle)
+        : (start.getFullYear() + ' · ' + wkTitle);
+    }
+
     el.innerHTML =
-      '<div class="sec-head"><h3>' + esc(t('view.week')) + '</h3>' +
-      '<span class="sub">' + Store.iso(start) + ' ~ </span></div>' +
+      calNav(wkTitle, '') +
       head +
       '<div class="week-wrap"><div class="week-hours">' + hours + '</div>' +
       '<div class="week-cols">' + cols + '</div></div>';

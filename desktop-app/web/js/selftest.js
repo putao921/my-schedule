@@ -239,6 +239,41 @@
     Store.removeEvent(id); Store.removeEvent(d.id); Store.removeEvent(m.id); Store.removeEvent(y.id);
   }
 
+  /* Calendar navigation (month / week) — free scrolling, not just the current
+     period. Verifies the prev/next/today controls move the cursor and re-render. */
+  function testNav() {
+    function title() {
+      var h = view().querySelector('.cal-title h3');
+      return h ? h.textContent : '';
+    }
+    ok('nav.goMonth', click('.nav-btn[data-view="month"]'));
+    ok('nav.monthButtons',
+      count('.cal-btn[data-act="cal-prev"]') === 1 &&
+      count('.cal-btn[data-act="cal-next"]') === 1 &&
+      count('[data-act="cal-today"]') === 1);
+    var t0 = title();
+    ok('nav.monthTitle', !!t0, t0);
+    click('[data-act="cal-next"]');
+    var t1 = title();
+    ok('nav.monthNext', t1 && t1 !== t0, t0 + ' -> ' + t1);
+    click('[data-act="cal-prev"]');
+    ok('nav.monthBack', title() === t0, title() + ' (want ' + t0 + ')');
+    click('[data-act="cal-today"]');
+    ok('nav.monthToday', title() === t0, title() + ' (want ' + t0 + ')');
+
+    ok('nav.goWeek', click('.nav-btn[data-view="week"]'));
+    ok('nav.weekButtons',
+      count('.cal-btn[data-act="cal-prev"]') === 1 &&
+      count('.cal-btn[data-act="cal-next"]') === 1);
+    var w0 = title();
+    ok('nav.weekTitle', !!w0, w0);
+    click('[data-act="cal-next"]');
+    var w1 = title();
+    ok('nav.weekNext', w1 && w1 !== w0, w0 + ' -> ' + w1);
+    click('[data-act="cal-prev"]');
+    ok('nav.weekBack', title() === w0, title() + ' (want ' + w0 + ')');
+  }
+
   function testTimer() {
     ok('nav.focusAgain', click('.nav-btn[data-view="focus"]'));
     ok('timer.currentIsFocus', window.App && App.currentView() === 'focus',
@@ -387,6 +422,7 @@
     try { testLunar(); } catch (e) { ok('lunar.crash', false, e.message); }
     try { testToday(); } catch (e) { ok('today.crash', false, e.message); }
     try { testRepeat(); } catch (e) { ok('repeat.crash', false, e.message); }
+    try { testNav(); } catch (e) { ok('nav.crash', false, e.message); }
     try { testStats(); } catch (e) { ok('stats.crash', false, e.message); }
     testQueue()
       .catch(function (e) { ok('queue.crash', false, e.message); })

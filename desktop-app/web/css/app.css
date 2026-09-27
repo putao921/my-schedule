@@ -691,6 +691,28 @@ button { font-family: inherit; cursor: pointer; }
 .sec-head h3 { margin: 0; font-size: 13px; }
 .sec-head .sub { font-size: 11px; color: var(--fg-soft); }
 
+/* Calendar navigation bar (month / week views): ‹ prev ▎ title ▎ next › ▎ Today */
+.cal-nav { align-items: center; gap: 8px; }
+.cal-title { flex: 1; text-align: center; min-width: 0; }
+.cal-title h3 { font-size: 15px; }
+.cal-btn {
+  flex: 0 0 auto; width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1.5px solid var(--line);
+  background: var(--bg-card-alt); color: var(--fg);
+  font-size: 20px; line-height: 1; cursor: pointer;
+}
+.cal-btn:active { transform: translateY(1px); }
+.cal-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cal-today {
+  flex: 0 0 auto; margin-left: auto; height: 38px; padding: 0 14px;
+  border-radius: var(--radius-btn); border: 1.5px solid var(--line);
+  background: transparent; color: var(--fg);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.cal-today:active { transform: translateY(1px); }
+.cal-today:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .row-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .mini-btn {
   min-width: 44px; min-height: 32px;
