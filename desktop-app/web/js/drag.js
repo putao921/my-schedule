@@ -223,6 +223,13 @@
 
   function onClickCapture(ev) {
     if (!suppressClick) return;
+    /* One click only: a fixed dead zone would also swallow the next real tap
+       (dropping a card, then hitting the nav, felt like a frozen UI). */
+    suppressClick = false;
+    /* And only the gesture's own click is eaten -- the one that lands on a
+       card. Anything else right after a drop is a genuine user action. */
+    var t = ev.target.closest ? ev.target.closest('[data-ev]') : null;
+    if (!t) return;
     ev.stopPropagation();
     ev.preventDefault();
   }

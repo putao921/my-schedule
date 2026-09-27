@@ -36,7 +36,16 @@
        needs today, but the stats chart needs a week, and a week cannot be
        reconstructed from a single "today" counter once the day rolls over. */
     focusLog: {},
-    pomo: { mode: 'focus', running: false, endsAt: null, left: null, taskId: null, queue: [] },
+    /* pomo.dir: 'down' counts down to zero, 'up' counts up with no end.
+       Only the focus block honours 'up' -- a break that never ends is not a
+       break -- so a count-up session still gets a normal timed break.
+       upBase/upStart are the count-up bookkeeping: seconds banked from
+       earlier runs, and the wall clock the current run started at. */
+    pomo: {
+      mode: 'focus', dir: 'down', running: false,
+      endsAt: null, left: null, upBase: 0, upStart: null,
+      taskId: null, queue: []
+    },
     tags: DEFAULT_TAGS,
     /* User-entered festivals, keyed 'yyyy-MM-DD'. They override anything the
        built-in calendar knows: it is the user's calendar, not ours. */

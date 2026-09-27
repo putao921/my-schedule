@@ -376,6 +376,156 @@ button { font-family: inherit; cursor: pointer; }
 }
 .focus-state { font-size: 12px; color: var(--fg-soft); }
 .focus-task { font-size: 13px; color: var(--fg-soft); max-width: 90vw; text-align: center; }
+/* Direction switch + length button. Both sit above the ring so the mode is
+   chosen before the number is read, not after. */
+.seg {
+  display: inline-flex;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card);
+  box-shadow: 0 2px 0 0 var(--line);
+  overflow: hidden;
+}
+.seg-btn {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-soft);
+  padding: 7px 16px;
+  min-height: 36px;
+  cursor: pointer;
+}
+.seg-btn + .seg-btn { border-left: 2px solid var(--line); }
+.seg-btn.on { background: var(--accent); color: #fff; }
+
+.focus-dur {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dur-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card);
+  box-shadow: 0 2px 0 0 var(--line);
+  padding: 6px 14px;
+  min-height: 40px;
+  cursor: pointer;
+  font: inherit;
+}
+.dur-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
+.dur-caret { color: var(--fg-soft); font-size: 12px; }
+.dur-cap { font-size: 11px; color: var(--fg-soft); font-weight: 700; }
+.dur-note { font-size: 12px; color: var(--fg-soft); }
+.mini-up { color: var(--fg-soft); font-weight: 700; }
+
+/* --------------------------------------------------- wheel picker ----- */
+.wheel-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .42); z-index: 50; }
+.wheel-box {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 51;
+  max-height: 90vh;
+  overflow: hidden auto;
+  background: var(--bg-card);
+  border-top: 2px solid var(--line);
+  border-radius: var(--radius-widget) var(--radius-widget) 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.wheel-head {
+  display: flex; align-items: center;
+  padding: 12px 14px 8px;
+  border-bottom: 1.5px solid var(--line-soft);
+}
+.wheel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+.wheel-tabs { display: flex; gap: 8px; padding: 10px 14px 0; }
+.wtab {
+  border: 2px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card);
+  font: inherit; font-size: 13px; font-weight: 700;
+  color: var(--fg-soft);
+  padding: 6px 14px; min-height: 34px;
+  cursor: pointer;
+}
+.wtab.on { background: var(--accent); color: #fff; }
+.wheel-val {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 15px; font-weight: 700;
+  padding: 10px 14px 0;
+}
+.wheel-cols {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+}
+/* The highlight band: it is centred on the wheels, and the wheels are
+   centred in the row, so 50% lands on the selected number. */
+.wh-band {
+  position: absolute;
+  left: 14px; right: 14px; top: 50%;
+  height: 40px;
+  transform: translateY(-50%);
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card-alt);
+  pointer-events: none;
+}
+.wh-col {
+  --wh-item: 40px;                /* must match ITEM in wheel.js */
+  position: relative;             /* above the band: positioned elements
+                                     paint over static ones regardless of
+                                     DOM order, which blanked the number */
+  z-index: 1;
+  flex: 0 0 76px;
+  height: 200px;                  /* five rows: two above, two below */
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.wh-col::-webkit-scrollbar { display: none; }
+/* Padding of two rows top and bottom lets the first and the last number
+   reach the middle band. */
+.wh-items { padding: 80px 0; }
+.wh-item {
+  height: 40px;
+  line-height: 40px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--fg-soft);
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+.wh-item.on { color: var(--fg); font-size: 22px; font-weight: 700; }
+.wh-unit { position: relative; z-index: 1; font-size: 12px; color: var(--fg-soft); font-weight: 700; }
+.wheel-presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 14px 12px; }
+.wpreset {
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card);
+  font: inherit; font-size: 12px;
+  color: var(--fg-soft);
+  padding: 5px 10px; min-height: 32px;
+  cursor: pointer;
+}
+.wpreset.on { background: var(--accent-soft, var(--bg-card-alt)); color: var(--fg); font-weight: 700; }
+.wheel-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  border-top: 1.5px solid var(--line-soft);
+}
+
 .focus-ctl { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
 /* Mini floating timer: the web stand-in for the desktop app's floating

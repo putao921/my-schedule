@@ -207,6 +207,126 @@
     Store.updateEvent(id, { date: beforeDate, start: beforeStart, end: beforeStart + 60 });
   }
 
+  /* ---- 5b. count-up + wheel duration picker --------------------------- */
+  function testTimer() {
+    ok('nav.focusAgain', click('.nav-btn[data-view="focus"]'));
+    ok('timer.currentIsFocus', window.App && App.currentView() === 'focus',
+      String(window.App ? App.currentView() : 'no App'));
+    ok('timer.viewIsFocus', view().dataset.view === 'focus', view().dataset.view);
+    Focus.reset();
+
+    ok('timer.segTwo', count('.seg-btn') === 2, String(count('.seg-btn')));
+    var dur = document.getElementById('foDur');
+    ok('timer.durShown', !!dur, dur ? dur.textContent : 'none');
+
+    /* Count up: the number must climb from zero, and pausing must bank the
+       seconds so a reload or a resume keeps counting from where it stopped. */
+    click('.seg-btn[data-dir="up"]');
+    ok('timer.dirUp', Store.settings.pomo.dir === 'up', String(Store.settings.pomo.dir));
+    ok('timer.upHidesLength', !document.getElementById('foDur'));
+
+    var p = Store.settings.pomo;
+    p.running = true;
+    p.upStart = Date.now() - 125000;
+    p.upBase = 0;
+    Store.persistSettings();
+    Focus.paint();
+    var shown = (document.getElementById('foTime') || {}).textContent;
+    ok('timer.countsUp', shown === '02:05', String(shown));
+    ok('timer.upState', /正计时|count/i.test((document.getElementById('foState') || {}).textContent || ''),
+      (document.getElementById('foState') || {}).textContent);
+
+    Focus.pause();
+    var banked = Store.settings.pomo.upBase;
+    ok('timer.upBanked', banked >= 124 && banked <= 127, String(banked));
+    ok('timer.upStopped', !Store.settings.pomo.running && !Store.settings.pomo.upStart);
+
+    /* Past 99 minutes the two-digit padding must not wrap it back to 05:00. */
+    p.running = true;
+    p.upStart = Date.now() - 6300000;
+    p.upBase = 0;
+    Focus.paint();
+    var long = (document.getElementById('foTime') || {}).textContent;
+    ok('timer.over99', long === '105:00', String(long));
+
+    /* Ending a count-up logs the minutes actually sat. */
+    var before = Store.focusOn(Store.todayStr()) || 0;
+    Focus.end();
+    ok('timer.upLogged', (Store.focusOn(Store.todayStr()) || 0) - before >= 100,
+      before + ' -> ' + (Store.focusOn(Store.todayStr()) || 0));
+
+    click('.seg-btn[data-dir="down"]');
+    ok('timer.dirDown', Store.settings.pomo.dir === 'down', String(Store.settings.pomo.dir));
+    ok('timer.durBack', !!document.getElementById('foDur'));
+
+    /* ---- the wheel picker ---- */
+    ok('timer.pickerOpens', click('[data-act="fo-dur"]'));
+    var box = document.querySelector('.wheel-box');
+    ok('timer.wheelOpen', !!box && !box.hidden);
+    ok('timer.twoWheels', count('.wh-col') === 2, String(count('.wh-col')));
+    ok('timer.twoTabs', count('.wtab') === 2, String(count('.wtab')));
+    ok('timer.bandAligned', (function () {
+      var c = document.querySelector('.wh-col[data-col="m"]');
+      var b = document.querySelector('.wh-band');
+      if (!c || !b) return false;
+      var cr = c.getBoundingClientRect(), br = b.getBoundingClientRect();
+      return Math.abs((cr.top + cr.height / 2) - (br.top + br.height / 2)) <= 2;
+    })(), 'wheel centre vs band centre');
+
+    var pre45 = document.querySelector('.wpreset[data-min="45"]');
+    ok('timer.presetExists', !!pre45);
+    if (pre45) pre45.click();
+    ok('timer.presetMarked', !!pre45 && pre45.classList.contains('on'));
+    click('.wheel-foot [data-wact="ok"]');
+    ok('timer.durApplied', Store.settings.pomodoroMin === 45, String(Store.settings.pomodoroMin));
+    ok('timer.wheelClosed', !!document.querySelector('.wheel-box') &&
+      document.querySelector('.wheel-box').hidden);
+    var d2 = (document.getElementById('foDur') || {}).textContent;
+    ok('timer.durLabel', d2 === '45:00', String(d2));
+
+    /* Scrolling the minute wheel must actually change the value: the index
+       maths (scrollTop / 40) is the part that can silently drift. */
+    click('[data-act="fo-dur"]');
+    /* A real spin always starts with a finger/wheel on the column, and the
+       picker only trusts the wheel position when it saw that gesture. */
+    var mc = document.querySelector('.wh-col[data-col="m"]');
+    var hc = document.querySelector('.wh-col[data-col="h"]');
+    if (mc) {
+      mc.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      mc.scrollTop = 30 * 40;
+      mc.dispatchEvent(new Event('scroll'));
+    }
+    if (hc) { hc.scrollTop = 0; hc.dispatchEvent(new Event('scroll')); }
+
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        var marked = document.querySelector('.wh-item.on');
+        ok('timer.scrollMarked', !!marked && marked.dataset.v !== undefined,
+          marked ? marked.dataset.v : 'none');
+        click('.wheel-foot [data-wact="ok"]');
+        ok('timer.scrollValue', Store.settings.pomodoroMin === 30,
+          String(Store.settings.pomodoroMin));
+
+        /* The break tab writes the other field. */
+        click('[data-act="fo-dur"]');
+        var tb = document.querySelector('.wtab[data-key="break"]');
+        if (tb) tb.click();
+        var pre10 = document.querySelector('.wpreset[data-min="10"]');
+        ok('timer.breakPreset', !!pre10);
+        if (pre10) pre10.click();
+        click('.wheel-foot [data-wact="ok"]');
+        ok('timer.breakApplied', Store.settings.breakMin === 10, String(Store.settings.breakMin));
+
+        /* Leave the settings as they were found. */
+        Store.settings.pomodoroMin = 25;
+        Store.settings.breakMin = 5;
+        Store.persistSettings();
+        Focus.reset();
+        resolve();
+      }, 240);
+    });
+  }
+
   /* ---- 6. layout sanity ------------------------------------------------ */
   function testLayout() {
     ok('layout.noHOverflow', document.documentElement.scrollWidth <= window.innerWidth + 1,
@@ -228,6 +348,11 @@
   }
 
   function run() {
+    /* An exception inside a click listener never reaches the caller, so a
+       view that throws looks exactly like a view that is missing. Surface it. */
+    window.addEventListener('error', function (e) {
+      R.push('FAIL js.error :: ' + (e.message || '?') + ' @' + (e.lineno || '?'));
+    });
     try { testLunar(); } catch (e) { ok('lunar.crash', false, e.message); }
     try { testToday(); } catch (e) { ok('today.crash', false, e.message); }
     try { testStats(); } catch (e) { ok('stats.crash', false, e.message); }
@@ -235,6 +360,13 @@
       .catch(function (e) { ok('queue.crash', false, e.message); })
       .then(function () {
         try { testDrag(); } catch (e) { ok('drag.crash', false, e.message); }
+      })
+      .then(function () {
+        return new Promise(function (resolve) {
+          try { resolve(testTimer()); } catch (e) { ok('timer.crash', false, e.message); resolve(); }
+        });
+      })
+      .then(function () {
         try { testLayout(); } catch (e) { ok('layout.crash', false, e.message); }
         if (window.App) App.render();
         report();

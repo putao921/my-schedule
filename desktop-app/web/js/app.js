@@ -377,6 +377,13 @@
         if (window.CloudSync) CloudSync.handle('sync-signin');
       }, 300);
     }
+    /* QA hook: ?picker=1 opens the duration wheel over the focus view. */
+    if (/[?&]picker=1/.test(location.search)) {
+      go('focus');
+      setTimeout(function () {
+        if (window.Focus) Focus.openPicker();
+      }, 300);
+    }
 
     Array.prototype.forEach.call(document.querySelectorAll('.nav-btn'), function (btn) {
       btn.addEventListener('click', function () { go(btn.dataset.view); });

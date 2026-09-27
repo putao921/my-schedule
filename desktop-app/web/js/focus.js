@@ -29,12 +29,18 @@
   function pomo() {
     var s = S();
     if (!s.pomo || typeof s.pomo !== 'object') {
-      s.pomo = { mode: 'focus', running: false, endsAt: null, left: null, taskId: null, queue: [] };
+      s.pomo = {
+        mode: 'focus', dir: 'down', running: false,
+        endsAt: null, left: null, upBase: 0, upStart: null,
+        taskId: null, queue: []
+      };
     }
     var p = s.pomo;
     if (p.mode !== 'break') p.mode = 'focus';
+    if (p.dir !== 'up') p.dir = 'down';
     /* Queue holds task ids, in order. */
     if (!Array.isArray(p.queue)) p.queue = [];
+    if (typeof p.upBase !== 'number' || !isFinite(p.upBase) || p.upBase < 0) p.upBase = 0;
     return p;
   }
 
@@ -45,10 +51,23 @@
     return { focus: f > 0 ? f : 25, break: b >= 0 ? b : 5 };
   }
 
+  /* Count-up applies to the focus block only. A break that never ends is not
+     a break, so the rest block always counts down. */
+  function isUp(p) { return (p || pomo()).dir === 'up' && (p || pomo()).mode !== 'break'; }
+
+  /* Seconds counted up so far: banked seconds + the current run. */
+  function elapsed(p) {
+    p = p || pomo();
+    var base = parseInt(p.upBase, 10) || 0;
+    if (p.running && p.upStart) return base + Math.floor((Date.now() - p.upStart) / 1000);
+    return base;
+  }
+
   /* Seconds left right now: derived from the wall-clock deadline when running
      so a background tab or a reload cannot drift. */
   function remaining(p) {
     p = p || pomo();
+    if (isUp(p)) return 0;
     if (p.running && p.endsAt) {
       var left = Math.round((p.endsAt - Date.now()) / 1000);
       return left > 0 ? left : 0;
@@ -57,9 +76,19 @@
     return minutes()[p.mode] * 60;
   }
 
+  /* What the big number shows: down = time left, up = time spent. */
+  function displaySecs(p) { return isUp(p) ? elapsed(p) : remaining(p); }
+
   function total(p) {
     p = p || pomo();
     return minutes()[p.mode] * 60;
+  }
+
+  /* Is there a timer on screen at all? Used by the mini widget. */
+  function isLive(p) {
+    p = p || pomo();
+    if (p.running) return true;
+    return isUp(p) ? (!!p.upStart || (parseInt(p.upBase, 10) || 0) > 0) : (p.left !== null);
   }
 
   function save() { Store.persistSettings(); }
@@ -71,20 +100,37 @@
     /* Nothing picked by hand but a queue is waiting: take its head, so
        "queue two tasks, press start" works without a second tap. */
     if (!p.taskId && queue().length) advanceQueue();
-    var secs = remaining(p);
-    p.left = secs;
-    p.endsAt = Date.now() + secs * 1000;
-    p.running = true;
+    begin(p);
     save();
     paint();
+  }
+
+  /* Put the clock in motion for the current direction. Count-up has no
+     deadline, so it remembers when it started instead. */
+  function begin(p) {
+    if (isUp(p)) {
+      p.upStart = Date.now();
+      p.endsAt = null;
+      p.left = null;
+    } else {
+      var secs = remaining(p);
+      p.left = secs;
+      p.endsAt = Date.now() + secs * 1000;
+    }
+    p.running = true;
   }
 
   function pause() {
     var p = pomo();
     if (!p.running) return;
-    p.left = remaining(p);
+    if (isUp(p)) {
+      p.upBase = elapsed(p);
+      p.upStart = null;
+    } else {
+      p.left = remaining(p);
+      p.endsAt = null;
+    }
     p.running = false;
-    p.endsAt = null;
     save();
     paint();
   }
@@ -94,6 +140,8 @@
     p.running = false;
     p.endsAt = null;
     p.left = null;
+    p.upBase = 0;
+    p.upStart = null;
     p.mode = 'focus';
     save();
     paint();
@@ -103,12 +151,25 @@
   function endAndLog() {
     var p = pomo();
     if (p.mode === 'focus') {
-      var done = minutes().focus * 60 - remaining(p);
-      if (done > 0) addFocus(Math.max(1, Math.round(done / 60)));
+      var secs = isUp(p) ? elapsed(p) : (minutes().focus * 60 - remaining(p));
+      if (secs > 0) addFocus(Math.max(1, Math.round(secs / 60)));
     }
     reset();
     if (window.App) App.toast(txt('pomo.logged', 'logged'));
     if (window.App) App.refreshHero();
+  }
+
+  /* Switch counting direction. The running block cannot be converted in
+     place -- "12:30 left" and "12:30 spent" are different sessions -- so the
+     timer goes back to ready and the user starts again. */
+  function setDir(dir) {
+    var p = pomo();
+    dir = dir === 'up' ? 'up' : 'down';
+    if (p.dir === dir) return;
+    p.dir = dir;
+    reset();
+    if (window.App) App.toast(txt('pomo.dirChanged', 'switched to {0}')
+      .replace('{0}', dir === 'up' ? txt('pomo.countUp', 'count up') : txt('pomo.countDown', 'countdown')));
   }
 
   function addFocus(mins) {
@@ -173,8 +234,9 @@
       p.mode = 'focus';
     }
     p.left = minutes()[p.mode] * 60;
-    p.endsAt = Date.now() + p.left * 1000;
-    p.running = true;   /* the cycle carries on, like the desktop app */
+    /* A fresh count-up block starts at zero, not from the last session. */
+    if (isUp(p)) p.upBase = 0;
+    begin(p);
     save();
     notify();
     paint();
@@ -195,12 +257,16 @@
   }
 
   /* ---- rendering ------------------------------------------------------ */
+  /* mm:ss, but minutes may pass 99 when counting up: padding to two digits
+     would silently turn 105 minutes into 05. */
   function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
     var m = Math.floor(sec / 60), s = sec % 60;
-    return ('0' + m).slice(-2) + ':' + ('0' + s).slice(-2);
+    var mm = m < 100 ? ('0' + m).slice(-2) : String(m);
+    return mm + ':' + ('0' + s).slice(-2);
   }
 
-  function ring(frac) {
+  function ring(frac, up) {
     /* r=70 in a 160 viewBox; dasharray = circumference. */
     var r = 70, c = 2 * Math.PI * r;
     var shown = Math.max(0, Math.min(1, frac)) * c;
@@ -209,7 +275,17 @@
       '<circle cx="80" cy="80" r="' + r + '" fill="none" stroke="' +
       (pomo().mode === 'break' ? 'var(--accent-cool)' : 'var(--accent-warm)') +
       '" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + shown + ' ' + c +
-      '" transform="rotate(-90 80 80)"/></svg>';
+      '" transform="rotate(-90 80 80)"' + (up ? ' class="ring-up"' : '') + '/></svg>';
+  }
+
+  /* How far round the ring: counting down it drains, counting up it fills and
+     then starts a new lap against the target length -- a ring stuck at full
+     would look frozen during a long count-up session. */
+  function progress(p) {
+    var t = total(p);
+    if (!t) return 0;
+    if (isUp(p)) return (elapsed(p) % t) / t;
+    return 1 - remaining(p) / t;
   }
 
   function taskOptions() {
@@ -223,10 +299,98 @@
     return out;
   }
 
+  /* Start / Pause / Resume. "Resume" only makes sense once there is something
+     on the clock -- for count-up that means banked seconds, not p.left. */
+  function mainLabel(p) {
+    if (p.running) return txt('pomo.pause', 'Pause');
+    var idle = isUp(p)
+      ? (!(parseInt(p.upBase, 10) || 0) && !p.upStart)
+      : (p.left === null);
+    return idle ? txt('pomo.start', 'Start') : txt('pomo.resume', 'Resume');
+  }
+
+  /* Countdown / count-up switch. */
+  function segHtml(p) {
+    var up = p.dir === 'up';
+    return '<div class="seg" role="group" aria-label="' + esc2(txt('pomo.direction', 'Direction')) + '">' +
+      '<button class="seg-btn' + (up ? '' : ' on') + '" data-act="fo-dir" data-dir="down">' +
+      txt('pomo.countDown', 'Countdown') + '</button>' +
+      '<button class="seg-btn' + (up ? ' on' : '') + '" data-act="fo-dir" data-dir="up">' +
+      txt('pomo.countUp', 'Count up') + '</button>' +
+      '</div>';
+  }
+
+  /* The length button, and what it means: in countdown mode it is the block
+     length, in count-up mode there is nothing to count down to. */
+  function durHtml(p) {
+    if (isUp(p)) {
+      return '<div class="focus-dur">' +
+        '<span class="dur-note">' + txt('pomo.unlimited', 'no limit - tap end to log') + '</span>' +
+        '</div>';
+    }
+    return '<div class="focus-dur">' +
+      '<button class="dur-btn" data-act="fo-dur">' +
+      '<span class="dur-val" id="foDur">' + fmtTime(total(p)) + '</span>' +
+      '<span class="dur-caret">&#9662;</span>' +
+      '<span class="dur-cap">' + txt('pomo.dur', 'Length') + '</span>' +
+      '</button>' +
+      '<span class="ev-meta">' + txt('pomo.pickHint', 'tap the wheels to choose') + '</span>' +
+      '</div>';
+  }
+
+  /* Wheel picker for both block lengths. Changing it while a block is running
+     would silently redefine "how long is left", so in that case it takes
+     effect from the next block and says so. */
+  function openPicker() {
+    if (!window.Wheel) return;
+    var m = minutes();
+    Wheel.pickDuration({
+      title: txt('pomo.pick', 'Pick a length'),
+      tabs: [
+        {
+          key: 'focus', label: txt('pomo.focusLen', 'Focus'),
+          minutes: m.focus, min: 1, max: 720, step: 1,
+          presets: [5, 15, 25, 45, 60, 90]
+        },
+        {
+          key: 'break', label: txt('pomo.breakLen', 'Break'),
+          minutes: m.break, min: 0, max: 120, step: 1,
+          presets: [1, 3, 5, 10, 15, 30]
+        }
+      ],
+      onPick: function (k, mins) {
+        var s = S();
+        var p = pomo();
+        var field = k === 'break' ? 'breakMin' : 'pomodoroMin';
+        s[field] = mins;
+        var live = p.running && ((k === 'break') === (p.mode === 'break'));
+        if (live) {
+          save();
+          if (window.App) {
+            App.toast(txt('pomo.durNext', 'from the next block: {0}').replace('{0}', Wheel.label(mins)));
+            App.render();
+          }
+          return;
+        }
+        /* Not running (or the other block): apply straight away. */
+        if (k !== 'break' && p.mode === 'focus') { p.left = null; p.upBase = 0; p.upStart = null; }
+        if (k === 'break' && p.mode === 'break') p.left = mins * 60;
+        save();
+        if (window.App) {
+          App.toast(txt('pomo.durSet', 'length {0}').replace('{0}', Wheel.label(mins)));
+          App.render();
+        }
+      }
+    });
+  }
+
   function stateText(p) {
-    if (!p.running && p.endsAt === null && p.left === null) return txt('pomo.ready', 'ready');
-    if (!p.running) return txt('pomo.paused', 'paused');
-    return p.mode === 'break' ? txt('pomo.break', 'Break') : txt('pomo.focusing', 'Focusing');
+    var up = isUp(p);
+    var idle = !p.running && p.endsAt === null && p.left === null && !p.upStart && !(parseInt(p.upBase, 10) || 0);
+    if (idle) return up ? txt('pomo.upReady', 'count-up ready') : txt('pomo.ready', 'ready');
+    if (!p.running) return up ? txt('pomo.upPaused', 'count-up paused') : txt('pomo.paused', 'paused');
+    if (p.mode === 'break') return txt('pomo.break', 'Break');
+    return up ? txt('pomo.upRunning', 'counting up') : txt('pomo.focusing', 'Focusing');
   }
 
   function taskText(p) {
@@ -285,27 +449,27 @@
 
   function renderFocus(el) {
     var p = pomo();
-    var secs = remaining(p);
-    var frac = 1 - secs / total(p);
+    var secs = displaySecs(p);
     var running = p.running;
+    var up = isUp(p);
 
     el.innerHTML =
       '<div class="sec-head"><h3>' + txt('nav.focus', 'Focus') + '</h3>' +
       '<span class="sub">' + fmt(S().focusTodayMin) + '</span></div>' +
       '<div class="focus-wrap">' +
-      '<div class="focus-ring">' + ring(frac) +
+      segHtml(p) +
+      '<div class="focus-ring">' + ring(progress(p), up) +
       '<div style="text-align:center">' +
       '<div class="focus-time" id="foTime">' + fmtTime(secs) + '</div>' +
       '<div class="focus-state" id="foState">' + stateText(p) + '</div>' +
       '</div></div>' +
       '<div class="focus-task" id="foTask">' + esc2(taskText(p)) + '</div>' +
+      durHtml(p) +
       '<div class="field" style="width:100%;max-width:340px">' +
       '<label>' + txt('fld.fo.task', 'Task') + '</label>' +
       '<select id="foTaskSel">' + taskOptions() + '</select></div>' +
       '<div class="focus-ctl">' +
-      '<button class="btn btn-primary" data-act="fo-toggle" id="foMain">' +
-      (running ? txt('pomo.pause', 'Pause') : (p.left === null ? txt('pomo.start', 'Start') : txt('pomo.resume', 'Resume'))) +
-      '</button>' +
+      '<button class="btn btn-primary" data-act="fo-toggle" id="foMain">' + mainLabel(p) + '</button>' +
       '<button class="btn" data-act="fo-end">' + txt('pomo.endStat', 'End & log') + '</button>' +
       '<button class="btn btn-ghost" data-act="fo-reset">' + txt('focus.reset', 'Reset') + '</button>' +
       '</div>' +
@@ -345,7 +509,7 @@
   /* Update only the live parts, so the task select keeps its state. */
   function paint() {
     var p = pomo();
-    var secs = remaining(p);
+    var secs = displaySecs(p);
     var t = document.getElementById('foTime');
     if (t) t.textContent = fmtTime(secs);
     var s = document.getElementById('foState');
@@ -353,17 +517,16 @@
     var k = document.getElementById('foTask');
     if (k) k.textContent = taskText(p);
     var b = document.getElementById('foMain');
-    if (b) {
-      b.textContent = p.running ? txt('pomo.pause', 'Pause')
-        : (p.left === null ? txt('pomo.start', 'Start') : txt('pomo.resume', 'Resume'));
-    }
+    if (b) b.textContent = mainLabel(p);
+    var d = document.getElementById('foDur');
+    if (d) d.textContent = fmtTime(total(p));
     var ringEl = document.querySelector('.focus-ring');
     if (ringEl) {
       /* Cheap: rebuild only the arc. */
       var svg = ringEl.querySelector('svg');
       if (svg) {
         var tmp = document.createElement('div');
-        tmp.innerHTML = ring(1 - secs / total(p));
+        tmp.innerHTML = ring(progress(p), isUp(p));
         ringEl.replaceChild(tmp.firstChild, svg);
       }
     }
@@ -373,15 +536,15 @@
   /* ---- mini widget ---------------------------------------------------- */
   function paintMini() {
     var p = pomo();
-    var live = p.running || (p.left !== null && p.endsAt !== null) || (p.left !== null);
     var onFocusView = window.App && App.currentView && App.currentView() === 'focus';
 
-    if (!live || onFocusView) { hideMini(); return; }
+    if (!isLive(p) || onFocusView) { hideMini(); return; }
 
     var el = miniEl || (miniEl = document.createElement('div'));
     el.className = 'mini';
     el.innerHTML =
-      '<span class="mini-time">' + fmtTime(remaining(p)) + '</span>' +
+      '<span class="mini-time">' + fmtTime(displaySecs(p)) + '</span>' +
+      (isUp(p) ? '<span class="mini-up">&#8593;</span>' : '') +
       '<span class="mini-task">' + esc2(taskText(p)) + '</span>' +
       '<span class="mini-btns">' +
       '<button class="mini-btn" data-act="fo-toggle">' +
@@ -399,7 +562,8 @@
   function loop() {
     var p = pomo();
     if (p.running) {
-      if (remaining(p) <= 0) { complete(); return; }
+      /* Only a countdown can run out; a count-up runs until it is stopped. */
+      if (!isUp(p) && remaining(p) <= 0) { complete(); return; }
       paint();
     }
   }
@@ -412,11 +576,21 @@
     pause: pause,
     reset: reset,
     end: endAndLog,
+    setDir: setDir,
+    openPicker: openPicker,
+    /* Test hook: the self test needs the live seconds without waiting. */
+    seconds: displaySecs,
     /* Handles the data-act buttons used by both the view and the mini bar. */
     handle: function (act, el) {
       if (act === 'fo-toggle') { pomo().running ? pause() : start(); return true; }
       if (act === 'fo-end') { endAndLog(); if (window.App) App.render(); return true; }
       if (act === 'fo-reset') { reset(); if (window.App) App.render(); return true; }
+      if (act === 'fo-dir' && el) {
+        setDir(el.dataset.dir);
+        if (window.App) App.render();
+        return true;
+      }
+      if (act === 'fo-dur') { openPicker(); return true; }
       /* Queue buttons carry their row index in data-i. */
       if (act === 'fo-q-add') {
         var sel = document.getElementById('foQAdd');
