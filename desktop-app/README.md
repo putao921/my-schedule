@@ -60,3 +60,22 @@ fork / 新建分支 → 只改 web/ → 开 PR → 仓库所有者 review + merg
 ```
 
 > 历史说明：分支已从 `master` 改名为 `main`，默认分支为 `main`。
+
+---
+
+## 换电脑 / 跨设备恢复指南
+
+本仓库就是跨设备维护的「唯一真相源」（代码 + 协作规范都在 GitHub 上，不依赖任何单机记忆）。换电脑或重装后，按以下顺序恢复接手：
+
+1. **新机器安装 WorkBuddy 与 git**。
+   - 若本机没有 git 命令行，仍可编辑文件，但推送 GitHub 需借助带 PAT 的环境（见第 5 点）。
+2. **取得本地代码**：
+   - 有 git：`git clone https://github.com/putao921/my-schedule`
+   - 或在 WorkBuddy 中打开仓库，定位到 `desktop-app/web` 目录。
+3. **让 AI agent 修改**（任意编码 agent，或直接在 GitHub 网页改）：只改 `web/`，遵守上方「协作规范」。
+4. **本地收尾**：升 `web/sw.js` 的 `CACHE` 版本号 → 跑 `index.html?selftest=1` 确认 `SELFTEST` 全绿。
+5. **发布**：在 **WorkBuddy 内发布**（目录 `desktop-app/web`），覆盖原分享链接。
+   - 分享链接绑定 WorkBuddy 账号，**登录同一账号可继续管理同一链接**；若新实例识别为新项目，重新「发布为应用」并关联/覆盖即可。
+   - 本机若没有 git，推送 GitHub 需要一次性 Personal Access Token（PAT），用完立即在 GitHub 撤销。
+
+> 提醒：`.genie` 等 WorkBuddy 本机元数据已被 `.gitignore` 排除，新机器上由 WorkBuddy 自动重建，**不要提交它们**（含本机绝对路径）。
