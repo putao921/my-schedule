@@ -68,7 +68,7 @@
       map[k] = (map[k] || 0) + 1;
     });
     return Object.keys(map).map(function (k) {
-      return { key: k, count: map[k], color: Views.tagColor(k) };
+      return { key: k, count: map[k], color: (Views.tagStyle ? Views.tagStyle(k).bg : Views.tagColor(k)) };
     }).sort(function (a, b) { return b.count - a.count; });
   }
 

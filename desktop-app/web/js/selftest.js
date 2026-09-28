@@ -241,6 +241,87 @@
 
   /* Calendar navigation (month / week) — free scrolling, not just the current
      period. Verifies the prev/next/today controls move the cursor and re-render. */
+  /* Week view: visible range, overlapping blocks, now marker, resize grips,
+     text scaling and hex-colour readability. */
+  function testWeek() {
+    click('.nav-btn[data-view="week"]');
+    var today = Store.todayStr();
+
+    /* ---- visible hours ------------------------------------------- */
+    var ws0 = Store.settings.weekStart, we0 = Store.settings.weekEnd;
+    Store.settings.weekStart = 9; Store.settings.weekEnd = 17;
+    App.render();
+    ok('week.rangeHours', count('.week-hours .week-hour') === 8,
+      String(count('.week-hours .week-hour')));
+    ok('week.rangeSlots', count('.week-col .week-slot') === 8 * 7,
+      String(count('.week-col .week-slot')));
+    Store.settings.weekStart = ws0; Store.settings.weekEnd = we0;
+    App.render();
+    ok('week.fullHours', count('.week-hours .week-hour') === 24,
+      String(count('.week-hours .week-hour')));
+
+    /* ---- "now" marker -------------------------------------------- */
+    /* Drawn at most once, and only on today's column. */
+    var nowN = count('.week-now');
+    ok('week.nowAtMostOne', nowN <= 1, String(nowN));
+    ok('week.nowOnToday', nowN === 0 || count('.week-now') === count('.week-col.today .week-now'),
+      'now=' + nowN + ' todayCol=' + count('.week-col.today'));
+
+    /* ---- overlapping events -------------------------------------- */
+    var a = Store.newEvent({ date: today, start: 600, end: 660, title: 'ov-a', tag: 'work' });
+    var b = Store.newEvent({ date: today, start: 620, end: 700, title: 'ov-b', tag: 'life' });
+    App.render();
+    var blocks = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.wk-ev'), function (n) {
+      var ti = n.getAttribute('title') || '';
+      if (ti === 'ov-a' || ti === 'ov-b') blocks.push(n);
+    });
+    ok('week.overlapBoth', blocks.length === 2, String(blocks.length));
+    if (blocks.length === 2) {
+      var col = blocks[0].parentNode;
+      var cw = col.getBoundingClientRect().width;
+      var ra = blocks[0].getBoundingClientRect(), rb = blocks[1].getBoundingClientRect();
+      ok('week.overlapNarrower', ra.width < cw * 0.8 && rb.width < cw * 0.8,
+        Math.round(ra.width) + '/' + Math.round(rb.width) + ' of ' + Math.round(cw));
+      ok('week.overlapSideBySide', Math.abs(ra.left - rb.left) > 4,
+        Math.round(ra.left) + ' vs ' + Math.round(rb.left));
+      ok('week.overlapSameTop', Math.abs(ra.top - rb.top) < cw,
+        Math.round(ra.top) + ' vs ' + Math.round(rb.top));
+    }
+
+    /* ---- resize grips -------------------------------------------- */
+    ok('week.gripTop', count('.wk-ev .wk-h[data-handle="top"]') >= 2,
+      String(count('.wk-ev .wk-h[data-handle="top"]')));
+    ok('week.gripBottom', count('.wk-ev .wk-h[data-handle="bottom"]') >= 2,
+      String(count('.wk-ev .wk-h[data-handle="bottom"]')));
+
+    Store.removeEvent(a.id); Store.removeEvent(b.id);
+
+    /* ---- text scaling -------------------------------------------- */
+    var fs0 = Store.settings.fontScale;
+    Store.settings.fontScale = 1.3;
+    App.applyFont();
+    var got = getComputedStyle(document.documentElement).getPropertyValue('--fs').trim();
+    ok('week.fontScale', Math.abs(parseFloat(got) - 1.3) < 0.01, got);
+    Store.settings.fontScale = fs0;
+    App.applyFont();
+
+    /* ---- hex colours stay readable -------------------------------- */
+    if (window.Views && Views.tagStyle && Store.settings.tags.length) {
+      var tg = Store.settings.tags[0], oldC = tg.color;
+      tg.color = '#fafafa';
+      ok('week.lightNeedsDarkText', Views.tagStyle(tg.key).fg === '#111418',
+        Views.tagStyle(tg.key).fg);
+      tg.color = '#101010';
+      ok('week.darkNeedsLightText', Views.tagStyle(tg.key).fg === '#ffffff',
+        Views.tagStyle(tg.key).fg);
+      tg.color = oldC;
+    } else {
+      ok('week.tagStyleExported', false, 'Views.tagStyle missing');
+    }
+    App.render();
+  }
+
   function testNav() {
     function title() {
       var h = view().querySelector('.cal-title h3');
@@ -422,6 +503,7 @@
     try { testLunar(); } catch (e) { ok('lunar.crash', false, e.message); }
     try { testToday(); } catch (e) { ok('today.crash', false, e.message); }
     try { testRepeat(); } catch (e) { ok('repeat.crash', false, e.message); }
+    try { testWeek(); } catch (e) { ok('week.crash', false, e.message); }
     try { testNav(); } catch (e) { ok('nav.crash', false, e.message); }
     try { testStats(); } catch (e) { ok('stats.crash', false, e.message); }
     testQueue()

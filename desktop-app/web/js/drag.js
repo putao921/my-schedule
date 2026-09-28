@@ -32,6 +32,28 @@
   var pointerId = null;
   var suppressClick = false;
 
+  var mode = 'move';      /* 'move' (whole block) or 'resize' (top/bottom edge) */
+  var edge = null;        /* 'top' | 'bottom' while resizing */
+  var rbadge = null;      /* live "09:00 - 10:30" readout while resizing */
+  var dropLine = null;    /* horizontal line showing the snapped drop time */
+  var pending = null;     /* { start, end } staged by a resize */
+
+  /* Visible window, in minutes. The week grid can show a sub-range of the day,
+     so every y -> time conversion must be relative to that window, not to
+     midnight -- otherwise dragging inside a 09:00-18:00 grid lands 9h off. */
+  function windowMins() {
+    var s = (window.Store && Store.settings) || {};
+    var ws = Math.max(0, Math.min(23, s.weekStart | 0));
+    var we = s.weekEnd | 0;
+    if (!we || we <= ws) we = 24;
+    we = Math.min(24, we);
+    return { lo: ws * 60, hi: we * 60 };
+  }
+
+  /* Snap to 15 minutes: finer than that is unreadable on a phone and the
+     stored event would look different from what the grid shows. */
+  function snap(m) { return Math.round(m / 15) * 15; }
+
   function slotH() {
     var el = document.querySelector('.week-slot');
     if (el) {
@@ -49,6 +71,11 @@
     if (!el) return;
     /* Buttons inside the card keep their own behaviour. */
     if (ev.target.closest('[data-act]')) return;
+
+    /* Grabbing the top/bottom grip resizes instead of moving. */
+    var hand = ev.target.closest('[data-handle]');
+    mode = hand ? 'resize' : 'move';
+    edge = hand ? hand.dataset.handle : null;
 
     src = { id: el.dataset.ev, el: el };
     startX = ev.clientX; startY = ev.clientY;
@@ -68,10 +95,12 @@
     if (pointerId != null && ev.pointerId !== pointerId) return;
 
     if (dragging) {
+      if (mode === 'resize') { resizeAt(ev.clientY); moveRBadge(ev.clientX, ev.clientY); return; }
       moveGhost(ev.clientX, ev.clientY);
       var info = targetInfo(ev.clientX, ev.clientY);
       highlight(info);
       paintTag(info);
+      showDropLine(info);
       autoScroll(ev.clientY);
       return;
     }
@@ -90,7 +119,9 @@
     var wasDragging = dragging;
     var x = ev.clientX, y = ev.clientY;
     var info = wasDragging ? targetInfo(x, y) : null;
+    var commitResize = wasDragging && mode === 'resize' && pending;
     cancel();
+    if (commitResize) { applyResize(); return; }
     if (wasDragging) {
       /* The browser still fires a click after this pointerup. Without the
          guard, dropping a card back where it was also opens its editor --
@@ -104,19 +135,118 @@
   function cancel() {
     clearTimeout(holdTimer);
     armed = false;
-    if (dragging && src) src.el.classList.remove('is-drag');
+    if (dragging && src) src.el.classList.remove('is-drag', 'is-resize');
     dragging = false;
     if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
     ghost = null; ghostTag = null;
+    if (rbadge && rbadge.parentNode) rbadge.parentNode.removeChild(rbadge);
+    rbadge = null;
+    clearDropLine();
+    mode = 'move'; edge = null;
     Array.prototype.forEach.call(document.querySelectorAll('.drop-on'), function (n) {
       n.classList.remove('drop-on');
     });
+  }
+
+  /* ---- resize ------------------------------------------------------- */
+
+  function showRBadge() {
+    rbadge = document.createElement('div');
+    rbadge.className = 'resize-badge';
+    document.body.appendChild(rbadge);
+  }
+  function moveRBadge(x, y) {
+    if (!rbadge) return;
+    rbadge.style.left = x + 'px';
+    rbadge.style.top = y + 'px';
+  }
+
+  /* Drag the edge, keep the other edge pinned, never shorter than 15 min. */
+  function resizeAt(y) {
+    if (!src) return;
+    var col = src.el.parentNode;
+    if (!col || !col.classList || !col.classList.contains('week-col')) return;
+    var r = col.getBoundingClientRect();
+    if (r.height <= 0) return;
+    var w = windowMins();
+    var rec = Store.findEvent(src.id);
+    if (!rec) return;
+
+    var mins = snap(w.lo + ((y - r.top) / r.height) * (w.hi - w.lo));
+    mins = Math.max(w.lo, Math.min(w.hi, mins));
+
+    var st = rec.start || 0;
+    var en = rec.end != null ? rec.end : st + 60;
+    if (en <= st) en = st + 30;
+
+    if (edge === 'top') {
+      if (mins > en - 15) mins = en - 15;
+      st = Math.max(w.lo, mins);
+    } else {
+      if (mins < st + 15) mins = st + 15;
+      en = Math.min(w.hi, mins);
+    }
+    pending = { start: st, end: en };
+
+    /* Live preview: move the real block so the user sees the new span, plus
+       an exact readout, because a 10px slip is 15 minutes. */
+    var pct = function (m) { return ((m - w.lo) / (w.hi - w.lo)) * 100; };
+    src.el.style.top = pct(Math.max(st, w.lo)) + '%';
+    src.el.style.height = (pct(Math.min(en, w.hi)) - pct(Math.max(st, w.lo))) + '%';
+    if (rbadge) rbadge.textContent = Store.hhmm(st) + ' – ' + Store.hhmm(en);
+  }
+
+  function applyResize() {
+    if (!src || !pending) return;
+    var rec = Store.findEvent(src.id);
+    if (!rec) return;
+    if (pending.start === rec.start && pending.end === rec.end) { pending = null; return; }
+    var label = Store.hhmm(pending.start) + ' – ' + Store.hhmm(pending.end);
+    Store.updateEvent(src.id, { start: pending.start, end: pending.end });
+    pending = null;
+    if (window.App) {
+      App.render();
+      App.toast((window.t ? window.t('undo.resizeEvent') : 'resized: ') +
+        (rec.title || '') + ' → ' + label);
+    }
+  }
+
+  /* ---- drop alignment line ------------------------------------------ */
+
+  function clearDropLine() {
+    if (dropLine && dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
+    dropLine = null;
+  }
+
+  /* While dragging, draw a line at the exact snapped start time. Without it
+     the ghost only says "14:00" in text and you cannot tell which row it
+     will actually land on. */
+  function showDropLine(info) {
+    clearDropLine();
+    if (!info || info.mins === null || !info.el.classList.contains('week-col')) return;
+    var w = windowMins();
+    var line = document.createElement('div');
+    line.className = 'week-dropline';
+    line.style.top = (((info.mins - w.lo) / (w.hi - w.lo)) * 100) + '%';
+    var lab = document.createElement('span');
+    lab.className = 'dropline-time';
+    lab.textContent = Store.hhmm(info.mins);
+    line.appendChild(lab);
+    info.el.appendChild(line);
+    dropLine = line;
   }
 
   function begin(x, y) {
     if (!src) return;
     dragging = true; armed = false;
     src.el.classList.add('is-drag');
+    if (mode === 'resize') {
+      src.el.classList.add('is-resize');
+      showRBadge();
+      moveRBadge(x, y);
+      resizeAt(y);
+      return;
+    }
     ghost = document.createElement('div');
     ghost.className = 'card wk-ghost';
     ghost.style.width = Math.max(90, src.el.offsetWidth) + 'px';
@@ -149,8 +279,11 @@
     if (t.classList.contains('week-col')) {
       var r = t.getBoundingClientRect();
       if (r.height > 0) {
-        mins = Math.round(((y - r.top) / slotH()) * 60 / 15) * 15;
-        mins = Math.max(0, Math.min(1440 - 15, mins));
+        /* Relative to the visible window, not to midnight: with a 09:00-18:00
+           grid, the column top IS 09:00. */
+        var w = windowMins();
+        mins = snap(w.lo + ((y - r.top) / r.height) * (w.hi - w.lo));
+        mins = Math.max(w.lo, Math.min(w.hi - 15, mins));
       }
     }
     return { el: t, date: t.dataset.date, mins: mins };

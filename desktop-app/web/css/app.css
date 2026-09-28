@@ -23,6 +23,10 @@
   --nav-h: 56px;
   --content-max: 100%;
   --shell-pad: 12px;
+
+  /* Text size multiplier, driven by Settings -> Text size. App.js writes the
+     real value onto <html>; every size below is expressed as calc(Npx * --fs). */
+  --fs: 1;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -333,8 +337,9 @@ button { font-family: inherit; cursor: pointer; }
 .wk-ev {
   position: absolute;
   left: 2px; right: 2px;
+  min-width: 12px;
   padding: 2px 4px;
-  font-size: 10px;
+  font-size: calc(10px * var(--fs, 1));
   overflow: hidden;
   border: 1.5px solid var(--line);
   border-radius: 6px;
@@ -353,6 +358,87 @@ button { font-family: inherit; cursor: pointer; }
   transform: translate(-50%, -50%);
 }
 .week-col.drop-on { background: var(--accent-soft, var(--bg-card-alt)); outline: 2px dashed var(--accent); }
+
+/* Resize grips: 10px tall, sitting on the block's edges. They own the pointer
+   so the JS can tell "move the block" from "stretch the block". */
+.wk-h {
+  position: absolute;
+  left: 0; right: 0;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.wk-h-top { top: 0; }
+.wk-h-bot { bottom: 0; }
+.wk-ev.is-resize { opacity: .9; z-index: 30; box-shadow: 0 0 0 2px var(--accent); }
+
+/* "Now" marker on today's column. */
+.week-now {
+  position: absolute;
+  left: 0; right: 0;
+  height: 0;
+  border-top: 2px solid var(--accent-warm, var(--accent));
+  z-index: 20;
+  pointer-events: none;
+}
+.week-now::before {
+  content: '';
+  position: absolute;
+  left: -3px; top: -4px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent-warm, var(--accent));
+}
+.week-now > span {
+  position: absolute;
+  right: 0; top: -14px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--accent-warm, var(--accent));
+  color: var(--on-accent);
+  white-space: nowrap;
+}
+
+/* Where a dragged block will land: a line at the snapped start time. */
+.week-dropline {
+  position: absolute;
+  left: 0; right: 0;
+  height: 0;
+  border-top: 2px dashed var(--accent);
+  z-index: 25;
+  pointer-events: none;
+}
+.dropline-time {
+  position: absolute;
+  left: 0; top: -14px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Live readout while stretching a block. */
+.resize-badge {
+  position: fixed;
+  z-index: 90;
+  transform: translate(-50%, -180%);
+  padding: 2px 7px;
+  border-radius: var(--radius-btn);
+  border: 1.5px solid var(--line);
+  background: var(--bg-card);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 /* --------------------------------------------------------- focus view --- */
 .focus-wrap {
@@ -559,12 +645,26 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tagrow > input[type="text"] { flex: 1 1 90px; min-width: 80px; }
 .tagrow > select { flex: 0 0 auto; }
+/* The swatch is now a real colour picker: the native control gives the whole
+   gamut, the strip next to it keeps the themed presets one tap away. */
 .swatch {
-  width: 28px; height: 28px;
+  width: 34px; height: 30px;
   border-radius: var(--radius-btn);
   border: 1.5px solid var(--line);
   flex: 0 0 auto;
   padding: 0;
+  background: none;
+  cursor: pointer;
+}
+.swatch::-webkit-color-swatch-wrapper { padding: 2px; }
+.swatch::-webkit-color-swatch { border: none; border-radius: 4px; }
+.swatches { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.mini-swatch {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  padding: 0;
+  cursor: pointer;
 }
 .row2 { display: flex; gap: 8px; flex-wrap: wrap; }
 .row2 > .field { flex: 1 1 140px; margin-bottom: 8px; }
@@ -1021,3 +1121,41 @@ button { font-family: inherit; cursor: pointer; }
   .day { min-height: 82px; }
   .mini { left: 248px; }
 }
+
+/* ------------------------------------------------------------ text size -- */
+/* Settings -> Text size writes --fs on <html>. The stylesheet declares sizes
+   in px, so each rule that matters is re-declared here as calc(base * --fs).
+   Appended last on purpose: these overrides must win over the base rules. */
+body, .card, .field, label, input, select, textarea, button {
+  font-size: calc(14px * var(--fs, 1));
+}
+.hero-pill { font-size: calc(13px * var(--fs, 1)); }
+.hero-dow { font-size: calc(12px * var(--fs, 1)); }
+.hero-clock { font-size: calc(15px * var(--fs, 1)); }
+.hero-label { font-size: calc(12px * var(--fs, 1)); }
+.ev-title { font-size: calc(14px * var(--fs, 1)); }
+.ev-meta { font-size: calc(11px * var(--fs, 1)); }
+.chip { font-size: calc(10px * var(--fs, 1)); }
+.sec-head h3 { font-size: calc(13px * var(--fs, 1)); }
+.sec-head .sub { font-size: calc(11px * var(--fs, 1)); }
+.cal-title h3 { font-size: calc(15px * var(--fs, 1)); }
+.month-dow { font-size: calc(11px * var(--fs, 1)); }
+.day { font-size: calc(11px * var(--fs, 1)); }
+.week-hours { font-size: calc(9px * var(--fs, 1)); }
+.wk-ev { font-size: calc(10px * var(--fs, 1)); }
+.nav-txt { font-size: calc(11px * var(--fs, 1)); }
+.today-day { font-size: calc(18px * var(--fs, 1)); }
+.today-dow { font-size: calc(11px * var(--fs, 1)); }
+.focus-time { font-size: calc(40px * var(--fs, 1)); }
+.focus-state { font-size: calc(12px * var(--fs, 1)); }
+.focus-task { font-size: calc(13px * var(--fs, 1)); }
+.dur-val { font-size: calc(20px * var(--fs, 1)); }
+.dur-note, .dur-caret, .dur-cap { font-size: calc(12px * var(--fs, 1)); }
+.wh-item { font-size: calc(15px * var(--fs, 1)); }
+.wh-item.on { font-size: calc(22px * var(--fs, 1)); }
+.wh-unit { font-size: calc(12px * var(--fs, 1)); }
+.sheet-head h2 { font-size: calc(16px * var(--fs, 1)); }
+.wheel-head h2 { font-size: calc(16px * var(--fs, 1)); }
+.mini-time { font-size: calc(18px * var(--fs, 1)); }
+.mini-task { font-size: calc(11px * var(--fs, 1)); }
+.acct-mail { font-size: calc(12px * var(--fs, 1)); }

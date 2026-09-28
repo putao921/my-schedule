@@ -80,6 +80,44 @@
     return tagList().map(function (x) { return x.key; });
   }
 
+  /* A tag's colour may be either a CSS custom-property name (the original
+     scheme, e.g. '--accent') or a literal hex ('#3a7bd5'). Hex lets the user
+     pick any colour they like. We also pick readable text (black/white) from
+     luminance, because a light block with light text was the readability bug. */
+  function isHex(c) { return typeof c === 'string' && c.charAt(0) === '#'; }
+  function luminance(hex) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = parseInt(h.substr(0, 2), 16) / 255,
+        g = parseInt(h.substr(2, 2), 16) / 255,
+        b = parseInt(h.substr(4, 2), 16) / 255;
+    var f = function (v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  function tagStyle(tag) {
+    var c = tagColor(tag);
+    if (isHex(c)) {
+      return { bg: c, fg: luminance(c) > 0.55 ? '#111418' : '#ffffff' };
+    }
+    return { bg: 'var(' + c + ')', fg: 'var(--on-accent)' };
+  }
+
+  /* For the colour picker: a CSS var resolves to an rgb() at runtime, which the
+     <input type=color> cannot show, so we turn it into hex. Falls back to a
+     neutral grey when the var is unknown. */
+  function resolveHex(c) {
+    if (isHex(c)) return c;
+    try {
+      var raw = getComputedStyle(document.documentElement).getPropertyValue(c).trim();
+      var m = raw.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        var h = function (n) { n = (+n).toString(16); return n.length < 2 ? '0' + n : n; };
+        return '#' + h(m[1]) + h(m[2]) + h(m[3]);
+      }
+    } catch (e) { }
+    return '#888888';
+  }
+
   /* ---- search --------------------------------------------------------- */
   /* One query filters every list-shaped view; month/week keep their shape and
      simply drop non-matching records. */
@@ -106,7 +144,7 @@
       '<div class="ev-title' + (e.done ? ' done' : '') + '">' + esc(e.title || t('gen.untitled')) + '</div>' +
       '<div class="ev-meta">' + Store.hhmm(e.start) + '-' + Store.hhmm(e.end) + '</div>' +
       '</span>' +
-      '<span class="chip" data-tag="' + esc(e.tag) + '" style="background:var(' + tagColor(e.tag) + ')">' +
+      '<span class="chip" data-tag="' + esc(e.tag) + '" style="background:' + tagStyle(e.tag).bg + ';color:' + tagStyle(e.tag).fg + '">' +
       esc(e.tag) + '</span>' +
       '<div class="row-actions">' +
       '<button class="mini-btn" data-act="edit-ev" data-id="' + e.id + '">' + esc(t('btn.edit')) + '</button>' +
@@ -217,8 +255,8 @@
 
     var dots = '';
     for (var i = 0; i < Math.min(evs.length, 3); i++) {
-      dots += '<div class="day-dot" data-tag="' + esc(evs[i].tag) + '" style="background:var(' +
-        tagColor(evs[i].tag) + ')"></div>';
+      dots += '<div class="day-dot" data-tag="' + esc(evs[i].tag) + '" style="background:' +
+        tagStyle(evs[i].tag).bg + '"></div>';
     }
 
     var lunar = '';
@@ -261,13 +299,58 @@
   }
 
   /* --------------------------------------------------------------- week -- */
+
+  /* Side-by-side layout for overlapping events.
+   *
+   * Blocks are absolutely positioned, so two events at 09:00 used to sit
+   * exactly on top of each other -- the second one was invisible. We bucket
+   * events into clusters of transitive overlap, then hand each member a
+   * column index plus the cluster's total column count; the renderer turns
+   * that into left/width percentages. */
+  function layoutWeek(evs) {
+    var items = evs.map(function (e) {
+      var st = e.start || 0;
+      var en = e.end !== undefined && e.end !== null ? e.end : st + 60;
+      if (en <= st) en = st + 30;
+      return { e: e, st: st, en: en, col: 0, cols: 1 };
+    }).sort(function (a, b) { return a.st - b.st || a.en - b.en; });
+
+    var cluster = [], clusterEnd = -1;
+    function flush() {
+      var colEnd = [];          /* last occupied minute per column */
+      cluster.forEach(function (it) {
+        var placed = false;
+        for (var c = 0; c < colEnd.length; c++) {
+          if (colEnd[c] <= it.st) { colEnd[c] = it.en; it.col = c; placed = true; break; }
+        }
+        if (!placed) { it.col = colEnd.length; colEnd.push(it.en); }
+      });
+      var n = colEnd.length || 1;
+      cluster.forEach(function (it) { it.cols = n; });
+      cluster = []; clusterEnd = -1;
+    }
+    items.forEach(function (it) {
+      if (cluster.length && it.st >= clusterEnd) flush();
+      cluster.push(it);
+      if (it.en > clusterEnd) clusterEnd = it.en;
+    });
+    if (cluster.length) flush();
+    return items;
+  }
+
   function renderWeek(el, cursor) {
     var start = Store.startOfWeek(cursor || new Date());
     var dn = dowNames();
     var todayS = Store.todayStr();
 
+    /* Visible window: a sub-range of the 24h day. ws/we are hours [0..24]. */
+    var ws = Math.max(0, Math.min(23, Store.settings.weekStart | 0));
+    var we = Math.max(ws + 1, Math.min(24, Store.settings.weekEnd | 0));
+    var lo = ws * 60, hi = we * 60;
+    var rangeMins = hi - lo;
+
     var hours = '';
-    for (var h = 0; h < 24; h++) {
+    for (var h = ws; h < we; h++) {
       hours += '<div class="week-hour">' + (h < 10 ? '0' : '') + h + '</div>';
     }
 
@@ -278,29 +361,47 @@
       var s = Store.iso(d);
       var evs = Store.expandedEventsOn(s).filter(matchEvent);
 
-      /* 24 slot cells give the column its height (blocks are absolutely
-         positioned, so without them the column collapses to zero) and act as
-         the drop grid for drag-to-reschedule. */
+      /* One slot per visible hour keeps the column height correct; blocks are
+         absolutely positioned and referenced to the visible window. */
       var slots = '';
-      for (var h2 = 0; h2 < 24; h2++) slots += '<div class="week-slot"></div>';
+      for (var h2 = ws; h2 < we; h2++) slots += '<div class="week-slot"></div>';
 
       var blocks = '';
-      for (var j = 0; j < evs.length; j++) {
-        var e = evs[j];
-        /* Percentages, not pixels: the slot height changes per breakpoint, so
-           a fixed 40px/hour would drift out of alignment on tablets. */
-        var st = e.start || 0;
-        var en = e.end !== undefined && e.end !== null ? e.end : st + 60;
-        if (en <= st) en = st + 30;
-        var topPct = (st / 1440) * 100;
-        var hPct = ((en - st) / 1440) * 100;
+      var laid = layoutWeek(evs);
+      /* The "now" marker: only drawn on today's column, and only when the
+         current time falls inside the visible window. */
+      var nowMark = '';
+      if (s === todayS) {
+        var nd = new Date();
+        var nMins = nd.getHours() * 60 + nd.getMinutes();
+        if (nMins >= lo && nMins <= hi) {
+          nowMark = '<div class="week-now" style="top:' + ((nMins - lo) / rangeMins) * 100 +
+            '%"><span>' + esc(t('week.now')) + ' ' + Store.hhmm(nMins) + '</span></div>';
+        }
+      }
+      for (var j = 0; j < laid.length; j++) {
+        var e = laid[j].e;
+        var st = laid[j].st, en = laid[j].en;
+        /* Clip to the visible window: an off-window event still shows a sliver
+           so the user can drag it back, rather than vanishing silently. */
+        if (en <= lo || st >= hi) continue;
+        var sClip = Math.max(st, lo), eClip = Math.min(en, hi);
+        var st0 = tagStyle(e.tag);
+        var topPct = ((sClip - lo) / rangeMins) * 100;
+        var hPct = ((eClip - sClip) / rangeMins) * 100;
+        var wPct = 100 / laid[j].cols;
+        var lPct = laid[j].col * wPct;
         blocks += '<div class="wk-ev" style="top:' + topPct + '%;height:' + hPct +
-          '%;background:var(' + tagColor(e.tag) + ');color:var(--on-accent)" ' +
+          '%;left:calc(2px + ' + lPct + '%);width:calc(' + wPct + '% - 3px);right:auto;' +
+          'background:' + st0.bg + ';color:' + st0.fg + '" ' +
           'data-ev="' + e.id + '" title="' + esc(e.title) + '">' +
-          esc(e.title) + '</div>';
+          esc(e.title) +
+          '<div class="wk-h wk-h-top" data-handle="top"></div>' +
+          '<div class="wk-h wk-h-bot" data-handle="bottom"></div>' +
+          '</div>';
       }
       cols += '<div class="week-col' + (s === todayS ? ' today' : '') + '" data-date="' + s + '">' +
-        slots + blocks + '</div>';
+        slots + blocks + nowMark + '</div>';
     }
 
     var head = '<div class="month-head">';
@@ -442,18 +543,44 @@
       esc(Store.settings.breakMin) + '"></div>' +
       '</div></div>';
 
+    /* ---- font size --------------------------------------------------- */
+    out += '<div class="sec-head"><h3>' + esc(t('set.font')) + '</h3></div>';
+    out += '<div class="card">' +
+      '<div class="field"><label>' + esc(t('set.fontScale')) + '</label>' +
+      '<input type="range" id="setFont" min="0.8" max="1.4" step="0.05" value="' +
+      esc(Store.settings.fontScale) + '">' +
+      '<span class="ev-meta" id="setFontVal">' + Math.round(Store.settings.fontScale * 100) + '%</span>' +
+      '</div></div>';
+
+    /* ---- week time range -------------------------------------------- */
+    out += '<div class="sec-head"><h3>' + esc(t('set.weekRange')) + '</h3>' +
+      '<span class="sub">' + esc(t('set.weekRangeHint')) + '</span></div>';
+    var hrs = function (sel) {
+      var s = '';
+      for (var hh = 0; hh <= 24; hh++) {
+        s += '<option value="' + hh + '"' + (Store.settings[sel] === hh ? ' selected' : '') + '>' +
+          (hh < 10 ? '0' : '') + hh + ':00</option>';
+      }
+      return s;
+    };
+    out += '<div class="card"><div class="row2">' +
+      '<div class="field"><label>' + esc(t('set.weekStart')) + '</label>' +
+      '<select id="setWeekStart">' + hrs('weekStart') + '</select></div>' +
+      '<div class="field"><label>' + esc(t('set.weekEnd')) + '</label>' +
+      '<select id="setWeekEnd">' + hrs('weekEnd') + '</select></div>' +
+      '</div></div>';
+
     /* ---- tags ------------------------------------------------------- */
     out += '<div class="sec-head"><h3>' + esc(t('set.tags')) + '</h3>' +
       '<span class="sub">' + esc(t('set.tagsHint')) + '</span></div>';
     out += '<div class="card">' + tagList().map(function (tg, i) {
       return '<div class="tagrow">' +
-        '<button class="swatch" data-act="tag-color" data-i="' + i + '" ' +
-        'style="background:var(' + esc(tg.color) + ')" aria-label="colour"></button>' +
+        '<input type="color" class="swatch" data-tag-color="' + i + '" value="' + esc(resolveHex(tg.color)) + '" title="' + esc(t('set.color')) + '">' +
+        '<span class="swatches">' + PALETTE.map(function (p) {
+          return '<button class="mini-swatch" data-act="tag-preset" data-i="' + i +
+            '" data-color="' + p[0] + '" style="background:var(' + p[0] + ')"></button>';
+        }).join('') + '</span>' +
         '<input type="text" value="' + esc(tg.key) + '" data-tag-i="' + i + '">' +
-        '<select data-tag-color="' + i + '">' + PALETTE.map(function (p) {
-          return '<option value="' + p[0] + '"' + (tg.color === p[0] ? ' selected' : '') + '>' +
-            esc(p[1]) + '</option>';
-        }).join('') + '</select>' +
         '<button class="mini-btn" data-act="tag-del" data-i="' + i + '">&times;</button>' +
         '</div>';
     }).join('') +
@@ -483,11 +610,38 @@
     /* Settings inputs are live: no save button to forget. */
     bindSetting('setPomo', 'pomodoroMin', true);
     bindSetting('setBreak', 'breakMin', true);
+
+    /* Font scale: live, no save button. */
+    var fontEl = document.getElementById('setFont');
+    if (fontEl) {
+      fontEl.addEventListener('input', function () {
+        var v = parseFloat(fontEl.value) || 1;
+        Store.settings.fontScale = v;
+        Store.persistSettings();
+        var lab = document.getElementById('setFontVal');
+        if (lab) lab.textContent = Math.round(v * 100) + '%';
+        if (window.App) App.applyFont();
+      });
+    }
+
+    /* Week visible range. */
+    var wsEl = document.getElementById('setWeekStart'), weEl = document.getElementById('setWeekEnd');
+    var onWeek = function () {
+      var a = parseInt(wsEl.value, 10) || 0, b = parseInt(weEl.value, 10) || 24;
+      if (b <= a) { b = Math.min(24, a + 1); if (weEl.value != b) weEl.value = b; }
+      Store.settings.weekStart = a;
+      Store.settings.weekEnd = b;
+      Store.persistSettings();
+      if (window.App) App.render();
+    };
+    if (wsEl) wsEl.addEventListener('change', onWeek);
+    if (weEl) weEl.addEventListener('change', onWeek);
+
     Array.prototype.forEach.call(el.querySelectorAll('[data-tag-i]'), function (inp) {
       inp.addEventListener('change', function () { renameTag(parseInt(inp.dataset.tagI, 10), inp.value); });
     });
     Array.prototype.forEach.call(el.querySelectorAll('[data-tag-color]'), function (sel) {
-      sel.addEventListener('change', function () {
+      sel.addEventListener('input', function () {
         var i = parseInt(sel.dataset.tagColor, 10);
         Store.settings.tags[i].color = sel.value;
         Store.persistSettings();
@@ -548,6 +702,7 @@
     getQuery: getQuery,
     tagNames: tagNames,
     tagColor: tagColor,
+    tagStyle: tagStyle,
     /* Shared by the Today and Stats views, which live in their own files but
        render the same rows. */
     eventCard: eventCard,

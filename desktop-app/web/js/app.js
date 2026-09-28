@@ -16,6 +16,15 @@
     }
   }
 
+  /* Text size: one custom property scales every size the stylesheet declares
+     with calc(Npx * var(--fs)). Kept on <html> so overlays (sheet, toast,
+     wheel) scale too. */
+  function applyFont() {
+    var s = parseFloat(Store.settings.fontScale);
+    if (!s || s < 0.5 || s > 2) s = 1;
+    document.documentElement.style.setProperty('--fs', String(s));
+  }
+
   function applyLang() {
     document.documentElement.lang = Store.settings.lang;
     var map = {
@@ -346,6 +355,14 @@
           if (gone) toast(gone.key);
           return;
         }
+        case 'tag-preset': {
+          var pj = parseInt(b.dataset.i, 10);
+          if (Store.settings.tags[pj] && b.dataset.color) {
+            Store.settings.tags[pj].color = b.dataset.color;
+            Store.persistSettings(); render();
+          }
+          return;
+        }
         case 'tag-color': {
           var ci = parseInt(b.dataset.i, 10);
           var cur = Store.settings.tags[ci];
@@ -409,6 +426,7 @@
   /* --------------------------------------------------------------- boot -- */
   function boot() {
     applyTheme();
+    applyFont();
     applyLang();
 
     /* Focus registers Views.focus, so it must run before the deep-link lookup
@@ -487,6 +505,15 @@
     /* Clock ticks so the hero never shows a stale time. */
     setInterval(refreshHero, 20000);
 
+    /* The week grid's "now" marker has to creep forward. Skip the redraw while
+       a block is being dragged, or the element under the finger is replaced
+       mid-gesture and the drag dies. */
+    setInterval(function () {
+      if (current !== 'week') return;
+      if (document.querySelector('.wk-ev.is-drag, .wk-ev.is-resize')) return;
+      render();
+    }, 60000);
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(function () { });
     }
@@ -556,6 +583,7 @@
     toast: toast,
     refreshHero: refreshHero,
     applyLang: applyLang,
+    applyFont: applyFont,
     currentView: function () { return current; },
     openSearch: openSearch,
     get cursor() { return cursor; }
