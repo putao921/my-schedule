@@ -7,7 +7,7 @@
  *
  * Bump CACHE on every shell change; the old cache is deleted on activate.
  */
-var CACHE = 'myschedule-v14';
+var CACHE = 'myschedule-v15';
 
 var SHELL = [
   './',

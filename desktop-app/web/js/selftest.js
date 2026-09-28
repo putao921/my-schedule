@@ -557,6 +557,17 @@
     ok('pick.goMonth', click('.nav-btn[data-view="month"]'));
     var trig = view().querySelector('[data-act="cal-pick"]');
     ok('pick.trigger', !!trig, 'no [data-act="cal-pick"] in cal title');
+    /* The caret has to be INLINE with the title and big enough to notice --
+       parked on its own line at 9px it was invisible and nobody found the
+       picker. */
+    var caret = document.querySelector('.cal-title h3 .pick-caret');
+    ok('pick.caretInline', !!caret, 'caret not inside the title');
+    if (caret) {
+      var cr = caret.getBoundingClientRect();
+      ok('pick.caretVisible',
+        cr.width >= 5 && cr.height >= 8 && parseFloat(getComputedStyle(caret).fontSize) >= 11,
+        Math.round(cr.width) + 'x' + Math.round(cr.height) + ' @' + getComputedStyle(caret).fontSize);
+    }
     if (!trig) return;
     trig.click();
     ok('pick.opens', !document.getElementById('calPick').hidden);

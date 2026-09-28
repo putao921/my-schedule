@@ -826,10 +826,19 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--fg); font: inherit;
   display: flex; flex-direction: column; align-items: center; gap: 1px;
 }
-.cal-title h3 { font-size: 15px; margin: 0; }
+.cal-title h3 {
+  font-size: 15px; margin: 0;
+  /* A dotted rule reads as "this is tappable" without shouting. */
+  border-bottom: 1.5px dotted var(--line);
+  padding-bottom: 1px;
+}
 .cal-title .sub { font-size: 11px; color: var(--fg-soft); }
-.pick-caret { font-size: 9px; color: var(--fg-soft); line-height: 1; }
-.cal-title:active h3 { color: var(--accent); }
+.pick-caret {
+  display: inline-block; margin-left: 3px;
+  font-size: 13px; line-height: 1; color: var(--fg-soft);
+}
+.cal-title:hover h3, .cal-title:hover .pick-caret { color: var(--accent); }
+.cal-title:active h3, .cal-title:active .pick-caret { color: var(--accent); }
 
 /* Year/month jump panel: a year stepper over a 4x3 month grid. */
 .cal-picker {
