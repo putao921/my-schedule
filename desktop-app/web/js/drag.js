@@ -18,9 +18,15 @@
 (function () {
   'use strict';
 
-  var HOLD_MS = 260;      /* touch: how long before a press becomes a drag */
+  var HOLD_MS = 180;      /* touch: how long before a press becomes a drag */
   var MOVE_PX = 6;        /* mouse: how far before a press becomes a drag */
   var TOUCH_PX = 9;       /* touch: a finger is sloppier than a cursor */
+
+  /* Bumped whenever the gesture transport changes. `?dragdebug=1` shows it,
+     which is the only way to tell "the phone is running old code" apart from
+     "the gesture is broken" -- a service worker keeps serving the previous
+     shell until the page is loaded again. */
+  var BUILD = 'v11-touch';
 
   /* Blocks set touch-action:none, so the browser never steals the gesture for
      scrolling -- but that also means a move must ALWAYS start the drag. The
@@ -50,6 +56,42 @@
   /* Visible window, in minutes. The week grid can show a sub-range of the day,
      so every y -> time conversion must be relative to that window, not to
      midnight -- otherwise dragging inside a 09:00-18:00 grid lands 9h off. */
+  /* ---- ?dragdebug=1: a live readout of what the gesture actually saw -----
+   * Activated only by the query flag, so it costs nothing in normal use. */
+  var DBG = null;
+  function dbg(tag, extra) {
+    if (!DBG) return;
+    DBG.counts[tag] = (DBG.counts[tag] || 0) + 1;
+    DBG.lines.unshift(tag + (extra ? ' ' + extra : ''));
+    if (DBG.lines.length > 7) DBG.lines.pop();
+    paintDbg();
+  }
+  function paintDbg() {
+    if (!DBG || !DBG.el) return;
+    var ev = document.querySelector('.wk-ev');
+    var ta = ev ? getComputedStyle(ev).touchAction : '(no block)';
+    DBG.el.textContent =
+      'build ' + BUILD + '\n' +
+      'touch-action: ' + ta + '\n' +
+      'armed=' + armed + ' dragging=' + dragging + ' mode=' + mode + '\n' +
+      JSON.stringify(DBG.counts) + '\n' +
+      DBG.lines.join('\n');
+  }
+  function installDbg() {
+    var el = document.createElement('pre');
+    el.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:9999;margin:0;' +
+      'padding:6px 8px;max-width:74vw;font:11px/1.45 monospace;white-space:pre-wrap;' +
+      'background:rgba(0,0,0,.82);color:#9f9;border-radius:8px;pointer-events:none';
+    document.body.appendChild(el);
+    DBG = { el: el, counts: {}, lines: [] };
+    paintDbg();
+  }
+  if (location.search.indexOf('dragdebug=1') >= 0) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', installDbg);
+    } else { installDbg(); }
+  }
+
   function windowMins() {
     var s = (window.Store && Store.settings) || {};
     var ws = Math.max(0, Math.min(23, s.weekStart | 0));
@@ -407,10 +449,16 @@
 
   function onTouchStart(ev) {
     /* Two fingers belong to pinch-zoom, never to a drag. */
-    if (ev.touches.length > 1) { cancel(); return; }
+    if (ev.touches.length > 1) { dbg('ts.multi'); cancel(); return; }
     var t = ev.touches[0];
     if (!t) return;
     press(t.clientX, t.clientY, ev.target, true);
+    /* Take the gesture outright. On Android a press that is not claimed here
+       can still be reassigned to scrolling/selection later, and the drag is
+       lost mid-finger. The cost: the browser no longer synthesises a click,
+       so a plain tap is re-issued by hand in onTouchEnd. */
+    if (armed && ev.cancelable) ev.preventDefault();
+    dbg('ts', armed ? 'armed pd=' + ev.defaultPrevented : 'ignored');
   }
 
   function onTouchMove(ev) {
@@ -423,11 +471,20 @@
        touch-action:none, so nothing here fights a legitimate page scroll. */
     if (ev.cancelable) ev.preventDefault();
     travel(t.clientX, t.clientY);
+    dbg('tm', 'pd=' + ev.defaultPrevented + (dragging ? ' drag' : ' armed'));
   }
 
   function onTouchEnd(ev) {
     var t = firstTouch(ev);
-    release(t ? t.clientX : lastX, t ? t.clientY : lastY);
+    var x = t ? t.clientX : lastX, y = t ? t.clientY : lastY;
+    /* touchstart was preventDefault-ed, so no click will arrive on its own --
+       a press that never became a drag has to be turned back into a tap. */
+    var tapped = armed && !dragging && src &&
+      Math.abs(x - startX) <= TOUCH_PX && Math.abs(y - startY) <= TOUCH_PX;
+    var tapEl = src ? src.el : null;
+    release(x, y);
+    if (tapped && tapEl && tapEl.click) tapEl.click();
+    dbg('te', tapped ? 'tap' : '');
   }
 
   /* Android Chrome pops the context menu on a long press -- exactly the
@@ -441,16 +498,20 @@
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerup', onPointerUp);
   document.addEventListener('pointercancel', function (ev) {
-    /* Safari fires this for touches it reclassifies as a scroll. Ignore it
-       for fingers: Touch Events are the source of truth there. */
-    if (ev.pointerType === 'touch') return;
+    /* Safari/Android fire this for touches they reclassify as a scroll.
+       Ignore it for fingers: Touch Events are the source of truth there. */
+    if (ev.pointerType === 'touch') { dbg('pc.touch'); return; }
+    dbg('pc');
     cancel();
   });
 
-  document.addEventListener('touchstart', onTouchStart, { passive: true });
-  document.addEventListener('touchmove', onTouchMove, { passive: false });
-  document.addEventListener('touchend', onTouchEnd);
-  document.addEventListener('touchcancel', cancel);
+  /* Capture phase: the gesture must be seen before anything else can
+     stopPropagation on it, and passive:false is what makes preventDefault
+     possible during a finger move. */
+  document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+  document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+  document.addEventListener('touchend', onTouchEnd, { capture: true });
+  document.addEventListener('touchcancel', function () { dbg('tc'); cancel(); }, { capture: true });
   document.addEventListener('contextmenu', onContextMenu);
 
   /* Capture phase: the guard has to run before any view-level handler. */
