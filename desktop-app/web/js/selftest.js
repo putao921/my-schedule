@@ -207,6 +207,104 @@
     Store.updateEvent(id, { date: beforeDate, start: beforeStart, end: beforeStart + 60 });
   }
 
+  /* ---- 5c. the same gestures with a finger ------------------------------
+   * Touch, not Pointer: iOS Safari still cancels the pointer mid-drag, so the
+   * week view listens to Touch Events for fingers. A green drag suite that
+   * only exercises Pointer Events says nothing about a phone. */
+  function testTouchDrag() {
+    if (typeof Touch === 'undefined' || typeof TouchEvent === 'undefined') {
+      ok('touch.supported', false, 'no Touch/TouchEvent constructor');
+      return;
+    }
+    /* Pick a block that is actually on screen: the drop target is resolved
+       with elementFromPoint, which sees nothing outside the viewport -- a
+       green "the finger moved" test that drops into the void is worthless. */
+    var view = document.getElementById('view') || document.scrollingElement;
+    var el = null;
+    var all = document.querySelectorAll('.wk-ev');
+    for (var k = 0; k < all.length; k++) {
+      var rr0 = all[k].getBoundingClientRect();
+      if (rr0.top > 40 && rr0.bottom < window.innerHeight - 30) { el = all[k]; break; }
+    }
+    if (!el && all.length) {
+      el = all[0];
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+    if (!el) { ok('touch.hasBlock', false, 'no block'); return; }
+    var id = el.dataset.ev;
+    var rec = Store.findEvent(id);
+    if (!rec) { ok('touch.hasRecord', false, 'no record'); return; }
+
+    var slotEl = document.querySelector('.week-slot');
+    var slot = slotEl ? slotEl.getBoundingClientRect().height : 40;
+    if (!(slot > 4)) slot = 40;
+
+    function fire(type, x, y, target) {
+      var t = new Touch({ identifier: 7, target: target, clientX: x, clientY: y });
+      var list = (type === 'touchend') ? [] : [t];
+      var ev = new TouchEvent(type, {
+        bubbles: true, cancelable: true,
+        touches: list, targetTouches: list, changedTouches: [t]
+      });
+      (target || document).dispatchEvent(ev);
+      return ev;
+    }
+
+    var before = { date: rec.date, start: rec.start };
+    var beforeDur = (rec.end != null ? rec.end : rec.start + 60) - rec.start;
+
+    var r = el.getBoundingClientRect();
+    var x = r.left + r.width / 2;
+    var y = r.top + r.height / 2;
+    /* Keep the finger inside the viewport for the whole gesture. */
+    var dy = Math.min(slot * 2, Math.max(20, window.innerHeight - 60 - y));
+    if (dy < 20) { y = Math.max(60, window.innerHeight - 60 - slot * 2); dy = slot * 2; }
+
+    fire('touchstart', x, y, el);
+    var moved = null;
+    for (var i = 1; i <= 8; i++) {
+      moved = fire('touchmove', x, y + dy * (i / 8), el);
+    }
+    /* The whole point of owning the gesture: the browser must be told not to
+       scroll. iOS stops honouring preventDefault after the first move. */
+    ok('touch.preventDefault', !!moved && moved.defaultPrevented);
+    var g1 = document.querySelectorAll('.wk-ghost').length;
+    ok('touch.ghost', g1 > 0, 'ghosts=' + g1);
+    ok('touch.dropLine', !!document.querySelector('.week-dropline'), 'no drop line');
+    fire('touchend', x, y + dy, el);
+
+    var after = Store.findEvent(id);
+    ok('touch.moved', after.start !== before.start || after.date !== before.date,
+      before.start + ' -> ' + after.start);
+    ok('touch.snapped15', after.start % 15 === 0, String(after.start));
+    ok('touch.keptDuration', (after.end - after.start) === beforeDur,
+      beforeDur + ' -> ' + (after.end - after.start));
+    ok('touch.ghostRemoved', !document.querySelector('.wk-ghost'));
+
+    /* Bottom grip: stretch the end. */
+    var el2 = document.querySelector('.wk-ev[data-ev="' + id + '"]') || el;
+    var grip = el2.querySelector('.wk-h-bot');
+    ok('touch.hasGrip', !!grip);
+    if (grip) {
+      var b2 = Store.findEvent(id);
+      var endBefore = b2.end != null ? b2.end : b2.start + 60;
+      var rr = el2.getBoundingClientRect();
+      var g = grip.getBoundingClientRect();
+      var gx = g.left + g.width / 2, gy = g.top + g.height / 2;
+      var gdy = Math.min(slot, Math.max(20, window.innerHeight - 40 - gy));
+      if (gdy < 20) { gy = Math.max(60, window.innerHeight - 40 - slot); gdy = slot; }
+      fire('touchstart', gx, gy, grip);
+      for (var j = 1; j <= 8; j++) fire('touchmove', gx, gy + gdy * (j / 8), grip);
+      fire('touchend', gx, gy + gdy, grip);
+      var a2 = Store.findEvent(id);
+      var endAfter = a2.end != null ? a2.end : a2.start + 60;
+      ok('touch.resized', endAfter !== endBefore, endBefore + ' -> ' + endAfter);
+      ok('touch.resizeKeepsStart', a2.start === b2.start, b2.start + ' -> ' + a2.start);
+    }
+
+    Store.updateEvent(id, { date: before.date, start: before.start, end: before.start + 60 });
+  }
+
   /* ---- 5b. count-up + wheel duration picker --------------------------- */
   function testRepeat() {
     /* weekly: every week from Mon 2026-09-28 */
@@ -537,6 +635,7 @@
       .catch(function (e) { ok('queue.crash', false, e.message); })
       .then(function () {
         try { testDrag(); } catch (e) { ok('drag.crash', false, e.message); }
+        try { testTouchDrag(); } catch (e) { ok('touch.crash', false, e.message); }
       })
       .then(function () {
         return new Promise(function (resolve) {

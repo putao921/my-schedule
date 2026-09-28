@@ -140,6 +140,9 @@ button { font-family: inherit; cursor: pointer; }
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* Keep the rubber-band to this pane: on iOS a drag that reaches the edge
+     otherwise bounces the whole document and the gesture is lost. */
+  overscroll-behavior-y: contain;
   padding: 4px var(--shell-pad) 16px;
   width: 100%;
   max-width: var(--content-max);
@@ -349,6 +352,11 @@ button { font-family: inherit; cursor: pointer; }
      vertical move for scrolling and fired pointercancel, so a drag on a phone
      died before it began. The grid still scrolls from its empty slots. */
   touch-action: none;
+  /* A long press on iOS otherwise opens the selection magnifier / callout
+     halfway into a drag, and the gesture is cancelled under the finger. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .wk-ev.is-drag { opacity: .35; }
 .wk-ghost {

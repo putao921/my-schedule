@@ -1,12 +1,13 @@
 /* Drag-to-reschedule across days (week view) and across weeks (month view).
  *
- * Pointer events rather than HTML5 drag-and-drop: HTML5 DnD does not fire for
- * touch at all, and this app is phone-first.
- *
- * Mouse: drag starts after a few pixels of movement.
- * Touch: drag starts after a short hold, so a plain swipe still scrolls the
- * page. While dragging, touchmove is preventDefault-ed (non-passive) or the
- * browser would scroll the view out from under the finger.
+ * Mouse/pen: Pointer Events, drag starts after a few pixels of movement.
+ * Touch: plain Touch Events, NOT Pointer Events. Pointer Events exist on iOS
+ * 13+ but Safari still cancels the pointer (pointercancel) as soon as it
+ * decides the gesture might be a scroll/selection, and by then touchmove is
+ * no longer cancelable -- the drag died mid-finger. Touch Events plus an
+ * immediate preventDefault on the first owned move is the only thing that
+ * behaves the same on iOS Safari, Android Chrome and a desktop browser with
+ * touch emulation.
  *
  * Two things make this feel finished rather than merely functional:
  *   - the ghost carries the drop target and time, so a cross-day move is
@@ -33,9 +34,11 @@
   var ghostTag = null;
   var holdTimer = null;
   var startX = 0, startY = 0;
+  var lastX = 0, lastY = 0;
   var dragging = false;
   var armed = false;      /* press seen, waiting to decide drag vs scroll */
   var pointerId = null;
+  var viaTouch = false;   /* current gesture comes from a finger */
   var suppressClick = false;
 
   var mode = 'move';      /* 'move' (whole block) or 'resize' (top/bottom edge) */
@@ -71,64 +74,65 @@
     return n > 0 ? n : 40;
   }
 
-  function onDown(ev) {
-    if (ev.button != null && ev.button !== 0) return;
-    var el = ev.target.closest ? ev.target.closest('[data-ev]') : null;
+  /* Shared by mouse/pen (Pointer Events) and finger (Touch Events): every
+     gesture is reduced to press / move / release so the two transports cannot
+     drift apart. */
+  function press(x, y, target, touch) {
+    if (target && target.closest && target.closest('[data-act]')) return;
+    var el = target && target.closest ? target.closest('[data-ev]') : null;
     if (!el) return;
-    /* Buttons inside the card keep their own behaviour. */
-    if (ev.target.closest('[data-act]')) return;
 
     /* Grabbing the top/bottom grip resizes instead of moving. */
-    var hand = ev.target.closest('[data-handle]');
+    var hand = target.closest('[data-handle]');
     mode = hand ? 'resize' : 'move';
     edge = hand ? hand.dataset.handle : null;
 
     src = { id: el.dataset.ev, el: el };
-    startX = ev.clientX; startY = ev.clientY;
+    startX = x; startY = y; lastX = x; lastY = y;
     armed = true; dragging = false;
-    pointerId = ev.pointerId;
+    viaTouch = !!touch;
 
-    if (ev.pointerType === 'touch') {
+    /* A finger that presses and waits also gets a drag -- otherwise people
+       conclude "you have to be quick" and give up. */
+    if (touch) {
       clearTimeout(holdTimer);
-      holdTimer = setTimeout(function () {
-        if (armed) begin(ev.clientX, ev.clientY);
-      }, HOLD_MS);
+      holdTimer = setTimeout(function () { if (armed) begin(lastX, lastY); }, HOLD_MS);
     }
   }
 
-  function onMove(ev) {
-    if (!armed && !dragging) return;
-    if (pointerId != null && ev.pointerId !== pointerId) return;
+  function travel(x, y) {
+    if (!armed && !dragging) return false;
+    lastX = x; lastY = y;
 
     if (dragging) {
-      if (mode === 'resize') { resizeAt(ev.clientY); moveRBadge(ev.clientX, ev.clientY); return; }
-      moveGhost(ev.clientX, ev.clientY);
-      var info = targetInfo(ev.clientX, ev.clientY);
+      if (mode === 'resize') { resizeAt(y); moveRBadge(x, y); return true; }
+      moveGhost(x, y);
+      var info = targetInfo(x, y);
       highlight(info);
       paintTag(info);
       showDropLine(info);
-      autoScroll(ev.clientY);
-      return;
+      autoScroll(y);
+      return true;
     }
-    /* Not yet dragging: any move past the threshold starts it. Touch used to
-       require a full hold first, but with touch-action:none there is no
-       competing scroll gesture to disambiguate from. */
-    var dx = Math.abs(ev.clientX - startX), dy = Math.abs(ev.clientY - startY);
-    var need = ev.pointerType === 'touch' ? TOUCH_PX : MOVE_PX;
-    if (dx > need || dy > need) begin(ev.clientX, ev.clientY);
+    /* Not yet dragging: any move past the threshold starts it. The block
+       declares touch-action:none, so there is no competing scroll gesture
+       that we would have to disambiguate from. */
+    var dx = Math.abs(x - startX), dy = Math.abs(y - startY);
+    var need = viaTouch ? TOUCH_PX : MOVE_PX;
+    if (dx > need || dy > need) begin(x, y);
+    return dragging;
   }
 
-  function onUp(ev) {
+  function release(x, y) {
     clearTimeout(holdTimer);
     if (!armed && !dragging) return;
     var wasDragging = dragging;
-    var x = ev.clientX, y = ev.clientY;
     var info = wasDragging ? targetInfo(x, y) : null;
     var commitResize = wasDragging && mode === 'resize' && pending;
     cancel();
     if (commitResize) { applyResize(); return; }
     if (wasDragging) {
-      /* The browser still fires a click after this pointerup. Without the
+      /* The browser still fires a click after this release. Without the
          guard, dropping a card back where it was also opens its editor --
          which looks like the app mis-read a drag as a tap. */
       suppressClick = true;
@@ -354,11 +358,6 @@
     }
   }
 
-  /* A dragging finger must not scroll the page. */
-  function onTouchMove(ev) {
-    if (dragging && ev.cancelable) ev.preventDefault();
-  }
-
   function onClickCapture(ev) {
     if (!suppressClick) return;
     /* One click only: a fixed dead zone would also swallow the next real tap
@@ -372,11 +371,88 @@
     ev.preventDefault();
   }
 
-  document.addEventListener('pointerdown', onDown);
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-  document.addEventListener('pointercancel', cancel);
+  /* ---- transport: mouse / pen ---------------------------------------- */
+  function onPointerDown(ev) {
+    /* A finger is handled by the Touch Events below. Taking it here as well
+       would double-arm the gesture, and Safari's pointercancel would then
+       tear down a drag that Touch Events had already started. */
+    if (ev.pointerType === 'touch') return;
+    if (ev.button != null && ev.button !== 0) return;
+    press(ev.clientX, ev.clientY, ev.target, false);
+    if (!src) return;
+    pointerId = ev.pointerId;
+    /* Capture keeps the stream even when the cursor leaves the card. */
+    if (src.el.setPointerCapture) {
+      try { src.el.setPointerCapture(ev.pointerId); } catch (e) { }
+    }
+  }
+  function onPointerMove(ev) {
+    if (ev.pointerType === 'touch') return;
+    if (pointerId != null && ev.pointerId !== pointerId) return;
+    travel(ev.clientX, ev.clientY);
+  }
+  function onPointerUp(ev) {
+    if (ev.pointerType === 'touch') return;
+    if (pointerId != null && ev.pointerId !== pointerId) return;
+    release(ev.clientX, ev.clientY);
+    pointerId = null;
+  }
+
+  /* ---- transport: finger --------------------------------------------- */
+  function firstTouch(ev) {
+    if (ev.touches && ev.touches.length) return ev.touches[0];
+    if (ev.changedTouches && ev.changedTouches.length) return ev.changedTouches[0];
+    return null;
+  }
+
+  function onTouchStart(ev) {
+    /* Two fingers belong to pinch-zoom, never to a drag. */
+    if (ev.touches.length > 1) { cancel(); return; }
+    var t = ev.touches[0];
+    if (!t) return;
+    press(t.clientX, t.clientY, ev.target, true);
+  }
+
+  function onTouchMove(ev) {
+    var t = firstTouch(ev);
+    if (!t) return;
+    if (!armed && !dragging) return;      /* not our gesture: let it scroll */
+    /* We own this gesture. preventDefault has to happen on the FIRST move --
+       once iOS has begun scrolling it stops honouring it, and the drag is
+       silently cancelled under the finger. The card already declares
+       touch-action:none, so nothing here fights a legitimate page scroll. */
+    if (ev.cancelable) ev.preventDefault();
+    travel(t.clientX, t.clientY);
+  }
+
+  function onTouchEnd(ev) {
+    var t = firstTouch(ev);
+    release(t ? t.clientX : lastX, t ? t.clientY : lastY);
+  }
+
+  /* Android Chrome pops the context menu on a long press -- exactly the
+     gesture that arms a touch drag. Swallow it while one is in flight. */
+  function onContextMenu(ev) {
+    if (!armed && !dragging) return;
+    if (ev.target && ev.target.closest && ev.target.closest('[data-ev]')) ev.preventDefault();
+  }
+
+  document.addEventListener('pointerdown', onPointerDown);
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('pointercancel', function (ev) {
+    /* Safari fires this for touches it reclassifies as a scroll. Ignore it
+       for fingers: Touch Events are the source of truth there. */
+    if (ev.pointerType === 'touch') return;
+    cancel();
+  });
+
+  document.addEventListener('touchstart', onTouchStart, { passive: true });
   document.addEventListener('touchmove', onTouchMove, { passive: false });
+  document.addEventListener('touchend', onTouchEnd);
+  document.addEventListener('touchcancel', cancel);
+  document.addEventListener('contextmenu', onContextMenu);
+
   /* Capture phase: the guard has to run before any view-level handler. */
   document.addEventListener('click', onClickCapture, true);
 })();
