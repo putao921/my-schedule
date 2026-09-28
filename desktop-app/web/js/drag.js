@@ -105,6 +105,14 @@
      stored event would look different from what the grid shows. */
   function snap(m) { return Math.round(m / 15) * 15; }
 
+  /* Week blocks can be virtual instances of a repeating series (id contains
+     '@'). Store.findEvent only knows base records, so resolve the id first --
+     without this, dropping a repeating class silently did nothing. */
+  function findRec(id) {
+    var rid = (id && id.indexOf('@') > 0) ? id.split('@')[0] : id;
+    return Store.findEvent(rid);
+  }
+
   function slotH() {
     var el = document.querySelector('.week-slot');
     if (el) {
@@ -220,7 +228,7 @@
     var r = col.getBoundingClientRect();
     if (r.height <= 0) return;
     var w = windowMins();
-    var rec = Store.findEvent(src.id);
+    var rec = findRec(src.id);
     if (!rec) return;
 
     var mins = snap(w.lo + ((y - r.top) / r.height) * (w.hi - w.lo));
@@ -249,7 +257,7 @@
 
   function applyResize() {
     if (!src || !pending) return;
-    var rec = Store.findEvent(src.id);
+    var rec = findRec(src.id);
     if (!rec) return;
     if (pending.start === rec.start && pending.end === rec.end) { pending = null; return; }
     var label = Store.hhmm(pending.start) + ' – ' + Store.hhmm(pending.end);
@@ -375,7 +383,7 @@
 
   function drop(info) {
     if (!src || !info) return;
-    var rec = Store.findEvent(src.id);
+    var rec = findRec(src.id);
     if (!rec) return;
 
     var dur = (rec.end != null ? rec.end : (rec.start || 0) + 60) - (rec.start || 0);

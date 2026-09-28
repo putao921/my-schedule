@@ -139,11 +139,26 @@
   }
 
   function updateEvent(evId, patch) {
-    var realId = (evId && evId.indexOf('@') > 0) ? evId.split('@')[0] : evId;
+    var at = (evId || '').indexOf('@');
+    var realId = at > 0 ? evId.split('@')[0] : evId;
     var e = findEvent(realId);
     if (!e) return null;
-    for (var k in patch) {
-      if (Object.prototype.hasOwnProperty.call(patch, k)) e[k] = patch[k];
+    /* An instance id (base@date) on a repeating series means "this occurrence
+       only": the patch becomes a per-date exception instead of rewriting the
+       whole series. Dragging one week's class must not move every week. */
+    if (at > 0 && e.repeat && e.repeat !== 'none') {
+      var instDate = evId.slice(at + 1);
+      if (!e.exceptions) e.exceptions = {};
+      var ex = e.exceptions[instDate] || { date: instDate };
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) ex[k] = patch[k];
+      }
+      e.exceptions[instDate] = ex;
+      persist(); emit('event.update');
+      return e;
+    }
+    for (var k2 in patch) {
+      if (Object.prototype.hasOwnProperty.call(patch, k2)) e[k2] = patch[k2];
     }
     persist(); emit('event.update');
     return e;
@@ -335,8 +350,26 @@
     return inst;
   }
 
+  /* One occurrence that was dragged or edited on its own: the series clone
+     with the exception's fields painted over it. Exceptions are keyed by the
+     ORIGINAL date, and so is the instance id (base@key) -- that id must stay
+     stable even when the occurrence moves to another day, or editing it a
+     second time would fork a second exception. */
+  function instanceWith(e, ex, dateStr, key) {
+    var inst = cloneInstance(e, dateStr);
+    for (var k in ex) {
+      if (Object.prototype.hasOwnProperty.call(ex, k) && k !== 'cancel') inst[k] = ex[k];
+    }
+    inst.date = dateStr;
+    inst.id = e.id + '@' + (key || dateStr);
+    inst._repeat = true;
+    inst._exception = true;
+    return inst;
+  }
+
   /* What shows on a given day: real single-day events plus every repeating
-     instance that lands on that day. */
+     instance that lands on that day. Exceptions (dragged occurrences) both
+     override their original slot and appear on the day they were moved to. */
   function expandedEventsOn(dateStr) {
     var target = parseISO(dateStr);
     if (!target) return eventsOn(dateStr);
@@ -346,9 +379,31 @@
       if (!e || !e.date) continue;
       if (e.repeat && e.repeat !== 'none') {
         var base = parseISO(e.date);
-        if (base && repeatsOn(e, base, target)) out.push(cloneInstance(e, dateStr));
+        var ex = e.exceptions ? e.exceptions[dateStr] : null;
+        if (ex) {
+          /* This occurrence was moved/edited on its own; the series rule no
+             longer speaks for it. An occurrence dragged elsewhere renders on
+             its new day (second pass below), not here. */
+          if (!ex.cancel && (ex.date || dateStr) === dateStr) {
+            out.push(instanceWith(e, ex, dateStr));
+          }
+        } else if (base && repeatsOn(e, base, target)) {
+          out.push(cloneInstance(e, dateStr));
+        }
       } else if (e.date === dateStr) {
         out.push(e);
+      }
+    }
+    /* Second pass: occurrences dragged INTO this day. Their exception is
+       stored under the original date, so the first pass never saw them. */
+    for (var j = 0; j < data.events.length; j++) {
+      var ev = data.events[j];
+      if (!ev || !ev.exceptions) continue;
+      for (var d in ev.exceptions) {
+        if (!Object.prototype.hasOwnProperty.call(ev.exceptions, d)) continue;
+        var ex2 = ev.exceptions[d];
+        if (ex2.cancel || d === dateStr || ex2.date !== dateStr) continue;
+        out.push(instanceWith(ev, ex2, dateStr, d));
       }
     }
     out.sort(function (a, b) { return (a.start || 0) - (b.start || 0); });

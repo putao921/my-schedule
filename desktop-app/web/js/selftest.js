@@ -330,9 +330,31 @@
     /* yearly */
     var y = Store.newEvent({ date: '2026-03-01', start: 9 * 60, end: 10 * 60, title: '年庆', repeat: 'yearly', repeatEvery: 1 });
     ok('repeat.yearlyNext', Store.expandedEventsOn('2027-03-01').some(function (e) { return e.id === y.id + '@2027-03-01'; }));
-    /* editing an instance hits the base event (whole series) */
+
+    /* Dragging ONE occurrence of a series must become a per-date exception:
+       this is what a finger-drag of a repeating class writes through. */
+    var s = Store.newEvent({ date: base, start: 8 * 60, end: 9 * 60, title: '系列课', tag: 'work', repeat: 'weekly', repeatEvery: 1 });
+    var instId = s.id + '@2026-10-05';
+    Store.updateEvent(instId, { start: 10 * 60, end: 11 * 60 });
+    var ex1 = Store.expandedEventsOn('2026-10-05').filter(function (e) { return e.id === instId; })[0] || {};
+    ok('repeat.exResized', ex1.start === 600 && ex1.end === 660, JSON.stringify(ex1.start) + '/' + JSON.stringify(ex1.end));
+    var sameWeek = Store.expandedEventsOn('2026-10-12').filter(function (e) { return e.id === s.id + '@2026-10-12'; })[0] || {};
+    ok('repeat.exIsolated', sameWeek.start === 480, String(sameWeek.start));
+    Store.updateEvent(instId, { date: '2026-10-07', start: 14 * 60, end: 15 * 60 });
+    var wed = Store.expandedEventsOn('2026-10-07').filter(function (e) { return e.id === instId; })[0] || {};
+    ok('repeat.exMoved', wed.date === '2026-10-07' && wed.start === 840, JSON.stringify(wed));
+    ok('repeat.exVacated', !Store.expandedEventsOn('2026-10-05').some(function (e) { return e.id === instId; }));
+    var kept = Store.expandedEventsOn('2026-10-12').filter(function (e) { return e.id === s.id + '@2026-10-12'; })[0] || {};
+    ok('repeat.exSeriesKept', kept.start === 480, String(kept.start));
+    Store.removeEvent(s.id);
+    /* Editing an occurrence is a per-date exception now; the base record is
+       only touched when the base id itself is used. */
     Store.updateEvent(id + '@2026-10-05', { title: '周会改' });
-    ok('repeat.editBase', Store.findEvent(id).title === '周会改', String(Store.findEvent(id).title));
+    var exOcc = Store.expandedEventsOn('2026-10-05').filter(function (e) { return e.id === id + '@2026-10-05'; })[0] || {};
+    ok('repeat.editInstance', exOcc.title === '周会改' && Store.findEvent(id).title === '周会',
+      JSON.stringify(exOcc.title) + '/' + String(Store.findEvent(id).title));
+    Store.updateEvent(id, { title: '系列改名' });
+    ok('repeat.editBase', Store.findEvent(id).title === '系列改名', String(Store.findEvent(id).title));
     /* cleanup so repeated runs stay clean */
     Store.removeEvent(id); Store.removeEvent(d.id); Store.removeEvent(m.id); Store.removeEvent(y.id);
   }
