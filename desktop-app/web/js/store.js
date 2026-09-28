@@ -46,6 +46,12 @@
       endsAt: null, left: null, upBase: 0, upStart: null,
       taskId: null, queue: []
     },
+    /* Week view can show a sub-range of the 24h day (desktop app let you pick
+       the visible window). 0 = 00:00, 24 = 24:00. */
+    weekStart: 0,
+    weekEnd: 24,
+    /* Global UI font scale; 1 = default. Applied as --fs on :root. */
+    fontScale: 1,
     tags: DEFAULT_TAGS,
     /* User-entered festivals, keyed 'yyyy-MM-DD'. They override anything the
        built-in calendar knows: it is the user's calendar, not ours. */
@@ -205,7 +211,15 @@
     if (!next) return;
     data.events = Array.isArray(next.events) ? next.events : [];
     data.tasks = Array.isArray(next.tasks) ? next.tasks : [];
-    persist(); emit('replace');
+    /* Settings ride along too, so tags/colours/week-range/font travel with the
+       data when a user signs in on a second device. Only keys we already know
+       are copied in; a stray key from a future build is ignored on purpose. */
+    if (next.settings && typeof next.settings === 'object') {
+      Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
+        if (next.settings[k] !== undefined) settings[k] = next.settings[k];
+      });
+    }
+    persist(); persistSettings(); emit('replace');
   }
 
   /* ---- helpers ---------------------------------------------------------- */
@@ -367,7 +381,10 @@
     settings: settings,
     get events() { return data.events; },
     get tasks() { return data.tasks; },
-    raw: function () { return data; },
+    /* Events + tasks are the user's data; settings (tags, week range, font…)
+       are bundled so a cloud pull restores the whole picture, not just the
+       records. exportData() serialises the same shape. */
+    raw: function () { return { events: data.events, tasks: data.tasks, settings: settings }; },
     onChange: onChange,
     emit: emit,
     persist: persist,
