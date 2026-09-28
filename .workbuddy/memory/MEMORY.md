@@ -85,7 +85,7 @@
 ## PWA 网页版（持续更新与发布规范 —— 对应"用其他 AI agent 长期维护"）
 - **源码位置**：`desktop-app/web/`（`index.html` + `css/app.css` + `js/*.js` + `sw.js` + `manifest.webmanifest`）。纯原生 HTML/CSS/JS，无构建步骤，PWA（可安装、离线缓存）。
 - **发布是唯一外部动作**：线上分享链接由 WorkBuddy「发布为应用」(`workbuddy_sites_deploy`) 管理，链接绑定到这个目录。任何 AI agent 都能改文件，但**只有在本 WorkBuddy 工作区里触发发布**才能更新线上链接；外部 agent（Claude Code / Codex / Cursor）改完代码后，仍需回到这里发布。
-- **SW 缓存版本是头号坑**：每次改了 JS/CSS/HTML，必须同步把 `sw.js` 里的 `CACHE = 'myschedule-vN'` 版本号 +1（当前 v9 已发布），否则用户端永远命中旧缓存、看不到更新。新增顶层脚本要加进 `sw.js` 的 `SHELL` 缓存清单。
+- **SW 缓存版本是头号坑**：每次改了 JS/CSS/HTML，必须同步把 `sw.js` 里的 `CACHE = 'myschedule-vN'` 版本号 +1（当前 v10 待发布），否则用户端永远命中旧缓存、看不到更新。新增顶层脚本要加进 `sw.js` 的 `SHELL` 缓存清单。
 - **自测**：开 `index.html?selftest=1` 即可跑全套（headless 用 `chrome --headless --dump-dom` 读 `#selftestReport` / `document.title` 的 `SELFTEST X/Y`）。覆盖 lunar/today/stats/queue/drag/layout + 28 条专注计时用例（count-up、滚轮选择器、跨天拖拽等）。`drag.ghostWithTag`/`drag.crossDay` 仅在 headless 合成手势下失败，是测试坐标钳制局限，**非产品回归**（drag.js 与线上版仅 `onClickCapture` 一处差异）。
 - **本地预览**：`python -m http.server` 起静态服务即可；或直接用 WorkBuddy 预览面板。
 - **其他 AI agent 的推荐链路**：代码编辑可用任意编码 agent；WorkBuddy 内原生路径是 coding-agent 技能（可后台调度 Codex / Claude Code）。无论谁改，流程都是：改文件 → 提 git → 在 WorkBuddy 发布（保持同一链接）。
