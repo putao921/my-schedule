@@ -384,6 +384,7 @@
           Store.persistSettings(); applyLang(); render(); return;
         case 'export': exportData(); return;
         case 'import': importData(); return;
+        case 'ai-open': if (window.AIUI) AIUI.open(b.dataset.tab || 'import'); return;
 
         /* ---- tag customisation ---- */
         case 'tag-add':
@@ -525,6 +526,7 @@
 
   /* The phone's BACK key: popstate fires, whatever overlay is up closes. */
   window.addEventListener('popstate', function () {
+    if (window.AIUI && AIUI.isOpen()) { AIUI.close(true); return; }
     if (!$('sheet').hidden) closeSheet(true);
     if (!$('calPick').hidden) closeCalPicker();
   });
@@ -537,6 +539,7 @@
     /* Esc backs out of whatever overlay is on top: picker first, then the
        editor sheet. Desktop had no keyboard way out at all. */
     if (ev.key === 'Escape') {
+      if (window.AIUI && AIUI.isOpen()) { AIUI.close(); return; }
       if (!$('calPick').hidden) { closeCalPicker(); return; }
       if (!$('sheet').hidden) { closeSheet(); return; }
       return;
@@ -600,6 +603,14 @@
     $('fab').addEventListener('click', function () {
       openSheet(current === 'tasks' ? 'task' : 'event', null);
     });
+
+    if (window.AIUI) {
+      AIUI.bind();
+      $('aiFab').addEventListener('click', function () { AIUI.open(); });
+      /* QA hook: ?ai=import|plan|edit|key opens the panel on that tab. */
+      var aiTab = (location.search.match(/[?&]ai=(import|plan|edit|key)/) || [])[1];
+      if (aiTab) setTimeout(function () { AIUI.open(aiTab); }, 200);
+    }
 
     /* Search: typing filters the current view. */
     $('searchToggle').addEventListener('click', function () {

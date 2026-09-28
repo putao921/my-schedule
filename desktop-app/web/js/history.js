@@ -88,6 +88,28 @@
     notify();
   }
 
+  /* One snapshot for a whole batch. Importing a timetable writes a dozen
+     events; without this the user would need a dozen undoes to get rid of it,
+     and "undo" would look broken. Records the state from before the batch, so
+     an import is undone in a single step. */
+  function transact(fn, reason) {
+    var before = snapshot();
+    suspended = true;
+    try {
+      fn();
+    } finally {
+      suspended = false;
+    }
+    var after = snapshot();
+    if (after === before) return 0;
+    if (past.length >= LIMIT) past.shift();
+    past.push({ data: before, reason: reason || 'batch' });
+    future.length = 0;
+    base = after;
+    notify();
+    return 1;
+  }
+
   function onChange(fn) { listeners.push(fn); }
 
   /* Only data changes belong here: settings churn (theme, font, range) would
@@ -111,6 +133,7 @@
     canUndo: canUndo,
     canRedo: canRedo,
     reset: reset,
+    transact: transact,
     onChange: onChange,
     depth: function () { return { past: past.length, future: future.length }; }
   };

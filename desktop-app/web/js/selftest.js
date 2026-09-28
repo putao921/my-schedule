@@ -762,6 +762,164 @@
     document.title = 'SELFTEST ' + (R.length - fails) + '/' + R.length;
   }
 
+  /* ---- AI layer -------------------------------------------------------- */
+  /* Everything here runs against a stubbed model: the point is to prove the
+     parsing, the validation, the gap fitting and the single-undo batch, none
+     of which need a network. A model that answers nonsense and a model that
+     is unreachable are two different failures; only the first is testable. */
+  function testAI() {
+    ok('ai.exists', !!window.AI);
+
+    /* 1. Models wrap JSON in prose and fences despite being told not to. */
+    ok('ai.parseFence', (function () {
+      var o = AI.parseJSON('Sure!\n```json\n{"events":[{"title":"x"}]}\n```\nHope that helps');
+      return !!o && o.events[0].title === 'x';
+    })());
+    ok('ai.parseProse', (function () {
+      var o = AI.parseJSON('Here you go: {"a":1} -- let me know if you need more.');
+      return !!o && o.a === 1;
+    })());
+    ok('ai.parseTail', (function () {
+      var o = AI.parseJSON('{"a":1} trailing junk that is not json at all');
+      return !!o && o.a === 1;
+    })());
+    ok('ai.parseGarbage', AI.parseJSON('no json here at all') === null);
+
+    /* 2. Validation: the invented date is the one worth guarding, because
+       new Date() would happily turn February 30th into March 2nd. */
+    var norm = AI.normalizeEvents([
+      { title: '法理学', date: '2026-10-05', start: '08:00', end: '09:40', tag: 'class' },
+      { title: '二月三十日', date: '2026-02-30', start: '08:00', end: '09:00' },
+      { title: '', date: '2026-10-05', start: '08:00', end: '09:00' },
+      { title: '没时间', date: '2026-10-06' },
+      { title: '倒挂时间', date: '2026-10-07', start: '10:00', end: '09:00' },
+      { title: '每周课', date: '2026-10-08', start: '14:00', end: '15:30', repeat: 'weekly' }
+    ]);
+    ok('ai.good', norm.ok.length === 4, norm.ok.length + ' ok of 6');
+    ok('ai.badFeb30', norm.bad.some(function (b) { return b.why === 'badDate'; }));
+    ok('ai.badNoTitle', norm.bad.some(function (b) { return b.why === 'noTitle'; }));
+    ok('ai.fillsTime', norm.ok.some(function (e) { return e.title === '没时间' && e.start === 540 && e.end === 600; }));
+    ok('ai.fixesInverted', norm.ok.some(function (e) { return e.title === '倒挂时间' && e.end > e.start; }));
+    ok('ai.keepsRepeat', norm.ok.some(function (e) { return e.repeat === 'weekly' && e.repeatEvery === 1; }));
+    ok('ai.tagFallsBack', norm.ok.every(function (e) { return !!e.tag; }));
+
+    /* 3. Gaps: the complement of the day's events, inside waking hours. */
+    var today = Store.todayStr();
+    var probe = Store.newEvent({ title: '占位课', date: today, start: 10 * 60, end: 12 * 60 });
+    var gaps = AI.freeSlots(today, { dayStart: 8 * 60, dayEnd: 22 * 60, minChunk: 30 });
+    ok('ai.slotsAvoidBusy', !gaps.some(function (g) { return g.start < 720 && g.end > 600; }),
+      gaps.map(function (g) { return g.start + '-' + g.end; }).join(','));
+    /* Asserted as a total, not as "8-10 is free": the seed data already owns
+       part of today, so naming a slot would only test the seed. */
+    ok('ai.slotsSum', (function () {
+      var rs = (Store.expandedEventsOn(today) || []).map(function (e) {
+        return [Math.max(e.start || 0, 480), Math.min(e.end || ((e.start || 0) + 60), 1320)];
+      }).filter(function (r) { return r[1] > r[0]; }).sort(function (a, b) { return a[0] - b[0]; });
+      var merged = [];
+      rs.forEach(function (r) {
+        if (!merged.length || r[0] > merged[merged.length - 1][1]) merged.push(r.slice());
+        else merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], r[1]);
+      });
+      var busyMin = merged.reduce(function (a, r) { return a + (r[1] - r[0]); }, 0);
+      var freeMin = gaps.reduce(function (a, g) { return a + (g.end - g.start); }, 0);
+      return freeMin === (14 * 60 - busyMin);
+    })(), gaps.reduce(function (a, g) { return a + (g.end - g.start); }, 0) + ' free');
+
+    /* 4. Planning: 300 minutes of work must not land on that class, and must
+       respect the per-day cap. */
+    var fit = AI.assign([
+      { title: '民法第一轮', week: 1, minutes: 300, stage: '第一阶段' }
+    ], { startDate: today, weeks: 4, maxPerDayMin: 120, prefer: 'any', dayStart: 8 * 60, dayEnd: 22 * 60 });
+    ok('ai.assignPlaced', fit.events.length > 0 && fit.unplaced.length === 0,
+      fit.events.length + ' segs, ' + fit.unplaced.length + ' unplaced');
+    ok('ai.assignSum', (function () {
+      var sum = 0;
+      fit.events.forEach(function (e) { sum += e.end - e.start; });
+      return sum === 300;
+    })(), String(fit.events.reduce(function (a, e) { return a + (e.end - e.start); }, 0)));
+    ok('ai.assignNoOverlap', (function () {
+      for (var i = 0; i < fit.events.length; i++) {
+        for (var j = i + 1; j < fit.events.length; j++) {
+          var a = fit.events[i], b = fit.events[j];
+          if (a.date === b.date && a.start < b.end && b.start < a.end) return false;
+        }
+      }
+      return true;
+    })());
+    ok('ai.assignAvoidsClass', !fit.events.some(function (e) {
+      return e.date === today && e.start < 720 && e.end > 600;
+    }));
+    ok('ai.assignCap', (function () {
+      var per = {};
+      fit.events.forEach(function (e) { per[e.date] = (per[e.date] || 0) + (e.end - e.start); });
+      for (var d in per) if (per[d] > 120) return false;
+      return true;
+    })());
+    Store.removeEvent(probe.id);
+
+    /* 5. Ops: an id the model invented is rejected outright -- it cannot
+       touch anything it was not shown. */
+    var real = Store.newEvent({ title: '挪动测试', date: today, start: 9 * 60, end: 10 * 60 });
+    var ops = AI.normalizeOps([
+      { op: 'move', id: real.id, date: today, start: '11:00', end: '12:00' },
+      { op: 'move', id: 'invented-id', date: today, start: '11:00', end: '12:00' },
+      { op: 'delete', id: real.id },
+      { op: 'nonsense', id: real.id }
+    ], [real.id]);
+    ok('ai.opsTwoGood', ops.ok.length === 2, String(ops.ok.length));
+    ok('ai.opsRejectsFakeId', ops.bad.some(function (b) { return b.why === 'unknownId'; }));
+    ok('ai.opsRejectsBadOp', ops.bad.some(function (b) { return b.why === 'badOp'; }));
+    ok('ai.opsHasDiff', ops.ok[0].before.start === 540 && ops.ok[0].after.start === 660);
+    Store.removeEvent(real.id);
+
+    /* 6. The batch is one undo step, not one per event. */
+    var beforeCount = Store.events.length;
+    var depthBefore = window.Undo ? Undo.depth().past : -1;
+    var wrote = AI.applyEvents([
+      { title: 'AI-1', date: today, start: 8 * 60, end: 9 * 60, tag: 'work', note: '', repeat: 'none', repeatEvery: 1, repeatUntil: '' },
+      { title: 'AI-2', date: today, start: 9 * 60, end: 10 * 60, tag: 'work', note: '', repeat: 'none', repeatEvery: 1, repeatUntil: '' },
+      { title: 'AI-3', date: today, start: 10 * 60, end: 11 * 60, tag: 'work', note: '', repeat: 'none', repeatEvery: 1, repeatUntil: '' }
+    ]);
+    ok('ai.batchWrote', wrote === 3 && Store.events.length === beforeCount + 3);
+    /* One entry, not three -- but the stack caps at 40, so a saturated stack
+       is expected to hold its depth instead of growing. */
+    ok('ai.batchOneUndo', window.Undo ? Undo.depth().past === Math.min(40, depthBefore + 1) : false,
+      String(window.Undo ? Undo.depth().past : 'no Undo'));
+    if (window.Undo) Undo.undo();
+    ok('ai.undoAll', Store.events.length === beforeCount, String(Store.events.length));
+    if (window.Undo) Undo.redo();
+    ok('ai.redoAll', Store.events.length === beforeCount + 3);
+    if (window.Undo) Undo.undo();
+
+    /* 7. The key must never ride along with cloud sync. */
+    AI.setCfg({ apiKey: 'sk-secret-test', model: 'test-model' });
+    var shipped = JSON.stringify(Store.raw());
+    ok('ai.keyNotSynced', shipped.indexOf('sk-secret-test') < 0);
+    ok('ai.keyStoredLocal', (localStorage.getItem(AI._cfgKey) || '').indexOf('sk-secret-test') >= 0);
+    AI.setCfg({ apiKey: '', model: 'gpt-4o-mini' });
+
+    /* 8. End to end through the stubbed transport, so the wiring between
+       askJSON, normalisation and the preview shape is covered too. */
+    AI._stub(function () {
+      return Promise.resolve('```json\n{"events":[{"title":"讲座：法律职业伦理","date":"' +
+        today + '","start":"14:00","end":"16:00","tag":"work"}],"notes":"ok"}\n```');
+    });
+    return AI.askJSON([{ role: 'user', content: 'x' }]).then(function (obj) {
+      ok('ai.e2eNotes', obj.notes === 'ok');
+      var n2 = AI.normalizeEvents(obj.events);
+      ok('ai.e2eParsed', n2.ok.length === 1 && n2.ok[0].start === 840 && n2.ok[0].end === 960,
+        JSON.stringify(n2.ok[0] || {}));
+      AI._stub(null);
+      if (window.AIUI) {
+        AIUI.open('import');
+        ok('ai.panelOpens', !document.getElementById('aiSheet').hidden);
+        ok('ai.panelTabs', document.querySelectorAll('.ai-tab').length === 4);
+        AIUI.close();
+        ok('ai.panelCloses', document.getElementById('aiSheet').hidden);
+      }
+    });
+  }
+
   function run() {
     /* An exception inside a click listener never reaches the caller, so a
        view that throws looks exactly like a view that is missing. Surface it. */
@@ -791,8 +949,9 @@
       .then(function () {
         try { testLayout(); } catch (e) { ok('layout.crash', false, e.message); }
         if (window.App) App.render();
-        report();
-      });
+        return testAI().catch(function (e) { ok('ai.crash', false, e.message); });
+      })
+      .then(function () { report(); });
   }
 
   if (document.readyState === 'complete') setTimeout(run, 200);

@@ -565,6 +565,27 @@
       '<button class="btn" data-act="import">' + esc(t('sync.import')) + '</button>' +
       '</div></div>';
 
+    /* ---- AI --------------------------------------------------------- */
+    /* Three entries, because "AI" alone tells the user nothing about what it
+       will do to their data. */
+    out += '<div class="sec-head"><h3>' + esc(t('ai.title')) + '</h3>' +
+      '<span class="sub">' + esc(t('ai.subtitle')) + '</span></div>';
+    out += '<div class="card">' +
+      '<div class="card-row"><span class="grow"><b>' + esc(t('ai.tab.import')) + '</b></span>' +
+      '<span class="ev-meta">' + esc(t('ai.descImport')) + '</span></div>' +
+      '<div class="card-row"><span class="grow"><b>' + esc(t('ai.tab.plan')) + '</b></span>' +
+      '<span class="ev-meta">' + esc(t('ai.descPlan')) + '</span></div>' +
+      '<div class="card-row"><span class="grow"><b>' + esc(t('ai.tab.edit')) + '</b></span>' +
+      '<span class="ev-meta">' + esc(t('ai.descEdit')) + '</span></div>' +
+      '<div class="card-row" style="margin-top:8px;flex-wrap:wrap;gap:8px">' +
+      '<button class="btn btn-primary" data-act="ai-open" data-tab="import">' +
+      esc(t('ai.tab.import')) + '</button>' +
+      '<button class="btn" data-act="ai-open" data-tab="plan">' + esc(t('ai.tab.plan')) + '</button>' +
+      '<button class="btn" data-act="ai-open" data-tab="edit">' + esc(t('ai.tab.edit')) + '</button>' +
+      '<button class="btn btn-ghost" data-act="ai-open" data-tab="key">' +
+      esc(t('ai.tab.key')) + '</button>' +
+      '</div></div>';
+
     out += '<div class="card">' +
       '<div class="card-row" style="flex-wrap:wrap;gap:8px">' +
       '<button class="btn" data-act="go-today">' + esc(t('nav.today')) + '</button>' +

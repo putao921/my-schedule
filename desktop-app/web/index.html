@@ -56,6 +56,7 @@
 
 <!-- Floating add button. -->
 <button class="fab" id="fab" aria-label="New">+</button>
+<button class="fab fab-ai" id="aiFab" aria-label="AI">✦</button>
 
 <!-- Editor sheet (event / task). -->
 <div class="sheet-mask" id="sheetMask" hidden></div>
@@ -77,6 +78,23 @@
 <div class="sheet-mask" id="pickMask" hidden></div>
 <div class="cal-picker" id="calPick" hidden role="dialog" aria-modal="true"></div>
 
+<!-- AI panel: import a timetable, plan towards a goal, edit in plain words. -->
+<div class="sheet-mask" id="aiMask" hidden></div>
+<section class="sheet ai-sheet" id="aiSheet" hidden aria-modal="true">
+  <header class="sheet-head">
+    <h2 id="aiTitle">AI</h2>
+    <button class="sheet-x" id="aiClose" aria-label="Close">&times;</button>
+  </header>
+  <div class="ai-tabs" id="aiTabs"></div>
+  <div class="sheet-body" id="aiBody"></div>
+  <footer class="sheet-foot">
+    <span class="ai-status" id="aiStatus"></span>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost" id="aiCancel">取消</button>
+    <button class="btn btn-primary" id="aiGo">生成</button>
+  </footer>
+</section>
+
 <!-- Toast -->
 <div class="toast" id="toast" hidden></div>
 
@@ -90,6 +108,8 @@
 <script src="js/wheel.js"></script>
 <script src="js/drag.js"></script>
 <script src="js/history.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/aiui.js"></script>
 <!-- Cloud SDK (CDN form: this project has no build step). The IIFE exposes the
      global WorkBuddyCloud; loaded synchronously so cloud.js can use it. -->
 <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
