@@ -345,8 +345,10 @@ button { font-family: inherit; cursor: pointer; }
   border-radius: 6px;
   background: var(--bg-card);
   cursor: grab;
-  /* Long-press drag on touch; the JS sets panning off only while dragging. */
-  touch-action: pan-y;
+  /* touch-action:none is load-bearing. With pan-y the browser claimed every
+     vertical move for scrolling and fired pointercancel, so a drag on a phone
+     died before it began. The grid still scrolls from its empty slots. */
+  touch-action: none;
 }
 .wk-ev.is-drag { opacity: .35; }
 .wk-ghost {
@@ -364,12 +366,28 @@ button { font-family: inherit; cursor: pointer; }
 .wk-h {
   position: absolute;
   left: 0; right: 0;
-  height: 10px;
+  height: 13px;          /* tall enough for a fingertip */
   cursor: ns-resize;
   touch-action: none;
 }
 .wk-h-top { top: 0; }
 .wk-h-bot { bottom: 0; }
+/* A visible grip: without it the edges are an invisible feature -- you cannot
+   discover a handle you cannot see. currentColor keeps it readable on both
+   light and dark blocks. */
+.wk-h::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  margin-left: -7px;
+  width: 14px; height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: .5;
+}
+.wk-h-top::after { top: 4px; }
+.wk-h-bot::after { bottom: 4px; }
+.wk-ev:hover .wk-h::after { opacity: .9; }
 .wk-ev.is-resize { opacity: .9; z-index: 30; box-shadow: 0 0 0 2px var(--accent); }
 
 /* "Now" marker on today's column. */

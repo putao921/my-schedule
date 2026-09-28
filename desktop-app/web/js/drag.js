@@ -19,6 +19,12 @@
 
   var HOLD_MS = 260;      /* touch: how long before a press becomes a drag */
   var MOVE_PX = 6;        /* mouse: how far before a press becomes a drag */
+  var TOUCH_PX = 9;       /* touch: a finger is sloppier than a cursor */
+
+  /* Blocks set touch-action:none, so the browser never steals the gesture for
+     scrolling -- but that also means a move must ALWAYS start the drag. The
+     old code cancelled a touch move before the hold completed, which is why
+     dragging felt dead on a phone. */
   var EDGE_PX = 52;       /* distance from a view edge that starts scrolling */
   var CLICK_GUARD_MS = 320;
 
@@ -104,13 +110,12 @@
       autoScroll(ev.clientY);
       return;
     }
-    /* Not yet dragging: a mouse move past the threshold starts it, a touch
-       move before the hold completes means the user is scrolling. */
+    /* Not yet dragging: any move past the threshold starts it. Touch used to
+       require a full hold first, but with touch-action:none there is no
+       competing scroll gesture to disambiguate from. */
     var dx = Math.abs(ev.clientX - startX), dy = Math.abs(ev.clientY - startY);
-    if (dx > MOVE_PX || dy > MOVE_PX) {
-      if (ev.pointerType === 'mouse') begin(ev.clientX, ev.clientY);
-      else cancel();
-    }
+    var need = ev.pointerType === 'touch' ? TOUCH_PX : MOVE_PX;
+    if (dx > need || dy > need) begin(ev.clientX, ev.clientY);
   }
 
   function onUp(ev) {

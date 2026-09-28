@@ -306,6 +306,33 @@
     Store.settings.fontScale = fs0;
     App.applyFont();
 
+    /* ---- gesture affordances -------------------------------------- */
+    var ev0 = document.querySelector('.wk-ev');
+    ok('week.touchActionNone', ev0 && getComputedStyle(ev0).touchAction === 'none',
+      ev0 ? getComputedStyle(ev0).touchAction : 'no block');
+    var grip = document.querySelector('.wk-h');
+    ok('week.gripHasSize', grip && grip.getBoundingClientRect().height >= 12,
+      grip ? String(Math.round(grip.getBoundingClientRect().height)) : 'no grip');
+
+    /* ---- night theme desaturates hex picks ------------------------ */
+    if (window.Views && Views.tagStyle && Store.settings.tags.length) {
+      var tn = Store.settings.tags[0], ocN = tn.color, th0 = Store.settings.theme;
+      tn.color = '#ff0000';
+      Store.settings.theme = 'light';
+      var dayC = Views.tagStyle(tn.key).bg;
+      Store.settings.theme = 'night';
+      var nightC = Views.tagStyle(tn.key).bg;
+      Store.settings.theme = th0; tn.color = ocN;
+      ok('week.nightDesaturates', dayC !== nightC && /^#[0-9a-f]{6}$/i.test(nightC),
+        dayC + ' -> ' + nightC);
+      /* Preset colours stay variable-driven and therefore theme-aware. */
+      var tp = Store.settings.tags[0];
+      var opC = tp.color; tp.color = '--accent';
+      ok('week.presetStaysVar', Views.tagStyle(tp.key).bg.indexOf('var(') === 0,
+        Views.tagStyle(tp.key).bg);
+      tp.color = opC;
+    }
+
     /* ---- hex colours stay readable -------------------------------- */
     if (window.Views && Views.tagStyle && Store.settings.tags.length) {
       var tg = Store.settings.tags[0], oldC = tg.color;
