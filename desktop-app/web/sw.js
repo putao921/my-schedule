@@ -7,7 +7,7 @@
  *
  * Bump CACHE on every shell change; the old cache is deleted on activate.
  */
-var CACHE = 'myschedule-v12';
+var CACHE = 'myschedule-v13';
 
 var SHELL = [
   './',
@@ -24,6 +24,7 @@ var SHELL = [
   './js/focus.js',
   './js/wheel.js',
   './js/drag.js',
+  './js/history.js',
   './js/cloud.js',
   './js/app.js',
   './icons/icon-192.png',

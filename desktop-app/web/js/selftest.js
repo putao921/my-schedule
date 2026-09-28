@@ -305,6 +305,56 @@
     Store.updateEvent(id, { date: before.date, start: before.start, end: before.start + 60 });
   }
 
+  /* ---- 5d. undo / redo --------------------------------------------------
+   * The week view is drag-first, so a mis-drop has to be reversible. Covered
+   * through the Store the same way a drag writes it (updateEvent). */
+  function testUndo() {
+    if (!window.Undo) { ok('undo.exists', false, 'no Undo module'); return; }
+    ok('undo.buttons', !!document.querySelector('[data-act="undo"]') &&
+      !!document.querySelector('[data-act="redo"]'), 'missing in week header');
+
+    var e = Store.newEvent({ date: '2026-11-02', start: 9 * 60, end: 10 * 60, title: '可撤销', tag: 'work' });
+    var id = e.id;
+    /* A drag: same write path (updateEvent with date + start + end). */
+    Store.updateEvent(id, { date: '2026-11-04', start: 14 * 60, end: 15 * 60 });
+    var moved = Store.findEvent(id);
+    ok('undo.setup', moved.date === '2026-11-04' && moved.start === 840, moved.date + ' ' + moved.start);
+
+    click('[data-act="undo"]');
+    var back = Store.findEvent(id);
+    ok('undo.restored', back && back.date === '2026-11-02' && back.start === 540,
+      back ? back.date + ' ' + back.start : 'gone');
+    ok('undo.toast', !!document.querySelector('.toast'), 'no feedback');
+
+    click('[data-act="redo"]');
+    var again = Store.findEvent(id);
+    ok('undo.redone', again && again.date === '2026-11-04' && again.start === 840,
+      again ? again.date + ' ' + again.start : 'gone');
+
+    /* A delete is undoable too -- the other way to lose an entry. */
+    Store.removeEvent(id);
+    ok('undo.deleted', !Store.findEvent(id));
+    click('[data-act="undo"]');
+    ok('undo.undeleted', !!Store.findEvent(id), 'delete was not undoable');
+
+    /* Buttons must show what is actually possible. */
+    var u = document.querySelector('[data-act="undo"]');
+    ok('undo.buttonState', u && u.disabled === !Undo.canUndo(),
+      u ? 'disabled=' + u.disabled + ' canUndo=' + Undo.canUndo() : 'no button');
+
+    /* Settings are NOT part of the history: undoing a mis-drag must not also
+       rewind the font size chosen a minute ago. */
+    var fs = Store.settings.fontScale;
+    Store.settings.fontScale = 1.3; Store.persistSettings();
+    click('[data-act="undo"]');
+    ok('undo.keepsSettings', Store.settings.fontScale === 1.3,
+      String(Store.settings.fontScale));
+    Store.settings.fontScale = fs; Store.persistSettings();
+
+    var del = Store.findEvent(id);
+    if (del) Store.removeEvent(id);
+  }
+
   /* ---- 5b. count-up + wheel duration picker --------------------------- */
   function testRepeat() {
     /* weekly: every week from Mon 2026-09-28 */
@@ -658,6 +708,7 @@
       .then(function () {
         try { testDrag(); } catch (e) { ok('drag.crash', false, e.message); }
         try { testTouchDrag(); } catch (e) { ok('touch.crash', false, e.message); }
+        try { testUndo(); } catch (e) { ok('undo.crash', false, e.message); }
       })
       .then(function () {
         return new Promise(function (resolve) {

@@ -219,7 +219,17 @@
      views can be scrolled to any period, not just the one containing today.
      `cursor` (owned by app.js) is the anchor; the buttons dispatch data-act
      events that app.js turns into cursor moves. */
-  function calNav(title, sub) {
+  function calNav(title, sub, opts) {
+    /* `opts.undo` adds undo/redo: the week view is drag-first, so a mis-drop
+       needs a way back that does not involve re-dragging it by hand. */
+    var hist = opts && opts.undo
+      ? '<span class="cal-hist">' +
+        '<button class="cal-btn" data-act="undo" aria-label="' + esc(t('cal.undo')) +
+          '" title="' + esc(t('cal.undo')) + '">↶</button>' +
+        '<button class="cal-btn" data-act="redo" aria-label="' + esc(t('cal.redo')) +
+          '" title="' + esc(t('cal.redo')) + '">↷</button>' +
+        '</span>'
+      : '';
     return '<div class="sec-head cal-nav">' +
       '<button class="cal-btn" data-act="cal-prev" aria-label="' + esc(t('cal.prev')) +
         '" title="' + esc(t('cal.prev')) + '">‹</button>' +
@@ -228,6 +238,7 @@
       '<button class="cal-btn" data-act="cal-next" aria-label="' + esc(t('cal.next')) +
         '" title="' + esc(t('cal.next')) + '">›</button>' +
       '<button class="cal-today" data-act="cal-today">' + esc(t('nav.today')) + '</button>' +
+      hist +
       '</div>';
   }
 
@@ -470,7 +481,7 @@
     }
 
     el.innerHTML =
-      calNav(wkTitle, '') +
+      calNav(wkTitle, '', { undo: true }) +
       head +
       '<div class="week-wrap"><div class="week-hours">' + hours + '</div>' +
       '<div class="week-cols">' + cols + '</div></div>';

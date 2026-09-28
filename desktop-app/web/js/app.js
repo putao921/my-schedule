@@ -79,6 +79,7 @@
     refreshHero();
     if (window.Focus) Focus.paint();
     if (window.CloudSync && CloudSync.refreshBadge) CloudSync.refreshBadge();
+    syncUndoButtons();
   }
 
   function go(view) {
@@ -314,12 +315,40 @@
     inp.click();
   }
 
+  /* ---- undo / redo --------------------------------------------------- */
+  /* Cheaper to ask forgiveness than permission: the drag is not confirmed
+     first, it is simply reversible. */
+  function doUndo() {
+    if (!window.Undo || !Undo.canUndo()) { toast(t('undo.none')); return; }
+    Undo.undo();
+    render();
+    toast(t('undo.done'));
+  }
+  function doRedo() {
+    if (!window.Undo || !Undo.canRedo()) { toast(t('redo.none')); return; }
+    Undo.redo();
+    render();
+    toast(t('redo.done'));
+  }
+  /* The buttons are re-rendered with the view, so their enabled state has to
+     be re-applied after every render -- and after every undo/redo. */
+  function syncUndoButtons() {
+    var u = document.querySelector('[data-act="undo"]');
+    var r = document.querySelector('[data-act="redo"]');
+    if (u) u.disabled = !(window.Undo && Undo.canUndo());
+    if (r) r.disabled = !(window.Undo && Undo.canRedo());
+  }
+
   /* ------------------------------------------------------------ clicks -- */
   function onDocumentClick(ev) {
     var b = ev.target.closest ? ev.target.closest('[data-act]') : null;
     if (b) {
       var act = b.dataset.act, id = b.dataset.id;
       switch (act) {
+        /* ---- undo / redo (week view header + Ctrl+Z) ---- */
+        case 'undo': doUndo(); return;
+        case 'redo': doRedo(); return;
+
         case 'toggle-ev': {
           var e = Store.findEvent(id);
           if (e) Store.updateEvent(id, { done: !e.done });
@@ -424,10 +453,28 @@
   }
 
   /* --------------------------------------------------------------- boot -- */
+  /* Ctrl/Cmd+Z / Ctrl+Shift+Z: the keyboard route to the same history the
+     week-view buttons expose. Skipped while typing, or every text field
+     would lose its own undo. */
+  function onKeyDown(ev) {
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    var k = (ev.key || '').toLowerCase();
+    if (k !== 'z' && k !== 'y') return;
+    var n = ev.target || {};
+    var tag = (n.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || n.isContentEditable) return;
+    ev.preventDefault();
+    if (k === 'y' || ev.shiftKey) doRedo(); else doUndo();
+  }
+
   function boot() {
     applyTheme();
     applyFont();
     applyLang();
+    document.addEventListener('keydown', onKeyDown);
+    /* A drag writes through the Store, so the buttons must follow the history,
+       not only the render cycle. */
+    if (window.Undo) Undo.onChange(syncUndoButtons);
 
     /* Focus registers Views.focus, so it must run before the deep-link lookup
        below -- otherwise #focus silently falls back to the month view. */

@@ -837,6 +837,17 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .cal-today:active { transform: translateY(1px); }
+
+/* Undo / redo sit with the calendar controls: a mis-drag in the week view is
+   fixed from the same place it happened. Disabled beats hidden -- the button
+   staying put tells you the action exists. */
+.cal-hist {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+  padding-left: 8px; margin-left: 8px; border-left: 1.5px solid var(--line-soft);
+}
+.cal-btn:disabled { opacity: .38; cursor: default; }
+.cal-btn:disabled:active { transform: none; }
+.cal-hist .cal-btn { font-size: 18px; }
 .cal-today:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .row-actions { display: flex; gap: 6px; flex: 0 0 auto; }
