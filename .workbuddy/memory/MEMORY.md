@@ -85,7 +85,10 @@
 ## PWA 网页版（持续更新与发布规范 —— 对应"用其他 AI agent 长期维护"）
 - **源码位置**：`desktop-app/web/`（`index.html` + `css/app.css` + `js/*.js` + `sw.js` + `manifest.webmanifest`）。纯原生 HTML/CSS/JS，无构建步骤，PWA（可安装、离线缓存）。
 - **发布是唯一外部动作**：线上分享链接由 WorkBuddy「发布为应用」(`workbuddy_sites_deploy`) 管理，链接绑定到这个目录。任何 AI agent 都能改文件，但**只有在本 WorkBuddy 工作区里触发发布**才能更新线上链接；外部 agent（Claude Code / Codex / Cursor）改完代码后，仍需回到这里发布。
-- **SW 缓存版本是头号坑**：每次改了 JS/CSS/HTML，必须同步把 `sw.js` 里的 `CACHE = 'myschedule-vN'` 版本号 +1（当前 v5），否则用户端永远命中旧缓存、看不到更新。新增顶层脚本要加进 `sw.js` 的 `SHELL` 缓存清单。
+- **SW 缓存版本是头号坑**：每次改了 JS/CSS/HTML，必须同步把 `sw.js` 里的 `CACHE = 'myschedule-vN'` 版本号 +1（当前 v9 已发布），否则用户端永远命中旧缓存、看不到更新。新增顶层脚本要加进 `sw.js` 的 `SHELL` 缓存清单。
 - **自测**：开 `index.html?selftest=1` 即可跑全套（headless 用 `chrome --headless --dump-dom` 读 `#selftestReport` / `document.title` 的 `SELFTEST X/Y`）。覆盖 lunar/today/stats/queue/drag/layout + 28 条专注计时用例（count-up、滚轮选择器、跨天拖拽等）。`drag.ghostWithTag`/`drag.crossDay` 仅在 headless 合成手势下失败，是测试坐标钳制局限，**非产品回归**（drag.js 与线上版仅 `onClickCapture` 一处差异）。
 - **本地预览**：`python -m http.server` 起静态服务即可；或直接用 WorkBuddy 预览面板。
 - **其他 AI agent 的推荐链路**：代码编辑可用任意编码 agent；WorkBuddy 内原生路径是 coding-agent 技能（可后台调度 Codex / Claude Code）。无论谁改，流程都是：改文件 → 提 git → 在 WorkBuddy 发布（保持同一链接）。
+- **GitHub 仓库（2026-09-27 建立）**：`https://github.com/putao921/my-schedule`，默认分支 `main`，21 提交 / 116 文件（已用 `8b73643` 剔除 dist/ backups/ dist-build/ appdata/ shots/ 调试 *.txt / *.genie 等 52 个垃圾）。发布线上仍走 WorkBuddy「发布为应用」（链接 `https://my-schedule-88451.app.workbuddy.host/`）。
+- **本机没有 Git for Windows（重要）**：用户桌面/开始菜单都无 Git Bash，唯一可用 git 在 WorkBuddy 沙箱内（`/mingw64/bin/git`）。因此**用户本机跑不了 `git` 命令、双击 `.bat` 也会因找不到 git 而失效**。可靠推送方式 = 用户在 GitHub 网页生成**一次性 PAT**（`Developer settings → Personal access tokens → Tokens(classic)`，只勾 `repo`、短有效期）→ 发给我 → 我用 `git remote set-url origin https://<PAT>@github.com/putao921/my-schedule.git` + `git push -u origin main` 从沙箱推 → **推完立即**把 remote 改回无令牌地址（`https://github.com/putao921/my-schedule.git`）→ 提醒用户去撤销该 PAT。绝不要在用户本机指望 git。
+- **外部 agent 协作闭环**：agent 在 GitHub 改 `web/` → 开 PR → 用户 review/merge → 本地 `git pull origin main`（同样靠沙箱 + 再次用 PAT）→ 升 `sw.js` 的 `CACHE` 版本号 + 跑 `?selftest=1` 确认全绿 → WorkBuddy 发布（链接不变）。建议给仓库加 README 写明这三条铁律（只改 `web/`、升 CACHE、跑自测）。
