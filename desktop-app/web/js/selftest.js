@@ -552,6 +552,66 @@
     ok('nav.weekBack', title() === w0, title() + ' (want ' + w0 + ')');
   }
 
+  /* ---- year/month jump picker + sheet exit paths ---------------------- */
+  function testPicker() {
+    ok('pick.goMonth', click('.nav-btn[data-view="month"]'));
+    var trig = view().querySelector('[data-act="cal-pick"]');
+    ok('pick.trigger', !!trig, 'no [data-act="cal-pick"] in cal title');
+    if (!trig) return;
+    trig.click();
+    ok('pick.opens', !document.getElementById('calPick').hidden);
+    var yearEl = document.querySelector('#calPick .cp-head strong');
+    var y0 = yearEl ? parseInt(yearEl.textContent, 10) : NaN;
+    ok('pick.yearShown', !isNaN(y0), String(yearEl && yearEl.textContent));
+    click('#calPick [data-py="1"]');
+    var y1 = parseInt(document.querySelector('#calPick .cp-head strong').textContent, 10);
+    ok('pick.yearStep', y1 === y0 + 1, y0 + ' -> ' + y1);
+    var mbtn = document.querySelector('#calPick [data-pm="2"]');   /* March */
+    ok('pick.monthBtns', !!mbtn && document.querySelectorAll('#calPick [data-pm]').length === 12);
+    if (mbtn) mbtn.click();
+    ok('pick.closesOnMonth', document.getElementById('calPick').hidden);
+    ok('pick.jumped', window.App && App.cursor.getFullYear() === y1 && App.cursor.getMonth() === 2,
+      window.App ? (App.cursor.getFullYear() + '-' + (App.cursor.getMonth() + 1)) : 'no App');
+    /* Week view reads the same picker. */
+    click('.nav-btn[data-view="week"]');
+    var trig2 = view().querySelector('[data-act="cal-pick"]');
+    ok('pick.weekTrigger', !!trig2);
+    if (trig2) {
+      trig2.click();
+      ok('pick.weekOpens', !document.getElementById('calPick').hidden);
+      click('#calPick [data-cpx="1"]');
+      ok('pick.weekCloses', document.getElementById('calPick').hidden);
+    }
+  }
+
+  function testSheetExit() {
+    /* List rows must NOT open the editor on a plain tap -- the row's own
+       edit button is the entry. A stray tap popping a modal felt like a
+       trap, which is the bug being fixed here. */
+    ok('exit.goList', click('.nav-btn[data-view="list"]'));
+    var row = document.querySelector('[data-ev].card-row') ||
+              document.querySelector('[data-task].card-row');
+    ok('exit.hasRow', !!row, 'no list row rendered');
+    if (row) {
+      row.click();
+      ok('exit.rowNoEditor', document.getElementById('sheet').hidden,
+        'plain row tap opened the editor');
+    }
+    var eb = document.querySelector('[data-act="edit-ev"], [data-act="edit-task"]');
+    ok('exit.hasEditBtn', !!eb, 'no edit button in list');
+    if (!eb) return;
+    eb.click();
+    ok('exit.editBtnOpens', !document.getElementById('sheet').hidden);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    ok('exit.escCloses', document.getElementById('sheet').hidden);
+    /* Phone BACK key: our popstate listener is what makes it work. */
+    eb.click();
+    ok('exit.reopens', !document.getElementById('sheet').hidden);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    ok('exit.backCloses', document.getElementById('sheet').hidden);
+    ok('exit.maskCloses', document.getElementById('sheetMask').hidden);
+  }
+
   function testTimer() {
     ok('nav.focusAgain', click('.nav-btn[data-view="focus"]'));
     ok('timer.currentIsFocus', window.App && App.currentView() === 'focus',
@@ -702,6 +762,8 @@
     try { testRepeat(); } catch (e) { ok('repeat.crash', false, e.message); }
     try { testWeek(); } catch (e) { ok('week.crash', false, e.message); }
     try { testNav(); } catch (e) { ok('nav.crash', false, e.message); }
+    try { testPicker(); } catch (e) { ok('pick.crash', false, e.message); }
+    try { testSheetExit(); } catch (e) { ok('exit.crash', false, e.message); }
     try { testStats(); } catch (e) { ok('stats.crash', false, e.message); }
     testQueue()
       .catch(function (e) { ok('queue.crash', false, e.message); })

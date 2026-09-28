@@ -233,8 +233,12 @@
     return '<div class="sec-head cal-nav">' +
       '<button class="cal-btn" data-act="cal-prev" aria-label="' + esc(t('cal.prev')) +
         '" title="' + esc(t('cal.prev')) + '">‹</button>' +
-      '<div class="cal-title"><h3>' + esc(title) + '</h3>' +
-        (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</div>' +
+      /* The title itself is the year/month picker: paging one step at a time
+         is painful when the target is two years away. */
+      '<button class="cal-title" data-act="cal-pick" title="' + esc(t('cal.pick')) + '">' +
+        '<h3>' + esc(title) + '</h3>' +
+        (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') +
+        '<span class="pick-caret" aria-hidden="true">▾</span></button>' +
       '<button class="cal-btn" data-act="cal-next" aria-label="' + esc(t('cal.next')) +
         '" title="' + esc(t('cal.next')) + '">›</button>' +
       '<button class="cal-today" data-act="cal-today">' + esc(t('nav.today')) + '</button>' +

@@ -819,8 +819,50 @@ button { font-family: inherit; cursor: pointer; }
 
 /* Calendar navigation bar (month / week views): ‹ prev ▎ title ▎ next › ▎ Today */
 .cal-nav { align-items: center; gap: 8px; }
-.cal-title { flex: 1; text-align: center; min-width: 0; }
-.cal-title h3 { font-size: 15px; }
+/* The title doubles as the year/month picker trigger. */
+.cal-title {
+  flex: 1; text-align: center; min-width: 0;
+  background: none; border: none; padding: 4px 2px; cursor: pointer;
+  color: var(--fg); font: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+}
+.cal-title h3 { font-size: 15px; margin: 0; }
+.cal-title .sub { font-size: 11px; color: var(--fg-soft); }
+.pick-caret { font-size: 9px; color: var(--fg-soft); line-height: 1; }
+.cal-title:active h3 { color: var(--accent); }
+
+/* Year/month jump panel: a year stepper over a 4x3 month grid. */
+.cal-picker {
+  position: fixed; z-index: 42;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(320px, 88vw);
+  background: var(--bg-card); border: 2px solid var(--line);
+  border-radius: var(--radius-widget);
+  padding: 10px 12px 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.25);
+}
+.cp-head { display: flex; align-items: center; gap: 8px; }
+.cp-head strong { flex: 1 1 auto; text-align: center; font-size: 17px; }
+.cp-x {
+  background: none; border: none; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--fg-soft);
+  min-width: 36px; min-height: 36px;
+}
+.cp-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  margin-top: 10px;
+}
+.cp-grid .pm {
+  padding: 9px 0; cursor: pointer;
+  border: 1.5px solid var(--line); border-radius: 8px;
+  background: var(--bg-card-alt); color: var(--fg);
+  font-size: 13px;
+}
+.cp-grid .pm.on {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 700;
+}
+.cp-grid .pm:active { transform: translateY(1px); }
 .cal-btn {
   flex: 0 0 auto; width: 38px; height: 38px;
   display: flex; align-items: center; justify-content: center;

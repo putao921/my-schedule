@@ -171,6 +171,13 @@
     }
     $('sheetMask').hidden = false;
     $('sheet').hidden = false;
+    /* An entry is pushed so the phone's BACK key closes the sheet instead of
+       leaving the app -- the complaint "the editor pops up and there is no
+       way out" was exactly that. */
+    if (!sheetInHistory) {
+      history.pushState({ sheet: 1 }, '');
+      sheetInHistory = true;
+    }
   }
 
   function field(label, inner) {
@@ -195,10 +202,17 @@
       '<div id="repeatExtra" style="margin-top:6px">' + extra + '</div></div>';
   }
 
-  function closeSheet() {
+  var sheetInHistory = false;   /* we pushed an extra history entry for the sheet */
+
+  function closeSheet(fromPop) {
     $('sheetMask').hidden = true;
     $('sheet').hidden = true;
     editing = null;
+    /* Pop our own entry back off -- unless the pop itself is what closed us. */
+    if (sheetInHistory) {
+      sheetInHistory = false;
+      if (!fromPop) history.back();
+    }
   }
 
   function saveSheet() {
@@ -361,6 +375,7 @@
         }
         case 'edit-ev': openSheet('event', id); return;
         case 'edit-task': openSheet('task', id); return;
+        case 'cal-pick': openCalPicker(); return;
         case 'toggle-theme':
           Store.settings.theme = Store.settings.theme === 'night' ? 'light' : 'night';
           Store.persistSettings(); applyTheme(); return;
@@ -445,18 +460,87 @@
       if (d) { cursor = d; if (current === 'month' || current === 'week') render(); }
       return;
     }
-    /* Tapping an event card opens its editor. */
+    /* Tapping a calendar block (week / month chip) opens its editor. Plain
+       list rows deliberately do NOT: a stray tap on the row text popping a
+       modal felt like a trap -- the row's own 编辑 button is the entry there. */
     var card = ev.target.closest ? ev.target.closest('[data-ev]') : null;
-    if (card && !b) { openSheet('event', card.dataset.ev); }
+    if (card && !b && !card.classList.contains('card-row')) { openSheet('event', card.dataset.ev); }
     var tcard = ev.target.closest ? ev.target.closest('[data-task]') : null;
-    if (tcard && !b) { openSheet('task', tcard.dataset.task); }
+    if (tcard && !b && !tcard.classList.contains('card-row')) { openSheet('task', tcard.dataset.task); }
   }
+
+  /* ------------------------------------------------- year/month picker -- */
+  /* The ‹ › buttons move one period at a time; jumping to "next March" that
+     way is 8 taps. The calendar title opens this little panel instead. */
+  var pickY = 0, pickM = 0;
+
+  function openCalPicker() {
+    pickY = cursor.getFullYear();
+    pickM = cursor.getMonth();
+    paintCalPicker();
+    $('pickMask').hidden = false;
+    $('calPick').hidden = false;
+  }
+
+  function closeCalPicker() {
+    $('pickMask').hidden = true;
+    $('calPick').hidden = true;
+  }
+
+  function paintCalPicker() {
+    var months = t('cal.months').split(',');
+    var grid = months.map(function (lbl, i) {
+      return '<button class="pm' + (i === pickM ? ' on' : '') + '" data-pm="' + i + '">' +
+        Views.esc(lbl) + '</button>';
+    }).join('');
+    $('calPick').innerHTML =
+      '<div class="cp-head">' +
+        '<button class="cal-btn" data-py="-1" aria-label="-1 year">‹</button>' +
+        '<strong>' + pickY + '</strong>' +
+        '<button class="cal-btn" data-py="1" aria-label="+1 year">›</button>' +
+        '<button class="cp-x" data-cpx="1" aria-label="Close">×</button>' +
+      '</div>' +
+      '<div class="cp-grid">' + grid + '</div>';
+  }
+
+  function calPickClick(ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null;
+    if (!b) return;
+    if (b.dataset.cpx) { closeCalPicker(); return; }
+    if (b.dataset.py) {
+      pickY += parseInt(b.dataset.py, 10);
+      if (pickY < 1970) pickY = 1970;
+      if (pickY > 2100) pickY = 2100;
+      paintCalPicker();
+      return;
+    }
+    if (b.dataset.pm != null && b.dataset.pm !== '') {
+      /* Month view lands on that month; week view on the week containing
+         its 1st -- both read the same cursor. */
+      cursor = new Date(pickY, parseInt(b.dataset.pm, 10), 1);
+      closeCalPicker();
+      render();
+    }
+  }
+
+  /* The phone's BACK key: popstate fires, whatever overlay is up closes. */
+  window.addEventListener('popstate', function () {
+    if (!$('sheet').hidden) closeSheet(true);
+    if (!$('calPick').hidden) closeCalPicker();
+  });
 
   /* --------------------------------------------------------------- boot -- */
   /* Ctrl/Cmd+Z / Ctrl+Shift+Z: the keyboard route to the same history the
      week-view buttons expose. Skipped while typing, or every text field
      would lose its own undo. */
   function onKeyDown(ev) {
+    /* Esc backs out of whatever overlay is on top: picker first, then the
+       editor sheet. Desktop had no keyboard way out at all. */
+    if (ev.key === 'Escape') {
+      if (!$('calPick').hidden) { closeCalPicker(); return; }
+      if (!$('sheet').hidden) { closeSheet(); return; }
+      return;
+    }
     if (!(ev.ctrlKey || ev.metaKey)) return;
     var k = (ev.key || '').toLowerCase();
     if (k !== 'z' && k !== 'y') return;
@@ -532,9 +616,13 @@
         }, 180);
       });
     })();
-    $('sheetClose').addEventListener('click', closeSheet);
-    $('sheetCancel').addEventListener('click', closeSheet);
-    $('sheetMask').addEventListener('click', closeSheet);
+    /* Wrapped: the click event must not leak into closeSheet's fromPop flag,
+       or the pushed history entry would never be popped back off. */
+    $('sheetClose').addEventListener('click', function () { closeSheet(); });
+    $('sheetCancel').addEventListener('click', function () { closeSheet(); });
+    $('sheetMask').addEventListener('click', function () { closeSheet(); });
+    $('pickMask').addEventListener('click', closeCalPicker);
+    $('calPick').addEventListener('click', calPickClick);
     $('sheetSave').addEventListener('click', saveSheet);
     $('sheetDelete').addEventListener('click', function () {
       if (!editing || !editing.id) return;
