@@ -3,7 +3,9 @@
   'use strict';
 
   var cursor = new Date();
-  var current = Store.settings.view || 'month';
+  /* A settings file written by an older release can still name the AI page;
+     a reload should open a schedule view, never the chat. */
+  var current = Store.settings.view === 'ai' ? 'month' : (Store.settings.view || 'month');
   var $ = function (id) { return document.getElementById(id); };
 
   /* ------------------------------------------------------------- chrome -- */
@@ -36,6 +38,9 @@
       'nav.focus': '.nav-btn[data-view="focus"] .nav-txt',
       'nav.stats': '.nav-btn[data-view="stats"] .nav-txt',
       'nav.profile': '.nav-btn[data-view="me"] .nav-txt',
+      'nav.sched': '.nav-btn[data-group="sched"] .nav-txt',
+      'nav.focusGroup': '.nav-btn[data-group="focus"] .nav-txt',
+      'nav.ai': '.nav-btn[data-view="ai"] .nav-txt',
       'search.toggle': '#searchToggleTxt'
     };
     Object.keys(map).forEach(function (k) {
@@ -44,6 +49,9 @@
     });
     var ph = $('searchInput');
     if (ph) ph.setAttribute('placeholder', t('search.toggle'));
+    /* Sub-bar chips are built from the same keys: rebuild them on a language
+       switch so they read in the new language. */
+    renderSub();
   }
 
   function refreshHero() {
@@ -65,6 +73,40 @@
     $('heroFocusLabel').textContent = fmt(t('hero.focus'), Math.floor(fm / 60), fm % 60);
   }
 
+  /* ------------------------------------------------- merged nav groups --- */
+  /* On phones 月/周/列表 collapse into 日程 and 专注/统计 into 专注 so the bottom
+     bar holds five entries instead of eight. Opening a group lists its entries
+     in the sub-bar at the top of the screen. Desktop shows all eight as usual. */
+  var GROUPS = {
+    sched: ['month', 'week', 'list'],
+    focus: ['focus', 'stats']
+  };
+  var openGroup = null;
+
+  function groupOf(view) {
+    var keys = Object.keys(GROUPS);
+    for (var i = 0; i < keys.length; i++) {
+      if (GROUPS[keys[i]].indexOf(view) >= 0) return keys[i];
+    }
+    return null;
+  }
+
+  function renderSub() {
+    var bar = $('subbar');
+    if (!bar) return;
+    if (!openGroup) { bar.hidden = true; bar.innerHTML = ''; return; }
+    bar.hidden = false;
+    bar.innerHTML = GROUPS[openGroup].map(function (v) {
+      return '<button class="sub-chip' + (v === current ? ' is-on' : '') +
+        '" data-view="' + v + '">' +
+        '<span class="nav-ico" data-ico="' + v + '"></span>' +
+        '<span class="nav-txt">' + t('nav.' + v) + '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(bar.querySelectorAll('.sub-chip'), function (c) {
+      c.addEventListener('click', function () { go(c.dataset.view); });
+    });
+  }
+
   /* ------------------------------------------------------------- render -- */
   function render() {
     var el = $('view');
@@ -74,16 +116,56 @@
     el.dataset.view = current;
     fn(el, cursor);
     Array.prototype.forEach.call(document.querySelectorAll('.nav-btn'), function (b) {
-      b.classList.toggle('is-on', b.dataset.view === current);
+      /* Group buttons stand for several views: light up whenever the current
+         view belongs to them. */
+      var on = b.dataset.group
+        ? groupOf(current) === b.dataset.group
+        : b.dataset.view === current;
+      b.classList.toggle('is-on', on);
     });
+    renderSub();
     refreshHero();
+    /* The + button means "new event here"; it has nothing to add on the AI
+       page, where the footer button is the action. */
+    var fc = $('fabCol');
+    if (fc) fc.hidden = (current === 'ai');
     if (window.Focus) Focus.paint();
     if (window.CloudSync && CloudSync.refreshBadge) CloudSync.refreshBadge();
     syncUndoButtons();
   }
 
+  /* The AI page is a view, with two deliberate exceptions: it is never
+     persisted (a reload lands on the last schedule view, not on the chat),
+     and it is pushed onto the browser history once, so Back -- the hardware
+     key or the Android gesture -- returns to where the user came from. */
+  var prevView = 'month';
+
+  function openAI() {
+    if (current !== 'ai') prevView = current;
+    current = 'ai';
+    openGroup = null;
+    if (!history.state || !history.state.ai) {
+      try { history.pushState({ ai: 1 }, ''); } catch (e) { }
+    }
+    render();
+  }
+
+  function closeAI() {
+    if (current !== 'ai') return;
+    current = prevView || 'month';
+    /* Drop the entry we pushed. The popstate handler ignores this because
+       current is no longer 'ai', so the view does not switch twice. */
+    if (history.state && history.state.ai) {
+      try { history.back(); } catch (e) { }
+    }
+    render();
+  }
+
   function go(view) {
+    if (view === 'ai') { openAI(); return; }
     current = view;
+    /* 今日 / 任务 / 我的 are not merged: entering one closes the sub-bar. */
+    if (!groupOf(view)) openGroup = null;
     /* Entering the month/week view lands on the period containing today;
        the calendar navigation then moves the cursor from there. */
     if (view === 'month' || view === 'week') cursor = new Date();
@@ -559,6 +641,12 @@
     applyFont();
     applyLang();
     document.addEventListener('keydown', onKeyDown);
+    /* Back (hardware key, gesture or browser button) leaves the AI page and
+       returns to the view the user came from. No other view owns a history
+       entry, so everything else falls through to the page itself. */
+    window.addEventListener('popstate', function () {
+      if (current === 'ai') { current = prevView || 'month'; render(); }
+    });
     /* A drag writes through the Store, so the buttons must follow the history,
        not only the render cycle. */
     if (window.Undo) Undo.onChange(syncUndoButtons);
@@ -576,9 +664,11 @@
       if (window.StatsView) Views.stats = StatsView.render;
     }
 
-    /* Deep link: #tasks / #week / ... opens that view directly. */
+    /* Deep link: #tasks / #week / #ai ... opens that view directly. The AI
+       view is deliberately not written into settings (see openAI). */
     var h = location.hash.replace('#', '');
-    if (Views[h]) { current = h; Store.settings.view = h; }
+    if (h === 'ai') openAI();
+    else if (Views[h]) { current = h; Store.settings.view = h; }
 
     /* QA hook: ?auth=1 opens the sign-in sheet on load, so the panel can be
        screenshotted without a scripted click. */
@@ -597,7 +687,15 @@
     }
 
     Array.prototype.forEach.call(document.querySelectorAll('.nav-btn'), function (btn) {
-      btn.addEventListener('click', function () { go(btn.dataset.view); });
+      btn.addEventListener('click', function () {
+        if (!btn.dataset.group) { go(btn.dataset.view); return; }
+        var g = btn.dataset.group;
+        /* Tapping the open group closes it; tapping another opens that one. */
+        if (openGroup === g) { openGroup = null; renderSub(); render(); return; }
+        openGroup = g;
+        if (groupOf(current) !== g) { go(GROUPS[g][0]); return; }
+        renderSub(); render();
+      });
     });
 
     $('fab').addEventListener('click', function () {
@@ -606,7 +704,8 @@
 
     if (window.AIUI) {
       AIUI.bind();
-      $('aiFab').addEventListener('click', function () { AIUI.open(); });
+      /* #navAi is a .nav-btn with data-view="ai", so the shared nav handler
+         above already routes to it; nothing to bind here. */
       /* QA hook: ?ai=import|plan|edit|key opens the panel on that tab. */
       var aiTab = (location.search.match(/[?&]ai=(import|plan|edit|key)/) || [])[1];
       if (aiTab) setTimeout(function () { AIUI.open(aiTab); }, 200);
@@ -662,6 +761,17 @@
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(function () { });
+      /* When an updated worker takes over (skipWaiting + clients.claim fires
+         this on first load after a release), reload once so the new shell is
+         actually rendered -- otherwise users must refresh twice to see a
+         release. The guard prevents a reload loop. */
+      if (!sessionStorage.getItem('swReloaded')) {
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (sessionStorage.getItem('swReloaded')) return;
+          sessionStorage.setItem('swReloaded', '1');
+          location.reload();
+        });
+      }
     }
 
     if (window.CloudSync && CloudSync.init) CloudSync.init();
@@ -670,7 +780,7 @@
        a normal visit never downloads it. */
     if (/[?&]selftest=1/.test(location.search)) {
       var st = document.createElement('script');
-      st.src = 'js/selftest.js';
+      st.src = 'js/selftest.js?v=30';
       document.body.appendChild(st);
     }
 
@@ -726,6 +836,8 @@
   /* Public hooks used by cloud.js after a pull. */
   window.App = {
     render: render,
+    go: go,
+    closeAI: closeAI,
     toast: toast,
     refreshHero: refreshHero,
     applyLang: applyLang,

@@ -1,9 +1,13 @@
 /* AI panel UI.
  *
- * Three tabs, one pipeline: collect input -> ask the model -> show a diff ->
- * write only what the user ticks. The diff step is the point of the whole
- * feature; an import that silently wrote twelve guessed events would be worse
+ * The chat tab is the front door: a normal conversation, no forms. The other
+ * tabs are the three pipelines -- collect input -> ask the model -> show a
+ * diff -> write only what the user ticks. The diff step is the point of those
+ * features; an import that silently wrote twelve guessed events would be worse
  * than typing them by hand.
+ *
+ * Chat deliberately cannot write to the calendar yet. Keeping writing behind
+ * a reviewed diff means one bad model reply can never scramble a schedule.
  *
  * The settings tab exists because there is no key to ship with a static page:
  * the user supplies their own, and it is kept out of Store.settings (which is
@@ -13,12 +17,22 @@
   'use strict';
 
   var state = {
-    tab: 'import',
+    tab: 'chat',
     busy: false,
     preview: null,      /* { kind:'events'|'ops', items:[ {on, ...} ] } */
     images: [],         /* data URLs, already downscaled */
-    inHistory: false
+    msgs: []            /* chat: [ {role:'user'|'assistant', text:'', bad:bool} ] */
   };
+
+  /* The page node. It is authored in index.html outside #view and moved into
+     #view while the AI view is active, so re-rendering the view does not
+     rebuild the body (and does not lose a half-typed message). */
+  var PAGE = null;
+
+  /* How much of the conversation is replayed to the model. Older turns are
+     dropped from the request but stay on screen -- cheap, and long enough
+     that "把它挪到周五" still has its antecedent. */
+  var CHAT_MEMORY = 16;
 
   function $(id) { return document.getElementById(id); }
   function t(k) { return window.t ? window.t(k) : k; }
@@ -30,29 +44,29 @@
   function hhmm(m) { return window.AI ? AI.hhmm(m) : ''; }
 
   /* ------------------------------------------------------------- shell -- */
-  function open(tab) {
-    if (!window.AI) return;
-    state.tab = tab || (AI.ready() ? 'import' : 'key');
-    state.preview = null;
-    if (!state.inHistory) {
-      try { history.pushState({ ai: 1 }, ''); } catch (e) { }
-      state.inHistory = true;
-    }
-    $('aiMask').hidden = false;
-    $('aiSheet').hidden = false;
+  /* v31: the AI page is a view. Mounting means moving the node into #view;
+     leaving it means handing the view back to the router. */
+  function mount(el) {
+    if (!PAGE) PAGE = $('aiView');
+    if (!PAGE) return;
+    el.innerHTML = '';
+    el.appendChild(PAGE);
+    PAGE.hidden = false;
     render();
   }
 
-  function close(fromPop) {
-    if ($('aiSheet').hidden) return;
-    $('aiSheet').hidden = true;
-    $('aiMask').hidden = true;
+  function open(tab) {
+    if (!window.AI) return;
+    state.tab = tab || (AI.ready() ? 'chat' : 'key');
     state.preview = null;
-    if (state.inHistory && !fromPop) {
-      state.inHistory = false;
-      try { history.back(); } catch (e) { }
-    }
-    state.inHistory = false;
+    if (window.App && App.go) App.go('ai');
+    else render();
+  }
+
+  function close() {
+    state.preview = null;
+    if (window.App && App.closeAI) { App.closeAI(); return; }
+    render();
   }
 
   function status(msg, bad) {
@@ -78,6 +92,7 @@
     if (state.tab === 'key') return t('ai.save');
     if (state.tab === 'plan') return t('ai.genPlan');
     if (state.tab === 'edit') return t('ai.genEdit');
+    if (state.tab === 'chat') return t('ai.send');
     return t('ai.extract');
   }
 
@@ -91,6 +106,7 @@
   /* -------------------------------------------------------------- tabs -- */
   function render() {
     var tabs = [
+      { k: 'chat', label: t('ai.tab.chat') },
       { k: 'import', label: t('ai.tab.import') },
       { k: 'plan', label: t('ai.tab.plan') },
       { k: 'edit', label: t('ai.tab.edit') },
@@ -101,16 +117,90 @@
         '" data-aitab="' + x.k + '">' + esc(x.label) + '</button>';
     }).join('');
     var body = $('aiBody');
-    if (state.tab === 'import') body.innerHTML = viewImport();
+    if (state.tab === 'chat') body.innerHTML = viewChat();
+    else if (state.tab === 'import') body.innerHTML = viewImport();
     else if (state.tab === 'plan') body.innerHTML = viewPlan();
     else if (state.tab === 'edit') body.innerHTML = viewEdit();
     else body.innerHTML = viewKey();
     if (state.preview) {
       body.insertAdjacentHTML('beforeend', viewPreview());
     }
-    $('aiTitle').textContent = t('ai.title');
+    $('aiTitle').textContent = state.tab === 'chat' ? assistantName() : t('ai.title');
     busy(false);
     bindTab();
+    if (state.tab === 'chat') scrollChat();
+  }
+
+  /* -------------------------------------------------------------- chat -- */
+  function assistantName() {
+    var n = (AI.cfg().assistantName || '').trim();
+    return n || '小安';
+  }
+
+  function viewChat() {
+    var log = state.msgs.map(function (m) {
+      var who = m.role === 'user' ? 'me' : 'ai';
+      return '<div class="ai-msg ' + who + '">' +
+        '<div class="ai-who">' + esc(m.role === 'user' ? t('ai.me') : assistantName()) + '</div>' +
+        '<div class="ai-bubble' + (m.bad ? ' bad' : '') + '">' + esc(m.text) + '</div></div>';
+    }).join('');
+    var empty = state.msgs.length ? ''
+      : '<div class="ai-note">' + esc(t('ai.chatHello')).replace('{name}', esc(assistantName())) + '</div>';
+    return '<div class="ai-chat-head">' +
+      '<span class="ev-meta grow">' + esc(t('ai.chatHint')) + '</span>' +
+      '<button class="mini-btn" id="aiChatClear">' + esc(t('ai.clear')) + '</button></div>' +
+      '<div class="ai-chat" id="aiChatLog">' + empty + log + '</div>' +
+      '<textarea id="aiChatIn" class="ai-chat-in" rows="2" placeholder="' +
+      esc(t('ai.sendPh')) + '"></textarea>';
+  }
+
+  function scrollChat() {
+    var log = $('aiChatLog');
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+
+  function bindChat() {
+    var ta = $('aiChatIn');
+    if (ta) ta.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
+    });
+    var clr = $('aiChatClear');
+    if (clr) clr.addEventListener('click', function () {
+      state.msgs = [];
+      status('');
+      render();
+    });
+  }
+
+  function sendChat() {
+    if (state.busy) return;
+    var ta = $('aiChatIn');
+    var text = (ta && ta.value || '').trim();
+    if (!text) { status(t('ai.needInput'), true); return; }
+    if (!AI.ready()) { state.tab = 'key'; render(); status(t('ai.needKey'), true); return; }
+
+    state.msgs.push({ role: 'user', text: text });
+    if (ta) ta.value = '';
+    render();
+    busy(true, t('ai.thinking'));
+
+    var today = window.Store ? Store.todayStr() : new Date().toISOString().slice(0, 10);
+    var msgs = [{ role: 'system', content: AI.chatSystem(assistantName(), today) }];
+    var tail = state.msgs.slice(-CHAT_MEMORY);
+    for (var i = 0; i < tail.length; i++) {
+      msgs.push({ role: tail[i].role === 'user' ? 'user' : 'assistant', content: tail[i].text });
+    }
+
+    AI.chat(msgs, { temperature: 0.5 }).then(function (reply) {
+      var txt = String(reply == null ? '' : reply).trim();
+      state.msgs.push({ role: 'assistant', text: txt || t('ai.emptyReply') });
+      render();
+      status('');
+    }).catch(function (e) {
+      state.msgs.push({ role: 'assistant', text: AI.errText(e), bad: true });
+      render();
+      status(AI.errText(e), true);
+    });
   }
 
   function viewImport() {
@@ -124,6 +214,7 @@
       '<div class="card-row" style="flex-wrap:wrap;gap:8px;margin-top:8px">' +
       '<button class="btn" id="aiPickImg">' + esc(t('ai.pickImg')) + '</button>' +
       '<span class="ev-meta">' + esc(t('ai.pasteImgHint')) + '</span></div>' +
+      '<div class="ai-note" style="margin-top:8px">' + esc(t('ai.visionHint')) + '</div>' +
       '<input type="file" id="aiFile" accept="image/*" multiple hidden>';
   }
 
@@ -177,6 +268,10 @@
       '<input id="aiModel" value="' + esc(c.model) + '"></div>' +
       '<div class="field"><label>' + esc(t('ai.key')) + '</label>' +
       '<input id="aiKey" type="password" value="' + esc(c.apiKey) + '" placeholder="sk-..."></div>' +
+      '<div class="field"><label>' + esc(t('ai.name')) + '</label>' +
+      '<input id="aiName" value="' + esc(assistantName()) + '" placeholder="' + esc(t('ai.namePh')) + '"></div>' +
+      '<div class="field"><label>' + esc(t('ai.timeout')) + '</label>' +
+      '<input id="aiTimeout" type="number" min="10" step="10" value="' + Math.round((c.timeoutMs || 180000) / 1000) + '" placeholder="180"> 秒</div>' +
       '<label class="ai-check"><input type="checkbox" id="aiVision"' + (c.vision ? ' checked' : '') + '> ' +
       esc(t('ai.vision')) + '</label>' +
       '<div class="card-row" style="margin-top:8px"><button class="btn" id="aiTest">' +
@@ -249,7 +344,9 @@
   /* ------------------------------------------------------------- input -- */
   function bindTab() {
     var body = $('aiBody');
-    if (state.tab === 'import') {
+    if (state.tab === 'chat') {
+      bindChat();
+    } else if (state.tab === 'import') {
       var file = $('aiFile');
       if (file) file.addEventListener('change', function () { addFiles(file.files); });
       var pick = $('aiPickImg');
@@ -350,7 +447,8 @@
     if (state.preview) { write(); return; }
     if (state.tab === 'key') { saveKey(); return; }
     if (!AI.ready()) { state.tab = 'key'; render(); status(t('ai.needKey'), true); return; }
-    if (state.tab === 'import') runImport();
+    if (state.tab === 'chat') sendChat();
+    else if (state.tab === 'import') runImport();
     else if (state.tab === 'plan') runPlan();
     else runEdit();
   }
@@ -360,7 +458,9 @@
       baseUrl: ($('aiBase').value || '').trim(),
       model: ($('aiModel').value || '').trim(),
       apiKey: ($('aiKey').value || '').trim(),
-      vision: !!$('aiVision').checked
+      vision: !!$('aiVision').checked,
+      assistantName: ($('aiName') && $('aiName').value || '').trim() || assistantName(),
+      timeoutMs: (function () { var v = parseInt($('aiTimeout').value, 10); return (v >= 10 ? v : 180) * 1000; })()
     });
     status(t('ai.saved'));
     if (window.App && App.render) App.render();
@@ -371,7 +471,7 @@
     if (!AI.ready()) { status(t('ai.needKey'), true); return; }
     busy(true, t('ai.testing'));
     AI.chat([{ role: 'user', content: 'ping' }], { temperature: 0 })
-      .then(function () { busy(false); status(t('ai.ok')); })
+      .then(function (txt) { busy(false); status(t('ai.ok') + (txt ? ' · ' + String(txt).slice(0, 120) : '')); })
       .catch(function (e) { busy(false); status(AI.errText(e), true); });
   }
 
@@ -470,8 +570,7 @@
 
   /* -------------------------------------------------------------- wiring */
   function bind() {
-    var mask = $('aiMask');
-    mask.addEventListener('click', function () { close(); });
+    if (!PAGE) PAGE = $('aiView');
     $('aiClose').addEventListener('click', function () { close(); });
     $('aiCancel').addEventListener('click', function () { close(); });
     $('aiGo').addEventListener('click', go);
@@ -485,10 +584,16 @@
     });
   }
 
+  /* The router (app.js) renders Views.ai into #view like any other view. */
+  if (window.Views) Views.ai = mount;
+
   window.AIUI = {
     open: open,
     close: close,
-    isOpen: function () { return !$('aiSheet').hidden; },
+    isOpen: function () {
+      var v = document.getElementById('view');
+      return !!v && v.dataset.view === 'ai';
+    },
     bind: bind,
     /* QA hook: ?ai=1 opens the panel straight away. */
     state: state

@@ -746,7 +746,11 @@
   function testLayout() {
     ok('layout.noHOverflow', document.documentElement.scrollWidth <= window.innerWidth + 1,
       document.documentElement.scrollWidth + ' vs ' + window.innerWidth);
-    ok('layout.navEight', count('.nav-btn') === 8, String(count('.nav-btn')));
+    /* Phones show 9 view entries (the eight views plus the AI page) and 2
+       merged group buttons in the DOM; desktop CSS hides the group buttons
+       and shows all nine entries. */
+    ok('layout.navNine', count('.nav-btn[data-view]') === 9 && count('.nav-btn[data-group]') === 2,
+      count('.nav-btn[data-view]') + '+' + count('.nav-btn[data-group]'));
     var nav = document.querySelector('.nav').getBoundingClientRect();
     ok('layout.navVisible', nav.width > 0 && nav.height > 0,
       Math.round(nav.width) + 'x' + Math.round(nav.height));
@@ -912,11 +916,64 @@
       AI._stub(null);
       if (window.AIUI) {
         AIUI.open('import');
-        ok('ai.panelOpens', !document.getElementById('aiSheet').hidden);
-        ok('ai.panelTabs', document.querySelectorAll('.ai-tab').length === 4);
-        AIUI.close();
-        ok('ai.panelCloses', document.getElementById('aiSheet').hidden);
+        var page = document.getElementById('aiView');
+        var viewEl = document.getElementById('view');
+        /* v31: the AI page is a view -- it must live inside #view and be
+           visible, not float above the app as a sheet. */
+        ok('ai.panelOpens', !page.hidden && page.parentNode === viewEl &&
+          viewEl.dataset.view === 'ai',
+          'inView=' + (page.parentNode === viewEl) + ' view=' + viewEl.dataset.view);
+        /* chat + import + plan + edit + key */
+        ok('ai.panelTabs', document.querySelectorAll('.ai-tab').length === 5,
+          String(document.querySelectorAll('.ai-tab').length));
+        /* Leave through the router rather than the page's own 返回 button:
+           that button calls history.back(), which navigates the test page
+           away before the report can be read. */
+        if (window.App && App.go) App.go('month');
+        ok('ai.panelCloses', viewEl.dataset.view !== 'ai', viewEl.dataset.view);
       }
+      /* 9. The AI entry is a nav button in the bar now: it must be inside the
+         nav, show a label, and never overlap the floating + button. */
+      (function () {
+        var ai = document.getElementById('navAi');
+        var nav = document.getElementById('nav');
+        if (!ai || !nav) { ok('ai.navBtn', false, 'missing #navAi / #nav'); return; }
+        var a = ai.getBoundingClientRect();
+        var n = nav.getBoundingClientRect();
+        var f = document.getElementById('fab').getBoundingClientRect();
+        var inBar = a.top >= n.top - 1 && a.bottom <= n.bottom + 1 && a.width > 0;
+        var overlap = !(a.right <= f.left || a.left >= f.right ||
+                        a.bottom <= f.top || a.top >= f.bottom);
+        var label = (ai.querySelector('.nav-txt') || {}).textContent || '';
+        ok('ai.navBtn', inBar && !overlap && label.length > 0,
+          'ai[w=' + Math.round(a.width) + ' h=' + Math.round(a.height) +
+          ' top=' + Math.round(a.top) + '] nav[top=' + Math.round(n.top) +
+          ' bottom=' + Math.round(n.bottom) + '] label=' + label);
+      })();
+
+      /* 10. The AI page must behave like a view: mounted inside #view, the
+             nav entry lit, the + button out of the way, never persisted, and
+             Back returns to the view the user came from. */
+      (function () {
+        var viewEl = document.getElementById('view');
+        var before = viewEl.dataset.view;
+        /* The page node only exists in the DOM while the view is mounted,
+           so it has to be looked up after the switch. */
+        click('.nav-btn[data-view="ai"]');
+        var page = document.getElementById('aiView');
+        ok('ai.viewMounts', viewEl.dataset.view === 'ai' &&
+          !page.hidden && page.parentNode === viewEl,
+          'view=' + viewEl.dataset.view + ' inView=' + (page.parentNode === viewEl));
+        ok('ai.navLights', document.getElementById('navAi').classList.contains('is-on'));
+        ok('ai.fabHidden', document.getElementById('fabCol').hidden === true);
+        ok('ai.notPersisted', Store.settings.view !== 'ai', String(Store.settings.view));
+        /* Back key path: the browser pops the entry we pushed and fires
+           popstate. Dispatched by hand here -- a real history.back() would
+           navigate the test page away. */
+        window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+        ok('ai.backRestores', viewEl.dataset.view === before,
+          before + ' -> ' + viewEl.dataset.view);
+      })();
     });
   }
 

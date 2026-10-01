@@ -30,7 +30,10 @@
     apiKey: '',
     model: 'gpt-4o-mini',
     vision: true,
-    timeoutMs: 90000
+    timeoutMs: 180000,
+    /* How the assistant introduces itself in the chat tab. Purely cosmetic,
+       and it lives with the key so it never reaches cloud sync either. */
+    assistantName: '小安'
   };
 
   /* Vendors differ only in three strings, and typing a base URL by hand on a
@@ -44,7 +47,12 @@
     { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', vision: false },
     { name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', vision: false },
     { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', vision: true },
-    { name: 'Ollama (本地)', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b', vision: false }
+    { name: 'Ollama (本地)', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b', vision: false },
+    /* Free, no-credit-card tiers that are OpenAI-compatible. Gemini's
+       /v1beta/openai/ path is Google's OpenAI-shaped endpoint; Groq serves
+       open-weight models (Llama / DeepSeek) on free LPU inference. */
+    { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'gemini-2.5-flash', vision: true },
+    { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', vision: false }
   ];
 
   var cfg = loadCfg();
@@ -107,6 +115,7 @@
       clearTimeout(timer);
       return r.text().then(function (txt) { return { status: r.status, text: txt }; });
     }).then(function (res) {
+      lastRawText = res.text || '';
       var txt = res.text || '';
       var data = null;
       try { data = JSON.parse(txt); } catch (e) { data = null; }
@@ -115,11 +124,26 @@
         var msg = (data && (data.error && (data.error.message || data.error.code))) || txt.slice(0, 160);
         throw err(res.status === 404 ? 'model' : 'http', 'HTTP ' + res.status + ' ' + msg);
       }
-      var content = data &&
-        data.choices && data.choices[0] &&
-        (data.choices[0].message && data.choices[0].message.content);
+      /* Non-standard error bodies (e.g. SiliconFlow returns
+         {"code":500,"msg":"404 NOT_FOUND","success":false} on a 200) must be
+         surfaced as a real API error, not mistaken for empty content. */
+      if (data && data.success === false) {
+        var detail = data.msg || 'unknown error';
+        throw err('api', detail + (data.code != null ? ' [code ' + data.code + ']' : '') +
+          (lang() !== 'en' ? '：模型名或请求路径不正确（请核对厂商预设与模型名是否匹配你的 API Key）'
+                           : ': wrong model name or endpoint path (check the preset and model match your key)'));
+      }
+      if (data && data.error && (data.error.message || data.error.code || data.error.type)) {
+        throw err('api', data.error.message || String(data.error.code || data.error.type));
+      }
+      var content = null;
+      if (data && data.choices && data.choices[0]) {
+        var ch = data.choices[0];
+        content = ch.message && ch.message.content != null ? ch.message.content
+                : (ch.text != null ? ch.text : null);
+      }
       if (content == null && data && data.content != null) content = data.content;
-      if (content == null) throw err('shape', 'no content in response');
+      if (content == null) throw err('shape', 'no content in response', res.text);
       return String(content);
     }).catch(function (e) {
       clearTimeout(timer);
@@ -132,34 +156,73 @@
     });
   }
 
-  function err(kind, msg) {
+  function err(kind, msg, raw) {
     var e = new Error(msg || kind);
     e.aiKind = kind;
+    if (raw != null) e.raw = String(raw);
     return e;
   }
 
-  /* Models wrap JSON in prose and fences even when told not to. Take the
-     outermost balanced object rather than trusting the first brace. */
+  var lastRawText = '';
+
+  /* Models still wrap JSON in prose, fences or stray braces even when told
+     not to. Be forgiving: strip a fenced block, then take the first fully
+     balanced {…} or […] (string-aware), and salvage common slips like
+     trailing commas or single-quoted keys. */
   function parseJSON(text) {
     if (!text) return null;
     var s = String(text).trim();
     var fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fence) s = fence[1].trim();
-    var first = s.indexOf('{'), last = s.lastIndexOf('}');
-    if (first < 0 || last <= first) return null;
-    try { return JSON.parse(s.slice(first, last + 1)); } catch (e) { }
-    /* Trailing junk after the object is common; walk back to each '}'. */
-    for (var i = s.length - 1; i > first; i--) {
-      if (s.charAt(i) !== '}') continue;
-      try { return JSON.parse(s.slice(first, i + 1)); } catch (e2) { }
+    return tryParse(s) || extractBalanced(s, '{', '}') || extractBalanced(s, '[', ']');
+  }
+
+  function tryParse(t) {
+    try { return JSON.parse(t); } catch (e) { return null; }
+  }
+
+  /* Walk from the first open bracket, respecting strings and escapes, and
+     return the value once brackets balance — so trailing prose, a second
+     stray object, or a truncated tail never poison the parse. */
+  function extractBalanced(s, open, close) {
+    var first = s.indexOf(open);
+    if (first < 0) return null;
+    var depth = 0, inStr = false, esc = false;
+    for (var i = first; i < s.length; i++) {
+      var c = s.charAt(i);
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
+      if (c === open) depth++;
+      else if (c === close) {
+        if (--depth === 0) {
+          var slice = s.slice(first, i + 1);
+          return tryParse(slice) || tryParse(fixJSON(slice)) || null;
+        }
+      }
     }
-    return null;
+    /* Unterminated tail (truncated reply): drop the dangling partial value
+       and retry once before giving up. */
+    var cut = s.slice(first).replace(/,?\s*[^,{}\[\]]*$/, '');
+    return tryParse(cut) || tryParse(fixJSON(cut)) || null;
+  }
+
+  /* Last-resort cleanup for models that emit almost-JSON: drop trailing
+     commas before } or ], and quote single-quoted *keys* (not string values). */
+  function fixJSON(t) {
+    return t
+      .replace(/,(\s*[}\]])/g, '$1')
+      .replace(/'([^']+)'\s*:/g, '"$1":');
   }
 
   function askJSON(messages, opts) {
     return chat(messages, opts).then(function (txt) {
       var o = parseJSON(txt);
-      if (!o) throw err('shape', 'model did not return JSON');
+      if (!o) throw err('shape', 'model did not return JSON', txt);
       return o;
     });
   }
@@ -512,11 +575,11 @@
         '{"events":[{"title":"","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","tag":"","note":"","repeat":"none|daily|weekly|monthly|yearly","repeatEvery":1,"repeatUntil":""}],"notes":""}\n' +
         '规则：年份缺失用 ' + year + '；只有星期几（如"每周三"）时，取该文本所指的最近那个周三，repeat 设为 weekly；' +
         '时间缺失就填 09:00-10:00 并在 note 写"时间未标注"；tag 只能从 ' + tags().join('/') + ' 里选，不确定就留空；' +
-        '不要编造信息，不确定的写进 note；不要输出 JSON 以外的内容。'
+        '不要编造信息，不确定的写进 note；只输出纯 JSON（不要使用 Markdown 代码块包裹，直接以 { 或 [ 开头），不要输出 JSON 以外的任何解释文字。'
       : 'You extract calendar entries. Return JSON only:\n' +
         '{"events":[{"title":"","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","tag":"","note":"","repeat":"none|daily|weekly|monthly|yearly","repeatEvery":1,"repeatUntil":""}],"notes":""}\n' +
         'Missing year: use ' + year + '. A bare weekday ("every Wednesday") means the nearest such day and repeat:"weekly". ' +
-        'Missing time: 09:00-10:00 with note "time unknown". tag must be one of ' + tags().join('/') + ' or empty. Never invent facts.';
+        'Missing time: 09:00-10:00 with note "time unknown". tag must be one of ' + tags().join('/') + ' or empty. Never invent facts. Output raw JSON only, no code fences, no prose.';
     return [sys(rules), { role: 'user', content: String(text || '').slice(0, 12000) }];
   }
 
@@ -538,11 +601,11 @@
         '{"stages":[{"name":"","week":1}],"tasks":[{"title":"","week":1,"minutes":120,"stage":"","tag":"","note":""}],"notes":""}\n' +
         '约束：从现在到 ' + opts.due + ' 共 ' + opts.weeks + ' 周；每周投入不超过 ' + opts.hours + ' 小时；' +
         '每个任务的 minutes 在 45-240 之间；按周递增推进，同一周的任务总分钟不超过 ' + (opts.hours * 60) + '；' +
-        'title 要具体可执行（写清章节/任务），不要写"复习"这种空话；不要输出 JSON 以外的内容。'
+        'title 要具体可执行（写清章节/任务），不要写"复习"这种空话；只输出纯 JSON（不要使用 Markdown 代码块包裹），不要输出 JSON 以外的任何解释文字。'
       : 'Break the goal into stages and weekly tasks. Return JSON only:\n' +
         '{"stages":[{"name":"","week":1}],"tasks":[{"title":"","week":1,"minutes":120,"stage":"","tag":"","note":""}],"notes":""}\n' +
         'From now until ' + opts.due + ' there are ' + opts.weeks + ' weeks; at most ' + opts.hours + ' hours per week; ' +
-        'each task 45-240 minutes; titles must be concrete. No prose outside the JSON.';
+        'each task 45-240 minutes; titles must be concrete. Output raw JSON only, no code fences, no prose.';
     var user = zh
       ? '目标：' + goal + '\n截止：' + opts.due
       : 'Goal: ' + goal + '\nDue: ' + opts.due;
@@ -555,13 +618,32 @@
       ? '你把一个自然语言指令翻译成对既有日程的操作，只输出 JSON：\n' +
         '{"ops":[{"op":"move|update|delete|done","id":"","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","patch":{}}],"notes":""}\n' +
         '规则：只能使用下面列表里出现过的 id，绝不能自己编；move/update 需要 date、start、end（"往后挪一小时"= start 和 end 各 +60 分钟）；' +
-        'update 的 patch 只能是 title/tag/note/done/reminderMin；无法判断的条目直接省略，不要猜测；不要输出 JSON 以外的内容。'
+        'update 的 patch 只能是 title/tag/note/done/reminderMin；无法判断的条目直接省略，不要猜测；只输出纯 JSON（不要使用 Markdown 代码块包裹），不要输出 JSON 以外的任何解释文字。'
       : 'Translate the instruction into operations on the listed events. Return JSON only:\n' +
         '{"ops":[{"op":"move|update|delete|done","id":"","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","patch":{}}],"notes":""}\n' +
-        'Only use ids from the list; never invent one. move/update need date, start and end. Skip anything ambiguous.';
+        'Only use ids from the list; never invent one. move/update need date, start and end. Skip anything ambiguous. Output raw JSON only, no code fences, no prose.';
     var body = JSON.stringify(ctx || []);
     return [sys(rules), { role: 'user', content: (zh ? '当前日程：\n' : 'Current events:\n') + body + '\n\n' +
       (zh ? '指令：' : 'Instruction: ') + cmd }];
+  }
+
+  /* The chat tab's persona. Deliberately small: a name, today's date, and two
+     rules that keep it from pretending to be a calendar API. Writing stays in
+     the edit tab for now -- a chat reply that silently moved a class would be
+     exactly the failure this file was built to prevent. */
+  function chatSystem(name, today) {
+    var zh = lang() !== 'en';
+    return (zh
+      ? '你是 MySchedule 日程应用里的助手，名字叫「' + name + '」。今天是 ' + today + '。\n' +
+        '用简洁自然的中文回答，能一步说清就不要铺开；不知道就直说不知道。\n' +
+        '你可以聊时间管理、计划安排、复盘建议，也可以帮用户把想法整理成清单。\n' +
+        '注意：你目前只能对话，不能直接修改日程；若用户想改日程，请让他用「改程」页。\n' +
+        '不要输出 JSON 或代码，也不要虚构用户的日程内容。'
+      : 'You are the assistant inside MySchedule, named "' + name + '". Today is ' + today + '.\n' +
+        'Answer concisely and naturally; say so when you do not know.\n' +
+        'You can discuss planning, time management and reviews. You cannot edit ' +
+        'the calendar yet -- point the user at the Edit tab for that.\n' +
+        'Never output JSON or code, and never invent events the user did not mention.');
   }
 
   /* The context handed to the model: just enough to act on, small enough to
@@ -628,10 +710,12 @@
     importImagePrompt: importImagePrompt,
     planPrompt: planPrompt,
     editPrompt: editPrompt,
+    chatSystem: chatSystem,
     hhmm: hhmm,
     addDays: addDays,
     mondayOf: mondayOf,
     errText: errText,
+    lastRaw: function () { return lastRawText; },
     /* Test seam, not for production use. */
     _stub: function (fn) { responder = fn; },
     _cfgKey: CFG_KEY
@@ -640,16 +724,35 @@
   function errText(e) {
     var kind = (e && e.aiKind) || 'network';
     var zh = lang() !== 'en';
+    var m = (e && e.message) || '';
+    /* A 400 from a text-only model when we sent an image_url: the endpoint
+       accepts text content only. Translate the cryptic body into a fix. */
+    if (kind === 'http' && /content\.type|image_url|取值范围|only.*text|does not support .*image/i.test(m)) {
+      return zh
+        ? '你的模型不支持图片识别：该接口只接受文本、不接收图片（HTTP 400）。请换用支持读图的模型——智谱 GLM-4V、Gemini 2.5 Flash、GPT-4o、OpenRouter 视觉模型，或在 SiliconFlow 选视觉模型（如 deepseek-ai/deepseek-vl2）。'
+        : 'Your model cannot read images: this endpoint accepts text only, not images (HTTP 400). Use a vision model — Zhipu GLM-4V, Gemini 2.5 Flash, GPT-4o, an OpenRouter vision model, or a SiliconFlow VL model (e.g. deepseek-ai/deepseek-vl2).';
+    }
     var map = {
       auth: zh ? '密钥无效或没有权限（401/403）' : 'Key rejected (401/403)',
       model: zh ? '模型名不存在，或该接口没有这个模型' : 'Model not found',
-      timeout: zh ? '请求超时，换个更小的模型或稍后再试' : 'Request timed out',
+      timeout: zh ? '请求超时：可在 AI 设置里调高「超时（秒）」，或换更快的模型（如 Groq）' : 'Request timed out: raise the timeout in AI settings, or use a faster model (e.g. Groq)',
       network: zh ? '连不上接口：检查网络、地址，或该服务是否允许浏览器直连（CORS）' : 'Cannot reach the endpoint (network or CORS)',
       shape: zh ? '模型没有返回可用的 JSON' : 'Model did not return usable JSON',
+      api: zh ? '接口返回了错误（不是 JSON 解析问题）' : 'The API returned an error (not a parse issue)',
       config: zh ? '还没填接口地址' : 'No endpoint configured'
     };
     var base = map[kind] || map.network;
-    var extra = (e && e.message && kind === 'http') ? e.message : '';
+    if (kind === 'shape' && e && e.raw != null) {
+      var empty = !String(e.raw).trim();
+      if (empty) {
+        base += zh ? '（接口返回了空内容——多为限流/余额不足/该模型未授权，或响应格式不兼容）'
+                   : ' (empty response — usually rate-limit, no quota, or incompatible format)';
+      } else {
+        var r = String(e.raw).trim().slice(0, 280);
+        base += (zh ? '（接口原始返回：' : ' (raw response: ') + r + (zh ? '）' : ')');
+      }
+    }
+    var extra = (e && e.message && (kind === 'http' || kind === 'api')) ? e.message : '';
     return extra ? base + ' — ' + extra : base;
   }
 })();

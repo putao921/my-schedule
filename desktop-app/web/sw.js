@@ -6,29 +6,37 @@
  * local data -- a mismatch that is worse than a plain offline miss.
  *
  * Bump CACHE on every shell change; the old cache is deleted on activate.
+ *
+ * VERSIONED URLS: index.html references shell files with ?v=N. When you bump
+ * the version you MUST keep the ?v= in SHELL below identical to the ?v= in
+ * index.html -- identical URL strings are what makes the cache-first lookup
+ * hit, and a version bump changes the URL so stale copies can never be
+ * paired with a newer HTML (the mixed-old-CSS bug).
  */
-var CACHE = 'myschedule-v16';
+var CACHE = 'myschedule-v31';
+
+var V = '?v=30';
 
 var SHELL = [
   './',
   './index.html',
-  './manifest.webmanifest',
-  './css/tokens.css',
-  './css/app.css',
-  './js/i18n.js',
-  './js/store.js',
-  './js/lunar.js',
-  './js/views.js',
-  './js/today.js',
-  './js/stats.js',
-  './js/focus.js',
-  './js/wheel.js',
-  './js/drag.js',
-  './js/history.js',
-  './js/ai.js',
-  './js/aiui.js',
-  './js/cloud.js',
-  './js/app.js',
+  './manifest.webmanifest?v=30',
+  './css/tokens.css' + V,
+  './css/app.css' + V,
+  './js/i18n.js' + V,
+  './js/store.js' + V,
+  './js/lunar.js' + V,
+  './js/views.js' + V,
+  './js/today.js' + V,
+  './js/stats.js' + V,
+  './js/focus.js' + V,
+  './js/wheel.js' + V,
+  './js/drag.js' + V,
+  './js/history.js' + V,
+  './js/ai.js' + V,
+  './js/aiui.js' + V,
+  './js/cloud.js' + V,
+  './js/app.js' + V,
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];

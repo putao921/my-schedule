@@ -18,6 +18,7 @@
   --ico-focus: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="9" r="5" fill="none" stroke="black" stroke-width="2"/><path d="M6 2h4M8 2v3" stroke="black" stroke-width="2"/></svg>');
   --ico-stats: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="9" width="3" height="5"/><rect x="6.5" y="5" width="3" height="9"/><rect x="11" y="2" width="3" height="12"/></svg>');
   --ico-me:    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="none" stroke="black" stroke-width="2"/><path d="M2 14c0-3 3-5 6-5s6 2 6 5" fill="none" stroke="black" stroke-width="2"/></svg>');
+  --ico-ai:    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8z" stroke="black" stroke-width="1.6" fill="none" stroke-linejoin="miter"/></svg>');
 
   /* Shell metrics, overridden per breakpoint. */
   --nav-h: 56px;
@@ -48,13 +49,33 @@ html, body {
 body {
   display: grid;
   grid-template-areas:
+    "sub"
     "hero"
     "view"
     "nav";
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
-  /* Safe-area: keeps content clear of the phone's notch / home indicator. */
-  padding-top: env(safe-area-inset-top);
+}
+
+/* Safe-area: keeps content clear of the notch / status bar -- but ONLY in the
+   installed (home-screen) PWA, where the app really does draw under the
+   cutout. In a normal browser tab some WebView-based browsers still report a
+   cutout inset while their own toolbar sits above the page, which used to
+   leave a big empty band under the URL bar. Browser tabs stay flush (顶格). */
+@media (display-mode: standalone) {
+  body { padding-top: env(safe-area-inset-top); }
+
+  /* Fill that reserved band with the chrome colour instead of leaving a bare
+     strip of page background -- without this the screen looks cut off. Fixed
+     and above the nav so scrolling content cannot show through it. */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: env(safe-area-inset-top);
+    background: var(--bg-chrome);
+    z-index: 40;
+  }
 }
 
 button { font-family: inherit; cursor: pointer; }
@@ -211,12 +232,69 @@ button { font-family: inherit; cursor: pointer; }
 .nav-ico[data-ico="focus"] { -webkit-mask-image: var(--ico-focus); mask-image: var(--ico-focus); }
 .nav-ico[data-ico="stats"] { -webkit-mask-image: var(--ico-stats); mask-image: var(--ico-stats); }
 .nav-ico[data-ico="me"]    { -webkit-mask-image: var(--ico-me);    mask-image: var(--ico-me); }
+.nav-ico[data-ico="ai"]    { -webkit-mask-image: var(--ico-ai);    mask-image: var(--ico-ai); }
+
+/* Kept as a hook for styling the entry; as a view it lights up like the
+   others (see .nav-btn.is-on) instead of being permanently accented. */
+.nav-ai .nav-ico { width: 21px; height: 21px; }
+
+/* ---------------------------------------------------- sub-nav (phones) --- */
+/* On phones 月/周/列表 collapse into 日程 and 专注/统计 into 专注. Opening a
+   group shows its entries in this bar, at the very top of the screen. */
+.subbar {
+  grid-area: sub;
+  display: flex;
+  gap: 6px;
+  padding: 6px var(--shell-pad);
+  background: var(--bg-chrome);
+  border-bottom: 2px solid var(--line);
+  overflow-x: auto;
+}
+.subbar[hidden] { display: none; }
+
+.sub-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--fg-soft);
+  font-size: 12px;
+  box-shadow: 0 2px 0 0 var(--line);
+}
+.sub-chip.is-on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Phones: the five merged entries give way to the two group buttons, so the
+   bottom bar holds 今日 / 日程 / 任务 / 专注 / 我的 instead of eight. */
+.nav-btn[data-view="month"],
+.nav-btn[data-view="week"],
+.nav-btn[data-view="list"],
+.nav-btn[data-view="focus"],
+.nav-btn[data-view="stats"] { display: none; }
+.nav-group { display: flex; }
 
 /* ----------------------------------------------------------------- fab --- */
-.fab {
+/* Both floating buttons live in one fixed column. The column (not the buttons)
+   owns the viewport position; the buttons are laid out with flex, so the gap
+   between them is deterministic and they can never overlap or drift off-screen
+   when the nav height / safe-area changes. */
+.fab-col {
   position: fixed;
   right: 16px;
   bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 31;
+}
+.fab {
   width: 54px; height: 54px;
   border-radius: 50%;
   border: 2px solid var(--line);
@@ -225,7 +303,6 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 28px;
   line-height: 1;
   box-shadow: 0 3px 0 0 var(--line);
-  z-index: 31;
 }
 .fab:active { transform: translateY(2px); box-shadow: 0 1px 0 0 var(--line); }
 
@@ -1110,28 +1187,6 @@ button { font-family: inherit; cursor: pointer; }
   .bar-area { height: 112px; }
 }
 
-/* --------------------------------- phones held sideways: height is scarce -- */
-@media (orientation: landscape) and (max-height: 560px) {
-  :root { --nav-h: 46px; --shell-pad: 10px; }
-  .hero { padding: 5px var(--shell-pad) 4px; gap: 6px; }
-  .hero-pill { padding: 4px 10px; font-size: 11px; gap: 6px; }
-  .hero-clock { font-size: 13px; }
-  .hero-bar { width: 56px; height: 8px; }
-  .nav-btn {
-    flex-direction: row;
-    gap: 6px;
-    font-size: 11px;
-    padding: 2px 4px;
-  }
-  .nav-ico { width: 16px; height: 16px; }
-  .day { min-height: 34px; }
-  .view { padding-bottom: 10px; }
-  .fab { width: 46px; height: 46px; font-size: 24px; }
-  .focus-ring { width: 130px; height: 130px; }
-  .focus-time { font-size: 28px; }
-  .focus-wrap { gap: 8px; padding: 2px 0 10px; }
-}
-
 /* Eight nav items on a narrow phone: shrink the glyph and the label rather
    than letting the row wrap or the text clip. */
 @media (max-width: 400px) {
@@ -1139,6 +1194,12 @@ button { font-family: inherit; cursor: pointer; }
   .nav-ico { width: 18px; height: 18px; }
   .nav-txt { letter-spacing: -.2px; }
 }
+
+/* Phones must read exactly like the desktop in both themes, so the hero keeps
+   the plain page background (--bg-app). The chrome tint used to be applied
+   here to merge with the safe-area band; that made the phone's day theme look
+   pinker than the desktop's. The band itself is standalone-PWA only now. */
+
 
 /* ------------------------- tablet landscape / desktop: nav becomes a rail -- */
 @media (min-width: 900px) {
@@ -1170,7 +1231,15 @@ button { font-family: inherit; cursor: pointer; }
     font-size: 14px;
   }
   .nav-btn.is-on { border-left: 4px solid var(--accent); }
-  .fab { right: 24px; bottom: 24px; }
+  /* Desktop keeps all eight entries: undo the phone merge. */
+  .nav-btn[data-view="month"],
+  .nav-btn[data-view="week"],
+  .nav-btn[data-view="list"],
+  .nav-btn[data-view="focus"],
+  .nav-btn[data-view="stats"] { display: flex; }
+  .nav-group { display: none; }
+  .subbar { display: none; }
+  .fab-col { right: 24px; bottom: 24px; }
   .toast { bottom: 28px; }
   .mini { left: 224px; bottom: 20px; }
   .day { min-height: 74px; }
@@ -1197,6 +1266,59 @@ button { font-family: inherit; cursor: pointer; }
   }
   .view[data-view="tasks"] > .sec-head,
   .view[data-view="tasks"] > .empty { grid-column: 1 / -1; }
+}
+
+/* ---------------------------------------------------- large desktop >=1280 -- */
+/* --------------------------------- phones held sideways: height is scarce -- */
+/* Kept AFTER the >=900px blocks below on purpose: a large phone held sideways
+   (e.g. 915x412) matches BOTH queries, and this one must win -- short height
+   beats wide width, so these phones get the left rail, not the desktop UI. */
+@media (orientation: landscape) and (max-height: 560px) {
+  :root { --nav-h: 46px; --shell-pad: 10px; }
+  .hero { padding: 5px var(--shell-pad) 4px; gap: 6px; }
+  .hero-pill { padding: 4px 10px; font-size: 11px; gap: 6px; }
+  .hero-clock { font-size: 13px; }
+  .hero-bar { width: 56px; height: 8px; }
+  /* Landscape phones are wide but short: move the nav to a left rail so the
+     bottom of the screen goes back to the view instead of a 46px bar. */
+  body {
+    grid-template-areas:
+      "nav sub"
+      "nav hero"
+      "nav view";
+    grid-template-columns: 92px minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .nav {
+    flex-direction: column;
+    border-top: none;
+    border-right: 2px solid var(--line);
+  }
+  .nav-btn {
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    padding: 2px 4px;
+    min-height: 0;
+  }
+  /* Undo the desktop-only merge reversal: phones still get 5 entries +
+     the top sub-bar, matching portrait. */
+  .nav-btn[data-view="month"],
+  .nav-btn[data-view="week"],
+  .nav-btn[data-view="list"],
+  .nav-btn[data-view="focus"],
+  .nav-btn[data-view="stats"] { display: none; }
+  .nav-group { display: flex; }
+  .subbar { display: flex; }
+  .nav-btn.is-on { border-left: none; }
+  .fab-col { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); }
+  .nav-ico { width: 16px; height: 16px; }
+  .day { min-height: 34px; }
+  .view { padding-bottom: 10px; }
+  .fab { width: 46px; height: 46px; font-size: 24px; }
+  .focus-ring { width: 130px; height: 130px; }
+  .focus-time { font-size: 28px; }
+  .focus-wrap { gap: 8px; padding: 2px 0 10px; }
 }
 
 /* ---------------------------------------------------- large desktop >=1280 -- */
@@ -1249,16 +1371,26 @@ body, .card, .field, label, input, select, textarea, button {
 .acct-mail { font-size: calc(12px * var(--fs, 1)); }
 
 /* ------------------------------------------------------------------ AI --- */
-/* A second, smaller FAB above the + button. Same thumb-reachable column, so
-   the two do not compete for the same tap target. */
-.fab-ai {
-  bottom: calc(var(--nav-h) + 78px + env(safe-area-inset-bottom));
-  width: 44px; height: 44px;
-  font-size: 19px;
-  background: var(--bg-card);
-  color: var(--accent);
+/* v31: the AI page is a view, not a bottom sheet. It fills the view pane:
+   a fixed header, a scrolling body and a footer that stays put. */
+.view[data-view="ai"] { padding: 0; overflow: hidden; }
+.ai-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
-.ai-sheet { max-height: 92vh; }
+.ai-view > .sheet-head,
+.ai-view > .ai-tabs,
+.ai-view > .sheet-foot { flex: 0 0 auto; }
+.ai-view > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+.ai-view > .sheet-head { border-bottom: 1.5px solid var(--line-soft); }
 .ai-tabs { display: flex; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; }
 .ai-tab {
   border: 1.5px solid var(--line);
@@ -1278,6 +1410,53 @@ body, .card, .field, label, input, select, textarea, button {
   line-height: 1.5;
 }
 .ai-check { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 0; }
+
+/* --------------------------------------------------------- chat bubbles -- */
+.ai-chat-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ai-chat {
+  max-height: 42vh;
+  min-height: 120px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.ai-msg { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.ai-msg:last-child { margin-bottom: 0; }
+.ai-who { font-size: 11px; color: var(--fg-faint); }
+.ai-msg.me { align-items: flex-end; }
+.ai-bubble {
+  max-width: 88%;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-card-alt);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ai-msg.me .ai-bubble {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.ai-bubble.bad { background: var(--bg-card-alt); border-color: var(--holiday); color: var(--holiday); }
+.ai-chat-in {
+  width: 100%;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  resize: vertical;
+}
 .ai-imgs { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .ai-thumb {
   position: relative; width: 72px; height: 72px;
