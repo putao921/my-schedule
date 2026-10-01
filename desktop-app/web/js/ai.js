@@ -33,7 +33,13 @@
     timeoutMs: 180000,
     /* How the assistant introduces itself in the chat tab. Purely cosmetic,
        and it lives with the key so it never reaches cloud sync either. */
-    assistantName: '小安'
+    assistantName: '小安',
+    /* Whether the chat tab may read the user's own data. On by default --
+       an assistant that cannot see the calendar is not much of an assistant --
+       but it is the user's call, since the digest travels to whichever
+       endpoint they configured. Treated as "on unless explicitly false" so
+       configs saved before this key existed keep working. */
+    shareData: true
   };
 
   /* Vendors differ only in three strings, and typing a base URL by hand on a
@@ -627,23 +633,173 @@
       (zh ? '指令：' : 'Instruction: ') + cmd }];
   }
 
-  /* The chat tab's persona. Deliberately small: a name, today's date, and two
-     rules that keep it from pretending to be a calendar API. Writing stays in
-     the edit tab for now -- a chat reply that silently moved a class would be
-     exactly the failure this file was built to prevent. */
-  function chatSystem(name, today) {
+  /* -------------------------------------------------- chat data digest -- */
+  /* A read-only digest of the user's own data, rebuilt on every send so the
+     assistant talks about the real week instead of inventing one. Compact and
+     capped on purpose: it rides along with every chat turn, so a semester of
+     classes must not turn into a semester of tokens. Repeating series are
+     written as rules ("每周一 08:00 法理学"), never as one line per
+     occurrence -- that single choice is what keeps the digest flat. */
+  var WD_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  var WD_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var RP_ZH = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+  var PRI_ZH = { high: '高', medium: '中', low: '低' };
+
+  function wdOf(dateStr, zh) {
+    var d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    return (zh ? WD_ZH : WD_EN)[d.getDay()];
+  }
+
+  function snapEvent(e, zh) {
+    var s = hhmm(e.start || 0);
+    var en = e.end != null ? e.end : (e.start || 0) + 60;
+    var txt = s + '-' + hhmm(en) + ' ' + (e.title || (zh ? '(无标题)' : '(untitled)'));
+    if (e.tag) txt += ' [' + e.tag + ']';
+    if (e.done) txt += zh ? ' 已完成' : ' done';
+    return txt;
+  }
+
+  function snapshot(opts) {
+    if (!window.Store) return '';
+    var o = opts || {};
     var zh = lang() !== 'en';
-    return (zh
+    var days = o.days || 7;
+    var cap = o.maxChars || 3500;
+    var today = Store.todayStr();
+    var out = [];
+
+    out.push((zh ? '今天 ' : 'Today ') + today + '（' + wdOf(today, zh) + '）');
+
+    /* Today: what the user asks about most, with done state included. */
+    var tdy = Store.expandedEventsOn(today) || [];
+    if (!tdy.length) out.push(zh ? '今日日程：空' : "Today's schedule: empty");
+    else {
+      out.push((zh ? '今日日程（' : "Today's events (") + tdy.length + (zh ? ' 项）' : ')'));
+      var prevEnd = -1;
+      for (var i = 0; i < tdy.length && i < 30; i++) {
+        var st = tdy[i].start || 0;
+        var fin = tdy[i].end != null ? tdy[i].end : st + 60;
+        /* Overlaps are the one judgement a model reliably misses when it is
+           skimming a list, so mark them in the data itself. */
+        var clash = prevEnd > st;
+        out.push('- ' + snapEvent(tdy[i], zh) +
+          (clash ? (zh ? ' ⚠与上一条时间重叠' : ' [overlaps previous]') : ''));
+        if (fin > prevEnd) prevEnd = fin;
+      }
+    }
+
+    var all = Store.events || [];
+
+    /* Repeating series as rules, so a whole semester costs one line. */
+    var series = [];
+    for (var k = 0; k < all.length; k++) {
+      var e = all[k];
+      if (!e || !e.repeat || e.repeat === 'none') continue;
+      var lbl = RP_ZH[e.repeat] || e.repeat;
+      if (e.repeat === 'weekly') lbl = (zh ? '每周' : 'every ') + wdOf(e.date, zh);
+      if (!zh) lbl = e.repeat === 'weekly' ? lbl : (e.repeat || '');
+      var every = parseInt(e.repeatEvery, 10) || 1;
+      if (every > 1) lbl += zh ? '（每 ' + every + ' 轮）' : ' (every ' + every + ')';
+      series.push('- ' + lbl + ' ' + snapEvent(e, zh) +
+        (e.repeatUntil ? (zh ? '，至 ' : ', until ') + e.repeatUntil : ''));
+    }
+    if (series.length) {
+      out.push((zh ? '重复安排（' : 'Recurring (') + series.length + (zh ? ' 条规则）' : ' rules)'));
+      out.push.apply(out, series.slice(0, 25));
+    }
+
+    /* One-off events in the window ahead, grouped by day. */
+    var from = addDays(today, 1);
+    var to = addDays(today, days);
+    var byDay = {};
+    var cnt = 0;
+    for (var m = 0; m < all.length; m++) {
+      var x = all[m];
+      if (!x || (x.repeat && x.repeat !== 'none') || !x.date) continue;
+      if (x.date < from || x.date > to) continue;
+      (byDay[x.date] = byDay[x.date] || []).push(x);
+      cnt++;
+    }
+    if (cnt) {
+      out.push((zh ? '未来 ' + days + ' 天的一次性安排（' : 'One-off events in the next ' + days + ' days (') +
+        cnt + (zh ? ' 项）' : ')'));
+      var keys = Object.keys(byDay).sort();
+      for (var d2 = 0; d2 < keys.length && d2 < 14; d2++) {
+        out.push('- ' + keys[d2] + '(' + wdOf(keys[d2], zh) + ')：' +
+          byDay[keys[d2]].slice(0, 8).map(function (z) { return snapEvent(z, zh); }).join('；'));
+      }
+    }
+
+    /* Open tasks, most pressing first. */
+    var tasks = (Store.tasks || []).slice();
+    var open = tasks.filter(function (tk) { return !tk.done; });
+    if (tasks.length) {
+      var rank = { high: 0, medium: 1, low: 2 };
+      open.sort(function (a, b) {
+        var pa = rank[a.priority] != null ? rank[a.priority] : 1;
+        var pb = rank[b.priority] != null ? rank[b.priority] : 1;
+        if (pa !== pb) return pa - pb;
+        return String(a.due || '9999') < String(b.due || '9999') ? -1 : 1;
+      });
+      out.push((zh ? '待办任务（未完成 ' : 'Tasks (') + open.length + '/' + tasks.length + (zh ? '）' : ' open)'));
+      for (var q = 0; q < open.length && q < 30; q++) {
+        var tk = open[q];
+        var line = '- [' + (PRI_ZH[tk.priority] || tk.priority || '-') + '] ' + (tk.text || '');
+        if (tk.due) line += (zh ? ' · 截止 ' : ' · due ') + tk.due;
+        if (tk.project) line += ' · ' + tk.project;
+        if (tk.subtasks && tk.subtasks.length) {
+          var dn = tk.subtasks.filter(function (s) { return s && s.done; }).length;
+          line += ' · ' + dn + '/' + tk.subtasks.length;
+        }
+        out.push(line);
+      }
+    }
+
+    /* Focus: same log the hero and the stats week read. */
+    var fToday = Store.focusOn(today) || 0;
+    var fWeek = 0;
+    for (var w = 0; w < 7; w++) fWeek += Store.focusOn(addDays(today, -w)) || 0;
+    out.push(zh
+      ? '专注：今天 ' + fToday + ' 分钟，近 7 天 ' + fWeek + ' 分钟（日均 ' + Math.round(fWeek / 7) + '）'
+      : 'Focus: ' + fToday + ' min today, ' + fWeek + ' min in the last 7 days (avg ' + Math.round(fWeek / 7) + ')');
+
+    var text = out.join('\n');
+    if (text.length > cap) text = text.slice(0, cap) + (zh ? '\n（…已截断）' : '\n(...truncated)');
+    return text;
+  }
+
+  /* The chat tab's persona. With a digest (ctx) it can answer questions about
+     the real calendar; without one it must keep its hands off the subject.
+     Writing stays in the edit tab either way -- a chat reply that silently
+     moved a class would be exactly the failure this file was built to prevent. */
+  function chatSystem(name, today, ctx) {
+    var zh = lang() !== 'en';
+    var head = zh
       ? '你是 MySchedule 日程应用里的助手，名字叫「' + name + '」。今天是 ' + today + '。\n' +
-        '用简洁自然的中文回答，能一步说清就不要铺开；不知道就直说不知道。\n' +
-        '你可以聊时间管理、计划安排、复盘建议，也可以帮用户把想法整理成清单。\n' +
-        '注意：你目前只能对话，不能直接修改日程；若用户想改日程，请让他用「改程」页。\n' +
-        '不要输出 JSON 或代码，也不要虚构用户的日程内容。'
+        '用简洁自然的中文回答，能一步说清就不要铺开；不知道就直说不知道。\n'
       : 'You are the assistant inside MySchedule, named "' + name + '". Today is ' + today + '.\n' +
-        'Answer concisely and naturally; say so when you do not know.\n' +
-        'You can discuss planning, time management and reviews. You cannot edit ' +
-        'the calendar yet -- point the user at the Edit tab for that.\n' +
-        'Never output JSON or code, and never invent events the user did not mention.');
+        'Answer concisely and naturally; say so when you do not know.\n';
+    var body = ctx
+      ? (zh
+        ? '下面是用户在此应用里的真实数据（只读，随每次提问一起给你）。回答时可以直接引用它，' +
+          '比如"你今天下午三点有课""这周有 4 个待办没截止"。\n' +
+          '规则：只依据下面的数据说话，没有的就说没有，绝不虚构日程或任务；' +
+          '时间冲突、空档、负荷是否过重这类判断请主动提醒；' +
+          '用户问"我今天/这周有什么安排"时，直接列出来，不要反问。\n'
+        : "Below is the user's real data in this app (read-only, sent with every question). " +
+          'Quote it freely, e.g. "you have class at 3pm today".\n' +
+          'Rules: speak only from this data; never invent events or tasks; ' +
+          'flag conflicts, gaps and overload on your own initiative.\n')
+      : (zh
+        ? '你没有读取用户日程的权限，不要猜测或虚构他的安排。\n'
+        : "You cannot see the user's data; never guess or invent their schedule.\n");
+    var tail = zh
+      ? '注意：你只能对话，不能直接修改日程；用户要改日程请让他用「改程」页。\n' +
+        '不要输出 JSON 或代码。'
+      : 'You cannot edit the calendar -- point the user at the Edit tab for that.\n' +
+        'Never output JSON or code.';
+    return head + body + tail + (ctx ? '\n\n' + ctx : '');
   }
 
   /* The context handed to the model: just enough to act on, small enough to
@@ -711,6 +867,8 @@
     planPrompt: planPrompt,
     editPrompt: editPrompt,
     chatSystem: chatSystem,
+    snapshot: snapshot,
+    shareData: function () { return cfg.shareData !== false; },
     hhmm: hhmm,
     addDays: addDays,
     mondayOf: mondayOf,

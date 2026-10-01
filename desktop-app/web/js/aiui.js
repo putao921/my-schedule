@@ -146,8 +146,9 @@
     }).join('');
     var empty = state.msgs.length ? ''
       : '<div class="ai-note">' + esc(t('ai.chatHello')).replace('{name}', esc(assistantName())) + '</div>';
+    var hint = AI.shareData() ? t('ai.chatHint') : t('ai.chatHintOff');
     return '<div class="ai-chat-head">' +
-      '<span class="ev-meta grow">' + esc(t('ai.chatHint')) + '</span>' +
+      '<span class="ev-meta grow">' + esc(hint) + '</span>' +
       '<button class="mini-btn" id="aiChatClear">' + esc(t('ai.clear')) + '</button></div>' +
       '<div class="ai-chat" id="aiChatLog">' + empty + log + '</div>' +
       '<textarea id="aiChatIn" class="ai-chat-in" rows="2" placeholder="' +
@@ -184,8 +185,12 @@
     render();
     busy(true, t('ai.thinking'));
 
+    /* The digest is rebuilt per send, never appended to state.msgs: it must
+       reflect edits made since the last turn, but it must not accumulate in
+       the history we replay (that would multiply its cost every turn). */
     var today = window.Store ? Store.todayStr() : new Date().toISOString().slice(0, 10);
-    var msgs = [{ role: 'system', content: AI.chatSystem(assistantName(), today) }];
+    var ctx = AI.shareData() ? AI.snapshot({ days: 7 }) : '';
+    var msgs = [{ role: 'system', content: AI.chatSystem(assistantName(), today, ctx) }];
     var tail = state.msgs.slice(-CHAT_MEMORY);
     for (var i = 0; i < tail.length; i++) {
       msgs.push({ role: tail[i].role === 'user' ? 'user' : 'assistant', content: tail[i].text });
@@ -274,6 +279,9 @@
       '<input id="aiTimeout" type="number" min="10" step="10" value="' + Math.round((c.timeoutMs || 180000) / 1000) + '" placeholder="180"> 秒</div>' +
       '<label class="ai-check"><input type="checkbox" id="aiVision"' + (c.vision ? ' checked' : '') + '> ' +
       esc(t('ai.vision')) + '</label>' +
+      '<label class="ai-check"><input type="checkbox" id="aiShare"' + (c.shareData !== false ? ' checked' : '') + '> ' +
+      esc(t('ai.share')) + '</label>' +
+      '<div class="ai-note">' + esc(t('ai.shareHint')) + '</div>' +
       '<div class="card-row" style="margin-top:8px"><button class="btn" id="aiTest">' +
       esc(t('ai.test')) + '</button></div>';
   }
@@ -459,6 +467,7 @@
       model: ($('aiModel').value || '').trim(),
       apiKey: ($('aiKey').value || '').trim(),
       vision: !!$('aiVision').checked,
+      shareData: !$('aiShare') || $('aiShare').checked,
       assistantName: ($('aiName') && $('aiName').value || '').trim() || assistantName(),
       timeoutMs: (function () { var v = parseInt($('aiTimeout').value, 10); return (v >= 10 ? v : 180) * 1000; })()
     });

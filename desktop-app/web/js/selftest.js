@@ -974,6 +974,23 @@
         ok('ai.backRestores', viewEl.dataset.view === before,
           before + ' -> ' + viewEl.dataset.view);
       })();
+      /* 11. The chat digest must carry the user's real data -- an assistant
+             that cannot see the calendar cannot answer "今天有什么". */
+      (function () {
+        if (!window.AI || !AI.snapshot) return;
+        var t = Store.todayStr();
+        var title = 'SELFTEST snap probe';
+        var ev = Store.newEvent({ date: t, start: 15 * 60, end: 16 * 60, title: title, tag: 'work' });
+        var snap = AI.snapshot({ days: 7 });
+        Store.removeEvent(ev.id);
+        ok('ai.snapHasData', snap.indexOf(t) >= 0 && snap.indexOf(title) >= 0,
+          'len=' + snap.length);
+        ok('ai.snapCapped', AI.snapshot({ days: 7, maxChars: 120 }).length <= 200,
+          String(AI.snapshot({ days: 7, maxChars: 120 }).length));
+        /* With no digest the persona must not claim any knowledge of it. */
+        ok('ai.snapOff', AI.chatSystem('x', t, '').indexOf(title) < 0 &&
+          /没有读取|cannot see/.test(AI.chatSystem('x', t, '')));
+      })();
     });
   }
 

@@ -780,7 +780,7 @@
        a normal visit never downloads it. */
     if (/[?&]selftest=1/.test(location.search)) {
       var st = document.createElement('script');
-      st.src = 'js/selftest.js?v=30';
+      st.src = 'js/selftest.js?v=31';
       document.body.appendChild(st);
     }
 
