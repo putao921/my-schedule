@@ -13,14 +13,14 @@
  * hit, and a version bump changes the URL so stale copies can never be
  * paired with a newer HTML (the mixed-old-CSS bug).
  */
-var CACHE = 'myschedule-v32';
+var CACHE = 'myschedule-v33';
 
-var V = '?v=31';
+var V = '?v=32';
 
 var SHELL = [
   './',
   './index.html',
-  './manifest.webmanifest?v=31',
+  './manifest.webmanifest?v=32',
   './css/tokens.css' + V,
   './css/app.css' + V,
   './js/i18n.js' + V,

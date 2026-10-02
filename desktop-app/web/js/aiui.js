@@ -52,7 +52,17 @@
     el.innerHTML = '';
     el.appendChild(PAGE);
     PAGE.hidden = false;
+    seedBrief();
     render();
+  }
+
+  /* Opened with an empty conversation, the assistant greets with the day.
+     It costs nothing (no request), so it may appear every single time. */
+  function seedBrief() {
+    if (!state.msgs.length && !state.preview && AI.shareData()) {
+      var b = dailyBrief();
+      if (b) state.msgs.push({ role: 'assistant', text: b, brief: true });
+    }
   }
 
   function open(tab) {
@@ -140,9 +150,13 @@
   function viewChat() {
     var log = state.msgs.map(function (m) {
       var who = m.role === 'user' ? 'me' : 'ai';
+      var ask = m.brief
+        ? '<div class="ai-brief-ask"><button class="mini-btn" id="aiBriefAsk">' +
+          esc(t('ai.briefAsk')) + '</button></div>'
+        : '';
       return '<div class="ai-msg ' + who + '">' +
         '<div class="ai-who">' + esc(m.role === 'user' ? t('ai.me') : assistantName()) + '</div>' +
-        '<div class="ai-bubble' + (m.bad ? ' bad' : '') + '">' + esc(m.text) + '</div></div>';
+        '<div class="ai-bubble' + (m.bad ? ' bad' : '') + '">' + esc(m.text) + '</div>' + ask + '</div>';
     }).join('');
     var empty = state.msgs.length ? ''
       : '<div class="ai-note">' + esc(t('ai.chatHello')).replace('{name}', esc(assistantName())) + '</div>';
@@ -168,11 +182,76 @@
     var clr = $('aiChatClear');
     if (clr) clr.addEventListener('click', function () {
       state.msgs = [];
+      state.preview = null;
       status('');
+      seedBrief();
       render();
+    });
+    var ask = $('aiBriefAsk');
+    if (ask) ask.addEventListener('click', function () {
+      var ta = $('aiChatIn');
+      if (ta) ta.value = t('ai.briefAskQ');
+      sendChat();
     });
   }
 
+  /* ------------------------------------------------------------ brief --- */
+  /* A local, zero-token morning brief: everything it says already lives in
+     Store, so it appears instantly and works offline. The model is optional
+     and opt-in ("让小安说说") -- a daily auto-summary that billed a request
+     every time the view opened would be a tax, not a feature. */
+  function dailyBrief() {
+    if (!window.Store || !window.AI) return '';
+    var zh = !(window.lang && window.lang() === 'en');
+    var today = Store.todayStr();
+    var list = Store.expandedEventsOn(today) || [];
+    var L = [];
+
+    L.push((zh ? '今天是 ' : 'Today is ') + today + '（' + AI.wdOf(today, zh) + '）。');
+    if (!list.length) L.push(zh ? '今天还没有安排。' : 'Nothing on the calendar today.');
+    else {
+      L.push((zh ? '共 ' : '') + list.length + (zh ? ' 项安排：' : ' events: '));
+      list.slice(0, 8).forEach(function (e) {
+        L.push('· ' + hhmm(e.start || 0) + ' ' + (e.title || t('gen.untitled')) +
+          (e.done ? (zh ? '（已完成）' : ' (done)') : ''));
+      });
+      if (list.length > 8) L.push(zh ? '…还有 ' + (list.length - 8) + ' 项' : '…' + (list.length - 8) + ' more');
+    }
+
+    /* Overlaps, counted the same way the digest marks them. */
+    var clashes = 0, prevEnd = -1;
+    list.forEach(function (e) {
+      var st = e.start || 0;
+      if (prevEnd > st) clashes++;
+      var fin = e.end != null ? e.end : st + 60;
+      if (fin > prevEnd) prevEnd = fin;
+    });
+    if (clashes) L.push(zh ? '⚠ 有 ' + clashes + ' 处时间重叠。' : '⚠ ' + clashes + ' overlapping slot(s).');
+
+    /* Tasks due today or earlier -- the things that will actually bite. */
+    var tasks = Store.tasks || [];
+    var overdue = tasks.filter(function (x) { return !x.done && x.due && x.due < today; });
+    var dueToday = tasks.filter(function (x) { return !x.done && x.due === today; });
+    var openN = tasks.filter(function (x) { return !x.done; }).length;
+    if (overdue.length) L.push((zh ? '⚠ ' : '⚠ ') + overdue.length +
+      (zh ? ' 个待办已过期：' : ' overdue: ') +
+      overdue.slice(0, 3).map(function (x) { return x.text; }).join('、'));
+    if (dueToday.length) L.push(dueToday.length + (zh ? ' 个待办今天到期。' : ' due today.'));
+    if (openN && !overdue.length && !dueToday.length) {
+      L.push(openN + (zh ? ' 个待办待处理。' : ' open task(s).'));
+    }
+
+    var y = Store.focusOn(AI.addDays(today, -1)) || 0;
+    if (y) L.push((zh ? '昨天专注 ' : 'Focus yesterday: ') + y + (zh ? ' 分钟。' : ' min.'));
+
+    L.push(zh ? '想让我帮你排一排，就直接说。' : 'Tell me if you want me to rearrange anything.');
+    return L.join('\n');
+  }
+
+  /* ------------------------------------------------------- ops in chat -- */
+  /* A model reply may carry a proposed edit: prose plus a JSON ops block. It
+     is only ever a proposal -- the ops go through the same reviewed diff as
+     the Edit tab, and nothing is written until the user ticks and applies. */
   function sendChat() {
     if (state.busy) return;
     var ta = $('aiChatIn');
@@ -187,20 +266,35 @@
 
     /* The digest is rebuilt per send, never appended to state.msgs: it must
        reflect edits made since the last turn, but it must not accumulate in
-       the history we replay (that would multiply its cost every turn). */
+       the history we replay (that would multiply its cost every turn). It is
+       also cropped to the question -- "今天下午有空吗" should not pay for a
+       fortnight of one-off events. */
     var today = window.Store ? Store.todayStr() : new Date().toISOString().slice(0, 10);
-    var ctx = AI.shareData() ? AI.snapshot({ days: 7 }) : '';
-    var msgs = [{ role: 'system', content: AI.chatSystem(assistantName(), today, ctx) }];
+    var share = AI.shareData();
+    var ctx = share ? AI.snapshot({ query: text }) : '';
+    var msgs = [{ role: 'system', content: AI.chatSystem(assistantName(), today, ctx, share) }];
     var tail = state.msgs.slice(-CHAT_MEMORY);
     for (var i = 0; i < tail.length; i++) {
       msgs.push({ role: tail[i].role === 'user' ? 'user' : 'assistant', content: tail[i].text });
     }
 
     AI.chat(msgs, { temperature: 0.5 }).then(function (reply) {
-      var txt = String(reply == null ? '' : reply).trim();
+      var raw = String(reply == null ? '' : reply);
+      var txt = raw.trim();
+      var pulled = share ? AI.opsFromReply(raw, AI.contextIds(AI.contextEvents(30))) : null;
+      if (pulled) {
+        state.preview = {
+          kind: 'ops',
+          items: pulled.items.map(function (o) { o.on = true; return o; }),
+          bad: pulled.bad,
+          notes: ''
+        };
+        /* The bubble keeps the prose; the JSON block is machinery. */
+        txt = pulled.reply || txt;
+      }
       state.msgs.push({ role: 'assistant', text: txt || t('ai.emptyReply') });
       render();
-      status('');
+      status(state.preview ? t('ai.checkList') : '');
     }).catch(function (e) {
       state.msgs.push({ role: 'assistant', text: AI.errText(e), bad: true });
       render();
@@ -573,7 +667,15 @@
     var n = state.preview.kind === 'ops' ? AI.applyOps(picked) : AI.applyEvents(picked);
     if (window.App && App.render) App.render();
     status('');
-    close();
+    /* In chat the user asked here, so the answer belongs here: drop the diff,
+       confirm inline, and stay in the conversation. */
+    if (state.tab === 'chat') {
+      state.preview = null;
+      state.msgs.push({ role: 'assistant', text: t('ai.appliedN').replace('{n}', String(n)) });
+      render();
+    } else {
+      close();
+    }
     if (window.App && App.toast) App.toast(t('ai.written') + ' ' + n + ' — ' + t('ai.canUndo'));
   }
 

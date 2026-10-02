@@ -657,19 +657,84 @@
     var txt = s + '-' + hhmm(en) + ' ' + (e.title || (zh ? '(无标题)' : '(untitled)'));
     if (e.tag) txt += ' [' + e.tag + ']';
     if (e.done) txt += zh ? ' 已完成' : ' done';
+    /* The id travels along because a proposed edit has to name its target;
+       without it the model can only describe the change, never perform it. */
+    var id = String(e.id || '').split('@')[0];
+    if (id) txt += ' #' + id;
     return txt;
+  }
+
+  /* Crop the digest to what the question can actually be about. Deliberately
+     conservative: a section dropped by mistake is a wrong answer, while a
+     section sent needlessly is only a few hundred characters. So the rules
+     here only ever remove what the wording rules out. */
+  function scopeFor(q) {
+    var s = { days: 7, series: true, soon: true, tasks: true, focus: true, keys: [] };
+    if (!q) return s;
+    var x = String(q);
+    if (/今天|今日|今晚|今早|today|tonight/.test(x)) s.days = 1;
+    else if (/明天|明日|明早|tomorrow/.test(x)) s.days = 2;
+    else if (/后天/.test(x)) s.days = 3;
+    else if (/本周|这周|这一周|这星期|this week/.test(x)) s.days = 7;
+    else if (/下周|下星期|下个?周|next week/.test(x)) s.days = 14;
+    else if (/本月|这个月|这月|this month|下个月|下月|next month/.test(x)) s.days = 30;
+    /* "我的待办有哪些" needs today's shape and the task list, not the week. */
+    if (/待办|任务|todo|task/i.test(x) &&
+        !/(日程|安排|课|会议|schedule|event|meeting|class)/i.test(x)) {
+      s.soon = false; s.series = false; s.days = Math.min(s.days, 2);
+    }
+    if (/专注|番茄|focus|pomodoro/i.test(x)) {
+      s.soon = false; s.series = false; s.days = 1;
+    }
+    s.keys = keyTerms(x);
+    return s;
+  }
+
+  /* Loose on purpose: these only mark likely-relevant rows, they never filter.
+     Chinese has no spaces to split on, so every 2-4 character window of a run
+     becomes a candidate -- that is how "法理学" survives being asked about as
+     "这周法理学有几次课". Longest first, since longer is more specific. */
+  var STOP = /^(今天|今日|明天|后天|这周|本周|下周|最近|一下|什么|哪些|有没有|帮我|我想|请问|请|的|了|吗|呢|我|你|它|有|和|与|在|是|把|给|到|从|去|个|这|那|可以|能不能|多少|几点|时候|安排|日程|计划|时间|上午|下午|晚上|早上|中午|之后|之前|on|the|a|an|my|me|is|are|do|does|have|has|any|what|when|today|tomorrow|this|next|week|day|please|can|you|i|it|at|in|for|to|of)$/i;
+
+  function keyTerms(x) {
+    var out = [];
+    var en = String(x).toLowerCase().match(/[a-z][a-z0-9]{1,}/g) || [];
+    en.forEach(function (w) { if (!STOP.test(w) && out.indexOf(w) < 0) out.push(w); });
+    var runs = String(x).match(/[\u4e00-\u9fa5]{2,}/g) || [];
+    for (var len = 4; len >= 2; len--) {
+      runs.forEach(function (r) {
+        for (var i = 0; i + len <= r.length; i++) {
+          var w = r.substr(i, len);
+          if (!STOP.test(w) && out.indexOf(w) < 0) out.push(w);
+        }
+      });
+    }
+    return out.slice(0, 12);
+  }
+
+  function hits(e, keys, zh) {
+    if (!keys || !keys.length) return false;
+    var hay = String((e.title || '') + ' ' + (e.tag || '')).toLowerCase();
+    for (var i = 0; i < keys.length; i++) {
+      if (hay.indexOf(String(keys[i]).toLowerCase()) >= 0) return true;
+    }
+    return false;
   }
 
   function snapshot(opts) {
     if (!window.Store) return '';
     var o = opts || {};
     var zh = lang() !== 'en';
-    var days = o.days || 7;
+    var sc = scopeFor(o.query);
+    var days = o.days || sc.days;
     var cap = o.maxChars || 3500;
+    var keys = sc.keys;
     var today = Store.todayStr();
     var out = [];
 
     out.push((zh ? '今天 ' : 'Today ') + today + '（' + wdOf(today, zh) + '）');
+    if (keys.length) out.push(zh ? '（★ 标记的是与本次提问相关的条目）'
+                                : '(★ marks rows related to this question)');
 
     /* Today: what the user asks about most, with done state included. */
     var tdy = Store.expandedEventsOn(today) || [];
@@ -683,7 +748,7 @@
         /* Overlaps are the one judgement a model reliably misses when it is
            skimming a list, so mark them in the data itself. */
         var clash = prevEnd > st;
-        out.push('- ' + snapEvent(tdy[i], zh) +
+        out.push('- ' + (hits(tdy[i], keys, zh) ? '★ ' : '') + snapEvent(tdy[i], zh) +
           (clash ? (zh ? ' ⚠与上一条时间重叠' : ' [overlaps previous]') : ''));
         if (fin > prevEnd) prevEnd = fin;
       }
@@ -701,10 +766,10 @@
       if (!zh) lbl = e.repeat === 'weekly' ? lbl : (e.repeat || '');
       var every = parseInt(e.repeatEvery, 10) || 1;
       if (every > 1) lbl += zh ? '（每 ' + every + ' 轮）' : ' (every ' + every + ')';
-      series.push('- ' + lbl + ' ' + snapEvent(e, zh) +
+      series.push('- ' + (hits(e, keys, zh) ? '★ ' : '') + lbl + ' ' + snapEvent(e, zh) +
         (e.repeatUntil ? (zh ? '，至 ' : ', until ') + e.repeatUntil : ''));
     }
-    if (series.length) {
+    if (series.length && sc.series) {
       out.push((zh ? '重复安排（' : 'Recurring (') + series.length + (zh ? ' 条规则）' : ' rules)'));
       out.push.apply(out, series.slice(0, 25));
     }
@@ -721,20 +786,22 @@
       (byDay[x.date] = byDay[x.date] || []).push(x);
       cnt++;
     }
-    if (cnt) {
+    if (cnt && sc.soon) {
       out.push((zh ? '未来 ' + days + ' 天的一次性安排（' : 'One-off events in the next ' + days + ' days (') +
         cnt + (zh ? ' 项）' : ')'));
-      var keys = Object.keys(byDay).sort();
-      for (var d2 = 0; d2 < keys.length && d2 < 14; d2++) {
-        out.push('- ' + keys[d2] + '(' + wdOf(keys[d2], zh) + ')：' +
-          byDay[keys[d2]].slice(0, 8).map(function (z) { return snapEvent(z, zh); }).join('；'));
+      var dayKeys = Object.keys(byDay).sort();
+      for (var d2 = 0; d2 < dayKeys.length && d2 < (sc.days > 7 ? 31 : 14); d2++) {
+        out.push('- ' + dayKeys[d2] + '(' + wdOf(dayKeys[d2], zh) + ')：' +
+          byDay[dayKeys[d2]].slice(0, 8).map(function (z) {
+            return (hits(z, keys, zh) ? '★ ' : '') + snapEvent(z, zh);
+          }).join('；'));
       }
     }
 
     /* Open tasks, most pressing first. */
     var tasks = (Store.tasks || []).slice();
     var open = tasks.filter(function (tk) { return !tk.done; });
-    if (tasks.length) {
+    if (tasks.length && sc.tasks) {
       var rank = { high: 0, medium: 1, low: 2 };
       open.sort(function (a, b) {
         var pa = rank[a.priority] != null ? rank[a.priority] : 1;
@@ -760,7 +827,7 @@
     var fToday = Store.focusOn(today) || 0;
     var fWeek = 0;
     for (var w = 0; w < 7; w++) fWeek += Store.focusOn(addDays(today, -w)) || 0;
-    out.push(zh
+    if (sc.focus) out.push(zh
       ? '专注：今天 ' + fToday + ' 分钟，近 7 天 ' + fWeek + ' 分钟（日均 ' + Math.round(fWeek / 7) + '）'
       : 'Focus: ' + fToday + ' min today, ' + fWeek + ' min in the last 7 days (avg ' + Math.round(fWeek / 7) + ')');
 
@@ -769,11 +836,27 @@
     return text;
   }
 
+  /* A chat reply may carry a proposed edit: prose plus a JSON ops block.
+     Returns { reply, items, bad } or null. The ops are validated against the
+     ids the digest actually showed, so a model cannot edit what it never saw
+     -- and a reply with no ops block is just a reply. */
+  function opsFromReply(text, ids) {
+    var obj = null;
+    try { obj = parseJSON(text); } catch (e) { return null; }
+    if (!obj || obj.ops == null) return null;
+    var norm = normalizeOps(obj.ops, ids || []);
+    if (!norm.ok.length) return null;
+    var prose = obj.reply || String(text).replace(/```(?:json)?[\s\S]*?```/gi, '').trim();
+    return { reply: String(prose || '').trim(), items: norm.ok, bad: norm.bad };
+  }
+
   /* The chat tab's persona. With a digest (ctx) it can answer questions about
      the real calendar; without one it must keep its hands off the subject.
-     Writing stays in the edit tab either way -- a chat reply that silently
-     moved a class would be exactly the failure this file was built to prevent. */
-  function chatSystem(name, today, ctx) {
+     `canEdit` hands it a narrow way to propose changes: it may return ops, but
+     only the user's ticked confirmation ever writes them -- a chat reply that
+     silently moved a class would be exactly the failure this file was built
+     to prevent. */
+  function chatSystem(name, today, ctx, canEdit) {
     var zh = lang() !== 'en';
     var head = zh
       ? '你是 MySchedule 日程应用里的助手，名字叫「' + name + '」。今天是 ' + today + '。\n' +
@@ -794,11 +877,26 @@
       : (zh
         ? '你没有读取用户日程的权限，不要猜测或虚构他的安排。\n'
         : "You cannot see the user's data; never guess or invent their schedule.\n");
+    var editable = !!ctx && canEdit === true;
     var tail = zh
-      ? '注意：你只能对话，不能直接修改日程；用户要改日程请让他用「改程」页。\n' +
-        '不要输出 JSON 或代码。'
-      : 'You cannot edit the calendar -- point the user at the Edit tab for that.\n' +
-        'Never output JSON or code.';
+      ? (editable
+        ? '修改日程：你可以"提议"修改，但只有用户勾选确认后才会真正写入。\n' +
+          '若用户明确要求改动（挪时间、改标题、删除、标记完成），请在回复末尾附加一个 JSON 代码块：\n' +
+          '```json\n{"reply":"给用户的自然语言回复","ops":[{"op":"move|update|delete|done",' +
+          '"id":"上面每行末尾 # 后的 id","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","patch":{}}]}\n```\n' +
+          'id 必须取自上面的数据，绝不自己编；拿不准就只回复文字、不要输出 ops；' +
+          '用户只是在问问题时不要输出 JSON。除这个代码块外不要输出 JSON 或代码。'
+        : '注意：你只能对话，不能直接修改日程；用户要改日程请让他用「改程」页。\n不要输出 JSON 或代码。')
+      : (editable
+        ? 'Editing: you may PROPOSE changes, but they only land once the user ticks them.\n' +
+          'When the user clearly asks for a change (move, rename, delete, mark done), end ' +
+          'your reply with a JSON code block:\n' +
+          '```json\n{"reply":"your reply in words","ops":[{"op":"move|update|delete|done",' +
+          '"id":"the #id shown on each row","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","patch":{}}]}\n```\n' +
+          'Only use ids from the data above; never invent one. When unsure, reply in prose ' +
+          'and omit ops. Do not emit JSON for questions. No JSON or code outside that block.'
+        : 'You cannot edit the calendar -- point the user at the Edit tab for that.\n' +
+          'Never output JSON or code.');
     return head + body + tail + (ctx ? '\n\n' + ctx : '');
   }
 
@@ -868,6 +966,9 @@
     editPrompt: editPrompt,
     chatSystem: chatSystem,
     snapshot: snapshot,
+    opsFromReply: opsFromReply,
+    scopeFor: scopeFor,
+    wdOf: wdOf,
     shareData: function () { return cfg.shareData !== false; },
     hhmm: hhmm,
     addDays: addDays,

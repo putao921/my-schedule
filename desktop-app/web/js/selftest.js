@@ -990,6 +990,37 @@
         /* With no digest the persona must not claim any knowledge of it. */
         ok('ai.snapOff', AI.chatSystem('x', t, '').indexOf(title) < 0 &&
           /没有读取|cannot see/.test(AI.chatSystem('x', t, '')));
+
+        /* 12. Cropping: a question about today must not pay for a fortnight,
+               and a question about tasks has no use for the week ahead. */
+        ok('ai.scopeToday', AI.scopeFor('今天有什么安排').days === 1,
+          String(AI.scopeFor('今天有什么安排').days));
+        var scT = AI.scopeFor('我的待办有哪些');
+        ok('ai.scopeTasks', scT.soon === false && scT.series === false && scT.tasks === true,
+          'soon=' + scT.soon + ' series=' + scT.series);
+        ok('ai.scopeKeys', AI.scopeFor('这周法理学有几次课').keys.indexOf('法理学') >= 0,
+          JSON.stringify(AI.scopeFor('这周法理学有几次课').keys.slice(0, 4)));
+
+        /* 13. A proposed edit from chat: parsed, validated against the ids the
+               digest showed, and never applied on its own. */
+        var keep = Store.newEvent({ date: t, start: 11 * 60, end: 12 * 60,
+          title: 'SELFTEST ops probe', tag: 'work' });
+        var kid = String(keep.id).split('@')[0];
+        var ids = AI.contextIds(AI.contextEvents(30));
+        var good = AI.opsFromReply('好的\n```json\n{"reply":"挪好了","ops":[{"op":"move","id":"' +
+          kid + '","date":"' + t + '","start":"13:00","end":"14:00"}]}\n```', ids);
+        ok('ai.chatOps', !!good && good.items.length === 1 && good.reply === '挪好了',
+          good ? good.items.length + '/' + good.reply : 'null');
+        var ghost = AI.opsFromReply('```json\n{"ops":[{"op":"move","id":"made-up-id","date":"' +
+          t + '","start":"13:00","end":"14:00"}]}\n```', ids);
+        ok('ai.chatOpsGuarded', ghost === null);
+        ok('ai.chatPlain', AI.opsFromReply('你今天下午有法理学。', ids) === null);
+        Store.removeEvent(keep.id);
+
+        /* 14. Opening the chat seeds a local brief of the day (no request). */
+        var msgs = window.AIUI ? AIUI.state.msgs : [];
+        ok('ai.briefSeeded', !!msgs.length && msgs[0].text.indexOf(t) >= 0,
+          msgs.length ? msgs[0].text.slice(0, 40) : 'empty');
       })();
     });
   }

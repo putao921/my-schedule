@@ -1413,6 +1413,10 @@ body, .card, .field, label, input, select, textarea, button {
 
 /* --------------------------------------------------------- chat bubbles -- */
 .ai-chat-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+/* The brief's "give me your take" button: an invitation, not a form control,
+   so it sits under the bubble rather than in the footer row. */
+.ai-brief-ask { margin-top: 6px; }
+.ai-brief-ask .mini-btn { font-size: 12px; }
 .ai-chat {
   max-height: 42vh;
   min-height: 120px;
